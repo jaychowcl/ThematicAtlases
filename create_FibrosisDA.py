@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 logger_format = (
     "%(asctime)s | %(name)s | %(levelname)s | "
-    "%(filename)s:%(lineno)d | %(message)s"
+    "%(filename)s:%(lineno)d | %(module)s:%(funcName)s | %(message)s"
 )
 logging.basicConfig(
     level = logging.DEBUG,
@@ -32,8 +32,8 @@ logger.info("[create_FibrosisDA.py] Start!")
 thematic_atlas = ThematicAtlases.ThematicAtlases()
 
 #get synonyms from OLS
-import pandas as pd
-thematic_atlas.get_synonyms(infile = pd.DataFrame())
+import pandas as pd #remove for prod
+thematic_atlas.get_synonyms(infile = "config/search_terms.tsv")
 
 
 #end
