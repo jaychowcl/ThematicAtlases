@@ -1,3 +1,3 @@
-search_term_id	search_scope	search_term	synonym_search	search_term_source	search_term_in_filter_scope	search_term_regex_expression
+search_term_id	search_scope	search_term	search_synonym_search	search_term_source	search_term_in_filter_scope	search_term_regex_expression
 1	europepmc	fibrosis	ols	user		
-2	europepmc	fibrotic	ols	user	singlecell_heart	
+2	europepmc	heart failure	ols	user	europepmc_1	

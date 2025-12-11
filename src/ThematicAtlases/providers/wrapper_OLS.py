@@ -1,9 +1,5 @@
 '''
-wrappers/wrapper_OLS.py
-
-Wrapper module for Ontology Lookup Service API
-
-
+Docstring for ThematicAtlases.providers.wrapper_OLS
 '''
 from typing import List
 import requests
@@ -29,24 +25,37 @@ class Wrapper_OLS:
             List of synonyms
 
         Do:
-            Use search_term to search OLS API for synonyms
+            Use search_term to search OLS API for synonyms. 
+            Synonyms are 
         
         Defense:
         '''
 
         logger.debug(f"Wrapper_OLS.search_for_synonyms(): Contacting OLS API for synonym search for term: {search_term}")
         
-        #OLS api
+        #OLS api to search and return json
         api = "https://www.ebi.ac.uk/ols4/api/search"
         payload = {
             "q": search_term,
-            "fieldList" : "iri,label,short_form,obo_id,ontology_name,ontology_prefix,description,type",#fields being returned
+            "fieldList" : "iri,label,obo_id",#fields being returned
             "queryFields" : "label, synonym, description, short_form, obo_id, annotations, logical_description, iri", #fields to query for search
             "exact" : "true",
-            "rows" : "10"
+            "rows" : "50"
         }
         r = requests.get(api, params=payload)
-        print(r.url)
+        ols_json = r.json()
+
+        #Extract synonyms from ols json
+        synonyms = []
+        for entry in ols_json["response"]["docs"]:
+            synonyms = entry
+
+    
+
+
+        #TODO: expand synonym search to include child nodes?
 
 
         #end
+
+        return synonyms
