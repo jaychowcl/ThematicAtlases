@@ -1,246 +1,107 @@
-"""
-ThematicAtlas.py
+'''
+Docstring for ThematicAtlases.ThematicAtlas
 
-A python package that enables:
-1. Term synonym search
-2. EuropePMC publication search
-3. Text mine publications for ENA accessions
-4. Collection of metadata from the ENA metadata objects
-5. Keyword search for fibrosis filters
-6. Metadata harmonization
-7. Export to .tsv file
+This module contains the ThematicAtlas class, which is used to create and manage thematic atlases for organizing transcriptomic data based on specific themes or topics.
 
+ThematicAtlas()
 
-Dependency graph:
-
-
-"""
-
+    
+'''
 import pandas as pd
-import logging
-from .providers import synonym_provider
+import requests
+from validators import validate_search_terms_df
 
-logger = logging.getLogger(__name__)
-
-
-class ThematicAtlas:
-    """
-    Main class for building thematic atlases
-    """
-
+class ThematicAtlas():
     def __init__(self):
         self.search_terms = None
-        self.filter_terms = None
+        self.accessions = None
+
         pass
 
-    def import_search_terms(self, file: str) -> pd.DataFrame:
-        """
-        Method for importing search terms from .tsv file.
+    def import_search_terms(self, filepath: str, df: pd.DataFrame) -> pd.DataFrame:
+        '''
+        Docstring for import_search_terms
+        Imports search terms used for publication search
+        
+        :param self: ThematicAtlas()
+        :param filepath: filepath of .tsv of search terms
+        :param df: pd.DataFrame of search terms 
 
-        Input:
-            file path
+        :step 1: Check if only one of filepath or df is provided
+        :step 2: Validate format and contents of search terms data
+        :step 3: Store search terms in self.search_terms
+        :return: Return self.search_terms
+        '''
+        #check if only one of filepath or df is provided
+        if (filepath is None) == (df is None):
+            raise ValueError("Exactly one of 'filepath' or 'df' must be provided.")
 
-        Returns:
-            pd.DataFrame of search terms.tsv
-            and
-            pd.DataFrame in self.search_terms
+        #import search_terms
+        ##read from filepath
+        if filepath is not None:
+            try:
+                search_terms_df = pd.read_csv(filepath, sep="\t")
+            except Exception as e:
+                raise ValueError(f"Error reading search terms from {filepath}: {e}")
+        ##read from df
+        if df is not None:
+            search_terms_df = df
 
-        Defense:
-            Check search terms.tsv has columns:
-                "search_term_id",
-                "search_scope",
-                "search_term",
-                "search_synonym_search",
-                "search_term_source",
-                "search_term_in_filter_scope",
-                "search_term_regex_expression",
-            Check columns not empty: # TODO
-                search_term
-                search_term_source
+        #validate format and contents using validators.validate_search_terms_df
 
+        validate_search_terms_df(search_terms_df)
 
-        """
-        logger.debug("ThematicAtlas.import_search_terms(): Start")
+        pass
 
-        # import to pd.DataFrame
-        search_terms = pd.read_csv(file, sep="\t")
+    def search_and_get_accessions(self, filepath, df):
+        '''
+        Docstring for search_publications
+        
+        :param self: ThematicAtlas()
 
-        # Defense: check columns
-        expected_cols = [
-            "search_term_id",
-            "search_scope",
-            "search_term",
-            "search_synonym_search",
-            "search_term_source",
-            "search_term_in_filter_scope",
-            "search_term_regex_expression",
-        ]
-        for col in expected_cols:
-            if col not in search_terms.columns:
-                error_message = f"ThematicAtlas.import_search_terms(): ValueError: search_terms.tsv missing expected column: {col}"
-                logger.critical(error_message)
-                raise ValueError(error_message)
+        :step 1: Use ThematicAtlas.import_search_terms to load search terms if given. Skip if filepath or df is None
+        :step 2: Build queries 
+        :step 3: Use ThematicAtlases.wrappers to use queries to search EuropePMC api to get publications and publication metadata
+            - Search for publication id, and metadata
+                - https://www.ebi.ac.uk/europepmc/webservices/rest/search? 
+                - Iterate through all pages of search using <nextPageUrl>
+        :step 3a: Store publication ids and metadata into self.publications a dictionary of {publication_id: [metadata}
+        :step 4: Use ThematicAtlases.wrappers to use publication ids to search EuropePMC to get any relevant ENA accessions in datalinks
+            - Search publication ids for relevant datalinks
+                - https://www.ebi.ac.uk/europepmc/webservices/rest/{source}}/{id}}/datalinks
+        :step 5: Use ThematicAtlases.wrappers to use publications ids to search EuropePMC to get full text XMls and text mine ENA accessions.
+            - Use publication ids to get full text XMls 
+            - pass it text miner to get text mined ENA accessions
+                - https://www.ebi.ac.uk/europepmc/webservices/rest/PMC3257301/fullTextXML
+        :step 6: Store accessions from publications into self.accessions, a dictionary of {accession: publication_id}
+        :return: return self.accessions
 
-        self.search_terms = search_terms
-        return search_terms
+        '''
 
-    def import_filter_groups(self, file: str) -> pd.DataFrame:
-        """
-        Method for importing filter terms from .tsv file.
-
-        Input:
-            file path
-
-        Returns:
-            pd.DataFrame of filter terms.tsv
-
-        Defense:
-            Check filter terms.tsv has columns:
-                "filter_term_id",
-                "filter_scope_group",
-                "filter_scope",
-                "filter_group",
-                "filter_term",
-                "filter_synonym_search",
-                "filter_term_source",
-                "filter_term_subgroup",
-            Check columns not empty: # TODO
-                filter_term
-                filter_scope_group
-                filter_term_source
-
-        """
-        logger.debug("ThematicAtlas.import_filter_groups(): Start")
-
-        # import to pd.DataFrame
-        filter_terms = pd.read_csv(file, sep="\t")
-        # Defense: check columns
-        expected_cols = [
-            "filter_term_id",
-            "filter_scope_group",
-            "filter_scope",
-            "filter_group",
-            "filter_term",
-            "filter_synonym_search",
-            "filter_term_source",
-            "filter_term_subgroup",
-        ]
-        for col in expected_cols:
-            if col not in filter_terms.columns:
-                error_message = f"ThematicAtlas.import_filter_groups(): ValueError: filter_terms.tsv missing expected column: {col}"
-                logger.critical(error_message)
-                raise ValueError(error_message)
-
-        self.filter_terms = filter_terms
-
-        return filter_terms
-    
-
-    def get_synonyms(
-        self, df: pd.DataFrame = None, infile: str = None, outfile: str = None
-    ) -> pd.DataFrame:
-        """
-        Method for gathering synonyms of input terms from the Ontology Lookup Service
-
-        Input:
-            pd.DataFrame of terms. Must include: search_term or filter term
-            or
-            .tsv of terms.
-
-        Returns:
-            pd.DataFrame of terms with appended synonyms.
-            and if outfile specified:
-            .tsv file of terms with appended synonyms.
-
-        Do:
-            Take .tsv and convert to pd.Dataframe.
-            Determine if it is search terms or filter terms based on presence of search_term or filter_term column
-            for each row, take the term and search OLS for synonyms using Wrapper_OLS
-            copy original df columns to new rows for each synonym found.
-
-            if search terms:
-                change synonym search to empty
-                search term source to "OLS_synonym"
-            if filter terms:
-                change synonym search to empty
-                filter term source to "OLS_synonym"
-
-            Append all new rows to original df
-            Return pd.DataFrame
-
-        Defense:
-            Check only df or infile, not none or both
-            Check if df contains search_term
-            Give a warning if other expected columns not there.
-
-        """
-        logger.debug("ThematicAtlas.get_synonyms(): Start")
-
-        # Defense: both infile and df are None or all not Null
-        if (df is None) == (infile is None):
-            error_message = "ValueError: Only 1 pd.DataFrame or infile can be provided to ThematicAtlas.get_synonyms()"
-            logger.critical(error_message)
-            raise ValueError(error_message)
-
-        # If infile .tsv provided, read and change to pd.DataFrame
-        if infile is not None:
-            logging.debug("ThematicAtlas.get_synonyms(): Reading .tsv infile")
-            df = pd.read_csv(infile, sep="\t")
+        #load search terms if given
+        if filepath is not None or df is not None:
+            self.import_search_terms(filepath=filepath, df=df)
+        
+        #use search terms to build queries
 
 
-        # Determine if search terms or filter terms
-        if "search_term" in df.columns:
-            term_type = "search_term"
-        elif "filter_term" in df.columns:
-            term_type = "filter_term"
-        else:# Defense: neither search_term or filter_term in columns
-            error_message = "ValueError: ThematicAtlas.get_synonyms(): Input terms must have either search_term or filter_term column!"
-            logger.critical(error_message)
-            raise ValueError(error_message)
-    
-        # Iterate through rows and get synonyms from OLS using Wrapper_OLS
-        logger.debug("ThematicAtlas.get_synonyms(): Searching OLS for synonyms")
-        all_synonyms = []
-        for index, row in df.iterrows():
-            synonyms = synonym_provider.SynonymProvider().search_for_synonyms(search_term=row[term_type]) #TODO: make it possible to use other wrappers and expand term source
-
-            # Append to df
-            #for synonym, source in synonyms:
-                # new_row = row.copy()
-                # new_row[term_type] = synonym
-
-                # # Adjust synonym search and source columns
-                # if term_type == "search_term":
-                #     new_row["synonym_search"] = ""
-                #     new_row["search_term_source"] = "OLS_synonym"
-                # else:
-                #     new_row["filter_synonym_search"] = ""
-                #     new_row["filter_term_source"] = "OLS_synonym"
-                # all_synonyms.append(new_row)
 
 
-        # # Defense: Check df has column: search_term.
-        # if "search_term" not in df.columns:
-        #     error_message = "ValueError: ThematicAtlas.get_synonyms(): Input search terms does not have search_term column!"
-        #     logger.critical(error_message)
-        #     raise ValueError(error_message)
-        # # Defense: Give warning if columns missing: search_scope, synonym_search, search_term_source
-        # check_cols = ["search_scope", "synonym_search", "search_term_source"]
-        # for col in check_cols:
-        #     if col not in df.columns:
-        #         logger.warning(
-        #             f"ThematicAtlas.get_synonyms(): Column not in search_terms.tsv: {col}"
-        #         )
+        pass
 
-        # Iterate through each search_term in df, search through OLS and collect synonyms. Append relevant columns to synonyms
-        logger.debug("ThematicAtlas.get_synonyms(): Searching OLS for synonyms")
-        all_synonyms = []
-        for index, row in df.iterrows():
-            synonyms = Wrapper_OLS().search_for_synonyms(search_term=row["search_term"])
+    def get_metadata_for_accessions(self):
+        '''
+        Docstring for get_metadata_for_accessions
+        
+        :param self: ThematicAtlas()
 
-        # Append to df
+        :step 1: For each accession in self.accessions, use ThematicAtlases.wrappers to get ENA metadata object
+            - https://www.ebi.ac.uk/ena/browser/api/xml/{accession}
+        :step 2: Store metadata objects into self.metadata, a dictionary of {accession: metadata_object}
+        :return: return self.metadata
 
-        # Return pd.DataFrame
+        '''
 
-        # and export to .tsv if outfile provided
+
+
         pass

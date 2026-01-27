@@ -1,46 +1,16 @@
 '''
-create_FibrosisDA.py
+Docstring for create_FibrosisDA
 
-Script that uses ThematicAtlases to create a curated fibrosis disease atlas
+Script for using ThematicAtlases to create FibrosisDA, a thematic organisation of fibrosis related transcriptomic data.
 
 
-Workflow:
-config) logger
-
-1) Expand search terms to create synonyms
+ - Initiate ThematicAtlas class and import search terms for publication search
 
 '''
+
+
 from ThematicAtlases import ThematicAtlas
-import logging
 
-### logger ###
-logger = logging.getLogger(__name__)
-logger_format = (
-    "%(asctime)s | %(name)s | %(levelname)s | "
-    "%(filename)s:%(lineno)d | %(module)s:%(funcName)s | %(message)s"
-)
-logging.basicConfig(
-    level = logging.DEBUG,
-    format = logger_format,
-    filename = ".logs/FibrosisDA.log",
-    filemode = "a"
-)
-
-
-### Workflow ###
-logger.info("[create_FibrosisDA.py] Start!")
 thematic_atlas = ThematicAtlas.ThematicAtlas()
+thematic_atlas.import_search_terms(filepath="config/search_terms.tsv")
 
-# Import config terms
-## search_terms.tsv
-thematic_atlas.import_search_terms(file = "config/search_terms.tsv")
-## filter_groups.tsv
-thematic_atlas.import_filter_groups(file = "config/filter_groups.tsv")
-
-
-#get synonyms from OLS
-thematic_atlas.get_synonyms(infile = "config/search_terms.tsv")
-
-
-#end
-logger.info("[create_FibrosisDA.py] End!")

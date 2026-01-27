@@ -17,6 +17,8 @@ class Wrapper_OLS:
     def search_for_synonyms(self, search_term:str) -> List:
         '''
         Method for searching for synonyms for a search term
+        Currently only takes exact matches
+        # TODO: expand to include layer below? ie. child nodes?
 
         Input:
             string of single search_term
@@ -40,18 +42,21 @@ class Wrapper_OLS:
             "fieldList" : "iri,label,obo_id",#fields being returned
             "queryFields" : "label, synonym, description, short_form, obo_id, annotations, logical_description, iri", #fields to query for search
             "exact" : "true",
-            "rows" : "50"
+            "rows" : "5000"
         }
         r = requests.get(api, params=payload)
         ols_json = r.json()
-
-        #Extract synonyms from ols json
-        synonyms = []
-        for entry in ols_json["response"]["docs"]:
-            synonyms = entry
-
     
 
+        #Extract synonyms from ols json:
+        ## {response: {docs: [{label}]}}
+        ## {response: {docs: [{obo_id}]}}
+        synonyms = []
+        for entry in ols_json["response"]["docs"]:
+            synonyms.append(entry["label"])
+            synonyms.append(entry["obo_id"])
+        
+        synonyms = list(set(synonyms))
 
         #TODO: expand synonym search to include child nodes?
 
