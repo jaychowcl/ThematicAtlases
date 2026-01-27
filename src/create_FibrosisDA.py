@@ -4,13 +4,23 @@ Docstring for create_FibrosisDA
 Script for using ThematicAtlases to create FibrosisDA, a thematic organisation of fibrosis related transcriptomic data.
 
 
- - Initiate ThematicAtlas class and import search terms for publication search
+ - Initiate ThematicAtlas class 
+ - Import queries for publication search from config/queries.tsv
+ - Search EuropePMC for publications and publication metadata using queries
+
 
 '''
 
 
 from ThematicAtlases import ThematicAtlas
 
+# Initiate ThematicAtlas class
 thematic_atlas = ThematicAtlas.ThematicAtlas()
-thematic_atlas.import_search_terms(filepath="config/search_terms.tsv")
+
+# Import queries for publication search from config/queries.tsv
+thematic_atlas.import_queries(filepath="config/queries.txt")
+
+# Search EuropePMC for publications and publication metadata using queries 
+thematic_atlas.search_for_publications()
+
 
