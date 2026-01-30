@@ -44,7 +44,7 @@ class ThematicAtlas:
 
     def import_queries(self, filepath: str = None, query_list: list = None) -> pd.DataFrame:
         """
-        Docstring for import_search_terms
+        Docstring for import_queries
         Imports search terms used for publication search. Please provide one of filepath or df.
 
         :param self: ThematicAtlas()
@@ -54,10 +54,12 @@ class ThematicAtlas:
         :step 1: Check if only one of filepath or df is provided
         :step 2: Import queries from filepath or df
         :step 3: Queries are put into lists with each element being a query
+        :step 3a: Elements in list starting wtih # will be ignored
         :step 4: Store queries in self.queries
 
         :return: Return self.queries
         """
+        logger.info("Importing queries for publication search.")
         # check if only one of filepath or df is provided
         if (filepath is None) == (query_list is None):
             raise ValueError("Exactly one of 'filepath' or 'df' must be provided.")
@@ -71,6 +73,9 @@ class ThematicAtlas:
                 raise ValueError(f"Error reading search terms from {filepath}: {e}")
         if query_list is not None: ##read from df
             queries = query_list
+        
+        #process queries to ignore lines starting with 
+        queries = [query for query in queries if not query.strip().startswith("#")]
 
         #store queries into self.queries
         self.queries = queries
@@ -102,23 +107,26 @@ class ThematicAtlas:
         :return: return self.accessions
 
         """
-
+        logger.info("Searching for publications, publication metdata and datalinks using EuropePMC APIs.")
         # load search terms if given
         if filepath is not None or query_list is not None:
             self.import_queries(filepath=filepath, query_list = query_list)
-
         
         epmc_wrapper = Wrappers()
         # search for pubs via search api
-        publications = epmc_wrapper.epmc_search_api(queries=self.queries)
-        # gather datalinks for each publication
+        logger.debug("Gathering publications from queries via EuropePMC Datalinks API")
+        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=1, page_size=100)
+        # gather datalinks and their accessions for each publication
+        logger.debug("Gathering datalinks from publications via EuropePMC Datalinks API.")
         datalinks = epmc_wrapper.epmc_datalinks_api(publications=publications)
-
-
-
+        # gather full text XMLs and text mine accessions for each publication
+        logger.debug("Gathering full text XMLs and text mining accessions via EuropePMC FullTextXML API.")
+        full_text_xmls = epmc_wrapper.epmc_textmine_publications(publications=publications)
         # datalinks
 
         # full text XML
+
+        # store in self.datalinks
 
         # return self.publications
         pass
