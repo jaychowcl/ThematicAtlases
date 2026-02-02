@@ -115,7 +115,7 @@ class ThematicAtlas:
         epmc_wrapper = Wrappers()
         # search for pubs via search api
         logger.debug("Gathering publications from queries via EuropePMC Datalinks API")
-        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=1, page_size=100)
+        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=1, page_size=250)
         # gather datalinks and their accessions for each publication
         logger.debug("Gathering datalinks from publications via EuropePMC Datalinks API.")
         datalinks = epmc_wrapper.epmc_datalinks_api(publications=publications)

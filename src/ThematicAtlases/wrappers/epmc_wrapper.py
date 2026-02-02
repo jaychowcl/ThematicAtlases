@@ -35,6 +35,8 @@ class EPMCWrapper:
         :return: DataFrame of publication ids and metadata
         """
         logger.debug("Searching for publications via EuropePMC Search API.")
+        #TODO : validate queries is list of strings and valid queries
+
         # set up api
         api = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?"
 
@@ -97,7 +99,7 @@ class EPMCWrapper:
                     publication_data["abstractText"] = hit.get("abstractText", "")
                     publication_data["affiliation"] = hit.get("affiliation", "")
                     full_text_urls = []
-                    if "fullTextUrlList" in hit:  # TODO:
+                    if "fullTextUrlList" in hit:  #
                         for url in hit["fullTextUrlList"]["fullTextUrl"]:
                             full_text_urls.append(url["url"])
                     publication_data["fullTextUrls"] = full_text_urls
@@ -108,8 +110,14 @@ class EPMCWrapper:
                     publications.loc[len(publications)] = publication_data
         #enforce dtypes in publications pd.DataFrame TODO:
 
-        #detect and remove duplicates TODO:
-
+        #detect and remove duplicates TODO: remove duplicates after checking columns all same. if not, throw out warning and raise valueerror OR warning
+        ##for now, raise valueerror if duplicates found
+        #check no duplicate rows
+        if publications.drop(columns = ["fullTextUrls"]).duplicated().any():
+            raise ValueError("Duplicate publications found in publications DataFrame.")
+        #check no duplicate epmc_ids
+        if publications["epmc_id"].duplicated().any():
+            raise ValueError("Duplicate epmc_ids found in publications DataFrame.") 
 
         return publications
 
@@ -146,18 +154,19 @@ class EPMCWrapper:
         datalinks = pd.DataFrame(columns=required_metadata_fields)
 
         # iterate through each publication
-        datalink_data = {} # dict to store datalink data 
         for epmc_id, source in publications[['epmc_id', 'source']].itertuples(index=False):  
             
             # set up and call api
             api = f"https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks"
+                
             params = {
-                "format": "json",
+                "format": "json"
             }
             response = requests.get(api, params=params)
-            categories = response.json().get("dataLinkList", {}).get("Category", {})
+            categories = response.json().get("dataLinkList", {}).get("Category", {}) # TODO: asyncio so api calls are faster
 
             #store epmc and source
+            datalink_data = {} # dict to store datalink data 
             datalink_data["epmc_id"] = epmc_id
             datalink_data["source"] = source
 
@@ -166,8 +175,11 @@ class EPMCWrapper:
                 
                 #store category name, check if category wanted
                 datalink_data["datalink_Category"] = category.get("Name", "")
-                desired_categories = ["ENA", "ArrayExpress", "BioSample", "SRA"]  #TODO: make so only goes into desired caategories. perhaps restrict in params when doing requests and loop over each datalink category?
-
+                #filter by desired categories
+                desired_categories = ["GEO", "BioProject", "BioStudies", "Nucleotide Sequences", "BioStudies: supplemental material and supporting data", "Functional Genomics Experiments"]
+                if datalink_data["datalink_Category"] not in desired_categories:
+                    continue
+                
                 # extract datalink accessions
                 for section in category.get("Section", []):
                     for link in section.get("Linklist", []).get("Link", []):
@@ -184,11 +196,15 @@ class EPMCWrapper:
 
         #enforce dtypes in publications pd.DataFrame TODO:
 
-        #detect and remove duplicates TODO:
-
+        #detect duplicates and maybe flag duplicates for checking for "related publications"? maybe instead move this to downstream during metadata scraping TODO:
         return datalinks
     
+    def epmc_database_links_api(self, publications: pd.DataFrame) -> pd.DataFrame:
+
+        pass
+    
     def epmc_textmine_publications(self, publications: pd.DataFrame) -> pd.DataFrame:
+
         pass
 
 

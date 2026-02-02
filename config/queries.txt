@@ -1,2 +1,2 @@
-whale AND mice AND gene AND receptor
-#(fibrosis OR fibrotic) AND (human OR homo sapiens) AND gene
+#whale AND mice AND gene AND receptor
+(fibrosis OR fibrotic) AND (human OR homo sapiens) AND gene
