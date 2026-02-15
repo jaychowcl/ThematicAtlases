@@ -12,6 +12,8 @@ import pandas as pd
 
 from .wrappers.wrappers import Wrappers
 
+from typing import List
+
 
 ### logger ###
 import logging
@@ -37,8 +39,8 @@ logging.basicConfig(
 class ThematicAtlas:
     def __init__(self):
         self.queries = None
-        self.accessions = None
         self.publications = None
+        self.datalinks = None
 
         pass
 
@@ -84,7 +86,7 @@ class ThematicAtlas:
         return self.queries
 
 
-    def search_for_publications(self, filepath:str = None, query_list: list = None) -> pd.DataFrame:
+    def search_for_publications(self, filepath:str = None, query_list: list = None) -> List[pd.DataFrame]:
         """
         Docstring for search_publications
 
@@ -104,10 +106,11 @@ class ThematicAtlas:
             - pass it text miner to get text mined ENA accessions
                 - https://www.ebi.ac.uk/europepmc/webservices/rest/PMC3257301/fullTextXML
         :step 6: Store accessions from publications into self.accessions, a dictionary of {accession: publication_id}
-        :return: return self.accessions
+        :return: return publications pd.DataFrame, datalinks pd.DataFrame
 
         """
         logger.info("Searching for publications, publication metdata and datalinks using EuropePMC APIs.")
+
         # load search terms if given
         if filepath is not None or query_list is not None:
             self.import_queries(filepath=filepath, query_list = query_list)
@@ -115,33 +118,50 @@ class ThematicAtlas:
         epmc_wrapper = Wrappers()
         # search for pubs via search api
         logger.debug("Gathering publications from queries via EuropePMC Datalinks API")
-        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=1, page_size=250)
+        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=1, page_size=500)
+
         # gather datalinks and their accessions for each publication
-        logger.debug("Gathering datalinks from publications via EuropePMC Datalinks API.")
+        logger.debug("Gathering datalinks from publications via EuropePMC Datalinks API.")        
         datalinks = epmc_wrapper.epmc_datalinks_api(publications=publications)
-        # gather full text XMLs and text mine accessions for each publication
-        logger.debug("Gathering full text XMLs and text mining accessions via EuropePMC FullTextXML API.")
-        full_text_xmls = epmc_wrapper.epmc_textmine_publications(publications=publications)
-        # datalinks
 
-        # full text XML
+        # # gather full text XMLs and text mine accessions for each publication
+        # logger.debug("Gathering full text XMLs and text mining accessions via EuropePMC FullTextXML API.")
+        # full_text_xmls = epmc_wrapper.epmc_textmine_publications(publications=publications)
 
-        # store in self.datalinks
+        # databaselinks?
 
         # return self.publications
-        pass
+        self.publications = publications
+        self.datalinks = datalinks
+        return publications, datalinks
 
-    def get_metadata_for_accessions(self):
+    def get_datalink_metadata(self, datalinks: pd.DataFrame = None) -> pd.DataFrame:
         """
-        Docstring for get_metadata_for_accessions
+        Docstring for get_datalink_metadata
 
         :param self: ThematicAtlas()
+        :param datalinks: pd.DataFrame of datalinks. If None, use self.datalinks
 
         :step 1: For each accession in self.accessions, use ThematicAtlases.wrappers to get ENA metadata object
             - https://www.ebi.ac.uk/ena/browser/api/xml/{accession}
-        :step 2: Store metadata objects into self.metadata, a dictionary of {accession: metadata_object}
+        :step 2: Store metadata objects into self.metadata, a pd.DataFrame of metadata
         :return: return self.metadata
 
         """
+
+        logger.info("Getting datalink metadata from ENA API.")
+
+        # use self.datalinks if datalinks is None
+        if datalinks is None:
+            datalinks = self.datalinks
+        
+        # separate each datalink by IDScheme
+        datalinks_by_scheme = {}
+        for scheme in datalinks["datalink_IDScheme"].unique():
+            datalinks_by_scheme[scheme] = datalinks[datalinks["datalink_IDScheme"] == scheme]
+        
+        # iterate through each IDScheme and get metadata
+        ##ENA
+        
 
         pass

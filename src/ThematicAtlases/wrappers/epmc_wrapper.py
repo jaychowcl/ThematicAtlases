@@ -72,7 +72,7 @@ class EPMCWrapper:
             # iterate through each page and extract hits
             nextCursorMark = "*"
             page = 0
-            while nextCursorMark is not None and page <= page_limit:
+            while nextCursorMark is not None and page < page_limit:
                 params["cursorMark"] = nextCursorMark
                 response = requests.get(api, params=params)
                 hits = response.json().get("resultList", {}).get("result", [])
@@ -128,7 +128,7 @@ class EPMCWrapper:
         https://www.ebi.ac.uk/europepmc/webservices/rest/{source}}/{id}}/datalinks
 
         :param self: EPMCWrapper()
-        :param publications: pd.DataFrame of publications. Exects columns: ['epmc_id', 'source', 'pmid', 'pmcid', 'doi', 'title', 'authorString', 'abstractText', 'affiliation', 'fullTextUrls', 'firstPublicationDate']
+        :param publications: pd.DataFrame of publications. Expects columns: ['epmc_id', 'source', 'pmid', 'pmcid', 'doi', 'title', 'authorString', 'abstractText', 'affiliation', 'fullTextUrls', 'firstPublicationDate']
         :type publications: pd.DataFrame
 
         :return: A pd.DataFrame of accessions, their publications, id scheme and idurl
@@ -140,7 +140,7 @@ class EPMCWrapper:
         """
         logger.debug("Gathering datalinks for publications via EuropePMC Datalinks API.")
 
-        #TODO: validate pd.DataFrame has required columns and types
+        #TODO: validate pd.DataFrame has required columns (epmc_id and source)and types
         
         # initialize dataframe to store datalinks
         required_metadata_fields = [
