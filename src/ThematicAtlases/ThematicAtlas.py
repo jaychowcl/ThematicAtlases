@@ -86,7 +86,7 @@ class ThematicAtlas:
         return self.queries
 
 
-    def search_for_publications(self, filepath:str = None, query_list: list = None) -> List[pd.DataFrame]:
+    def search_for_publications(self, filepath:str = None, query_list: list = None, outfile = None) -> List[pd.DataFrame]:
         """
         Docstring for search_publications
 
@@ -118,7 +118,7 @@ class ThematicAtlas:
         epmc_wrapper = Wrappers()
         # search for pubs via search api
         logger.debug("Gathering publications from queries via EuropePMC Datalinks API")
-        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=1, page_size=500)
+        publications = epmc_wrapper.epmc_search_api(queries=self.queries, page_limit=100, page_size=1000)
 
         # gather datalinks and their accessions for each publication
         logger.debug("Gathering datalinks from publications via EuropePMC Datalinks API.")        
@@ -133,6 +133,15 @@ class ThematicAtlas:
         # return self.publications
         self.publications = publications
         self.datalinks = datalinks
+
+        #write publications and datalinks to outfile if given
+        if outfile is not None:
+            try:
+                publications.to_csv(outfile+"_publications.csv", index=False)
+                datalinks.to_csv(outfile+"_datalinks.csv", index=False)
+            except Exception as e:
+                logger.error(f"Error writing publications and datalinks to {outfile}: {e}")
+
         return publications, datalinks
 
     def get_datalink_metadata(self, datalinks: pd.DataFrame = None) -> pd.DataFrame:
@@ -161,7 +170,16 @@ class ThematicAtlas:
             datalinks_by_scheme[scheme] = datalinks[datalinks["datalink_IDScheme"] == scheme]
         
         # iterate through each IDScheme and get metadata
-        ##ENA
+        ##expected IDSchemes: [GEO, ENA, BioPRoject, ArrayEXpress, URL]
+        ##GEO
+        geo_wrapper = Wrappers()
+
+
+
+
+
+
+
         
 
         pass

@@ -21,7 +21,7 @@ thematic_atlas = ThematicAtlas.ThematicAtlas()
 thematic_atlas.import_queries(filepath="config/queries.txt")
 
 # Search EuropePMC for publications, publication metadata and datalinks using queries 
-thematic_atlas.search_for_publications()
+thematic_atlas.search_for_publications(outfile="results")
 
 # Use datalink accessions to get metadata for each datalink
 thematic_atlas.get_datalink_metadata()

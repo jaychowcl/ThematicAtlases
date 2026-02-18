@@ -5,7 +5,8 @@ Module for parent level wrappers to interact with external APIs for ThematicAtla
 '''
 
 from ThematicAtlases.wrappers.epmc_wrapper import EPMCWrapper
+from ThematicAtlases.wrappers.geo_wrapper import GEOWrapper
 
-class Wrappers(EPMCWrapper):
+class Wrappers(EPMCWrapper, GEOWrapper):
     def __init__(self):
-        pass
+        super().__init__()

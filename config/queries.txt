@@ -1,2 +1,16 @@
 #whale AND mice AND gene AND receptor
-(fibrosis OR fibrotic) AND (human OR homo sapiens) AND gene
+#(fibrosis OR fibrotic) AND (human OR homo sapiens) AND gene AND (sequencing OR transcriptomics OR RNA-seq) AND (biopsy OR "clinical samples" OR "patient samples") AND ("case-control study" OR "case control" OR "matched case-control" OR "healthy controls") NOT (mice OR musculus) 
+#(fibrosis OR fibrotic) AND (human OR homo sapiens) AND gene AND (sequencing OR transcriptomics OR RNA-seq) AND (biopsy OR "clinical samples" OR "patient samples") NOT (mice or musculus) 
+#(fibrosis OR fibrotic) AND (human OR homo sapiens) AND gene AND (sequencing OR transcriptomics OR RNA-seq) NOT (mice or musculus) 
+#(fibrosis OR fibrotic) AND (FIB-4 OR NFS OR ELF OR Elastography) AND (human OR homo sapiens) AND gene AND (sequencing OR transcriptomics OR RNA-seq) AND (biopsy OR "clinical samples" OR "patient samples") AND ("case-control study" OR "case control" OR "matched case-control") NOT (mice or musculus) 
+(fibrosis OR fibrotic) AND (human OR homo sapiens) AND (sequencing OR transcriptomics OR RNA-seq) AND (biopsy OR "clinical samples" OR "patient samples") AND ("case-control study" OR "case control" OR "matched case-control" OR "healthy controls") NOT (mice OR musculus) AND ("fibrotic tissue" OR "fibrotic samples" OR "fibrosis-positive" OR "fibrosis positive" OR "biopsy-proven fibrosis" OR "biopsy proven fibrosis" OR "histologically confirmed fibrosis" OR "fibrosis confirmed" OR "fibrosis stage" OR "fibrosis staging" OR "fibrosis score" OR "fibrosis grading" OR "collagen deposition" OR "extracellular matrix accumulation" OR "Masson trichrome" OR "Sirius Red" OR "Picrosirius Red" OR "hydroxyproline content" OR "α-SMA" OR "alpha smooth muscle actin")
+
+
+
+
+
+
+
+
+
+

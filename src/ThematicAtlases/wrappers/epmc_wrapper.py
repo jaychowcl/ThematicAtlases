@@ -9,10 +9,13 @@ See https://europepmc.org/RestfulWebService#!/Europe32PMC32Articles32RESTful32AP
 
 import pandas as pd
 import requests
+import time
 
 ### logger ###
 import logging
 logger = logging.getLogger(__name__)
+
+
 
 class EPMCWrapper:
     def __init__(self):
@@ -142,7 +145,7 @@ class EPMCWrapper:
 
         #TODO: validate pd.DataFrame has required columns (epmc_id and source)and types
         
-        # initialize dataframe to store datalinks
+        # initialize dataframe schema for datalinks
         required_metadata_fields = [
             "epmc_id",
             "source",
@@ -151,10 +154,18 @@ class EPMCWrapper:
             "datalink_IDURL",
             "datalink_Category"
         ]
-        datalinks = pd.DataFrame(columns=required_metadata_fields)
+        datalink_rows = []
+        desired_categories = {
+            "GEO",
+            "BioProject",
+            "BioStudies",
+            "Nucleotide Sequences",
+            "BioStudies: supplemental material and supporting data",
+            "Functional Genomics Experiments",
+        }
 
         # iterate through each publication
-        for epmc_id, source in publications[['epmc_id', 'source']].itertuples(index=False):  
+        for epmc_id, source in publications[['epmc_id', 'source']].itertuples(index=False):
             
             # set up and call api
             api = f"https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks"
@@ -163,21 +174,17 @@ class EPMCWrapper:
                 "format": "json"
             }
             response = requests.get(api, params=params)
-            categories = response.json().get("dataLinkList", {}).get("Category", {}) # TODO: asyncio so api calls are faster
-
-            #store epmc and source
-            datalink_data = {} # dict to store datalink data 
-            datalink_data["epmc_id"] = epmc_id
-            datalink_data["source"] = source
+            time.sleep(0.1) # to avoid hitting rate limits
+            response_data = response.json()
+            categories = response_data.get("dataLinkList", {}).get("Category", []) # TODO: asyncio so api calls are faster
 
             #iterate through each category
             for category in categories:
                 
                 #store category name, check if category wanted
-                datalink_data["datalink_Category"] = category.get("Name", "")
+                datalink_category = category.get("Name", "")
                 #filter by desired categories
-                desired_categories = ["GEO", "BioProject", "BioStudies", "Nucleotide Sequences", "BioStudies: supplemental material and supporting data", "Functional Genomics Experiments"]
-                if datalink_data["datalink_Category"] not in desired_categories:
+                if datalink_category not in desired_categories:
                     continue
                 
                 # extract datalink accessions
@@ -187,17 +194,21 @@ class EPMCWrapper:
                         ID = identifier.get("ID", "")
                         IDScheme = identifier.get("IDScheme", "")
                         IDURL = identifier.get("IDURL", "")
-                        #store accession data
-                        datalink_data["datalink_ID"] = ID
-                        datalink_data["datalink_IDScheme"] = IDScheme
-                        datalink_data["datalink_IDURL"] = IDURL
-                        #append to datalinks pd.DataFrame
-                        datalinks.loc[len(datalinks)] = datalink_data
+                        datalink_rows.append(
+                            {
+                                "epmc_id": epmc_id,
+                                "source": source,
+                                "datalink_ID": ID,
+                                "datalink_IDScheme": IDScheme,
+                                "datalink_IDURL": IDURL,
+                                "datalink_Category": datalink_category,
+                            }
+                        )
 
         #enforce dtypes in publications pd.DataFrame TODO:
 
         #detect duplicates and maybe flag duplicates for checking for "related publications"? maybe instead move this to downstream during metadata scraping TODO:
-        return datalinks
+        return pd.DataFrame.from_records(datalink_rows, columns=required_metadata_fields)
     
     def epmc_database_links_api(self, publications: pd.DataFrame) -> pd.DataFrame:
 
@@ -206,5 +217,4 @@ class EPMCWrapper:
     def epmc_textmine_publications(self, publications: pd.DataFrame) -> pd.DataFrame:
 
         pass
-
 
