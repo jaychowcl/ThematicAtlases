@@ -1,103 +1,108 @@
 # ThematicAtlases Codebase Handoff
 
-This document describes the fresh live package skeleton at the repository root. The previous implementation is archived under `old/` and is reference-only until code is deliberately ported back into the live package.
+This document describes the current live package skeleton at the repository root. The previous implementation is archived under `oldd/` and is reference-only until code is deliberately ported into the live package.
 
-The current implemented path is intentionally small:
+The current implemented path is intentionally minimal:
 
 ```text
-import ThematicAtlases -> construct ThematicAtlas -> serialize with to_dict()
+import ThematicAtlases
 ```
+
+`src/ThematicAtlases/atlas.py` contains an `Atlas` class stub for the next development pass, but there is no implemented atlas workflow yet.
 
 <a id="project-purpose-and-layout"></a>
 ## Project Purpose And Layout
 
-`ThematicAtlases` will provide tools for building thematic atlases of biomedical datasets. The current root package is a clean foundation for future development, not a port of the archived workflow.
+`ThematicAtlases` will provide tools for building thematic atlases of biomedical datasets. The current root package is a fresh foundation, not a port of the archived workflow.
+
+Live package files:
 
 ```text
 src/ThematicAtlases/
 ├── __init__.py
-├── _version.py
-├── atlas.py
-├── clients/
-├── models/
-└── pipelines/
+└── atlas.py
 ```
 
-Supporting files:
+Root project files:
 
 ```text
 pyproject.toml
 README.md
 LICENSE
-tests/test_package.py
-docs/
-old/
+.gitignore
 ```
 
-<a id="runtime-behavior"></a>
-## Runtime Behavior
+Development docs:
 
-- The package requires Python `>=3.10`.
-- The live package currently has no runtime dependencies.
+```text
+docs/codebase.md
+docs/index.md
+docs/dev.md
+docs/memory.md
+docs/burndown.md
+```
+
+There is currently no live `tests/` directory and no live config or data directory.
+
+<a id="runtime-and-packaging"></a>
+## Runtime And Packaging
+
+- `pyproject.toml` uses `setuptools.build_meta`.
+- Project metadata names the package `ThematicAtlases`.
+- Version metadata is `0.1.0`.
+- Python requirement is `>=3.10`.
+- License metadata is `GPL-3.0-or-later`.
+- Runtime dependencies are currently empty.
+- The `dev` optional dependency group contains `pytest>=8`.
 - The package uses a `src/` layout with setuptools package discovery.
-- `old/` is not imported by live package code.
 
 <a id="public-api"></a>
 ## Public API
 
-The public import surface is:
+`src/ThematicAtlases/__init__.py` currently contains only the package docstring:
 
 ```python
-from ThematicAtlases import ThematicAtlas, __version__
+"""Public package interface for ThematicAtlases."""
 ```
 
-`ThematicAtlas` is a dataclass with:
+It does not currently export `Atlas`, `ThematicAtlas`, `__version__`, or any other symbol.
 
-- `name: str`
-- `description: str = ""`
-- `metadata: dict[str, Any]`
-
-`metadata` uses `default_factory=dict` so instances do not share mutable state.
-
-<a id="atlas-model"></a>
-### Atlas Model
-
-`ThematicAtlas.to_dict()` returns:
+The only class currently present in live package code is `Atlas` in `src/ThematicAtlases/atlas.py`. Import callers must use:
 
 ```python
-{
-    "name": self.name,
-    "description": self.description,
-    "metadata": dict(self.metadata),
-}
+from ThematicAtlases.atlas import Atlas
 ```
 
-The method returns a shallow copy of `metadata`.
+<a id="atlas-stub"></a>
+### Atlas Stub
 
-<a id="extension-points"></a>
-## Extension Points
+`class Atlas` is a placeholder for the future atlas workflow object.
 
-The package includes empty namespace packages for planned development:
+Current methods:
 
-- `clients`: future external API clients.
-- `models`: future domain and data models.
-- `pipelines`: future atlas-building workflows.
+- `__init__(metadata: dict)`: accepts metadata but does not store it yet.
+- `collect_jsons()`: placeholder, returns `None`.
+- `filter_jsons(filter_criteria: dict)`: placeholder, returns `None`.
+- `harmonize_jsons(harmonization_criteria: dict)`: placeholder, returns `None`.
 
-These packages intentionally contain no implementation yet.
+All methods currently use `pass`; there are no side effects, validation, data collection, filtering, or harmonization behaviors implemented yet.
 
-<a id="test-plan"></a>
-## Test Plan
+<a id="archive-reference"></a>
+## Archive Reference
 
-Run the smoke test suite:
+`oldd/` contains the archived previous implementation, generated outputs, old docs, and old environment artifacts. Treat it as source material to inspect and cannibalize deliberately, not as live package code.
+
+Live code should not import from `oldd/`. If behavior is restored from the archive, port it into `src/ThematicAtlases/` with tests and updated docs.
+
+<a id="test-and-verification-status"></a>
+## Test And Verification Status
+
+There are no live tests at the repository root right now.
+
+Useful checks for the current skeleton:
 
 ```bash
-python3 -m pytest
+python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py
 ```
 
-Current coverage checks:
-
-- Package imports.
-- Version export.
-- `ThematicAtlas` construction.
-- `to_dict()` output.
-- Independent default `metadata` dictionaries.
+Future behavior work should add tests near the new implementation before treating the package as stable.

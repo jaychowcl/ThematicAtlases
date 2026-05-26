@@ -1,23 +1,13 @@
-"""Core atlas model."""
 
-from __future__ import annotations
+class Atlas():
+    def __init__(self, metadata: dict):
+        pass
 
-from dataclasses import dataclass, field
-from typing import Any
+    def collect_jsons(self):
+        pass
 
+    def filter_jsons(self, filter_criteria: dict):
+        pass
 
-@dataclass(slots=True)
-class ThematicAtlas:
-    """Minimal representation of a thematic atlas."""
-
-    name: str
-    description: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return a serializable dictionary representation."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "metadata": dict(self.metadata),
-        }
+    def harmonize_jsons(self, harmonization_criteria: dict):
+        pass
