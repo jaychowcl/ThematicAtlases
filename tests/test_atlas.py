@@ -8,8 +8,8 @@ class FakeEuropePMCWrapper:
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         self.__class__.queries = queries
         return [
-            {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
-            {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
+            {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []},
+            {"datalink_id": "ERR1", "datalink_id_scheme": "ENA", "publications": []},
         ]
 
 
@@ -17,7 +17,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
 
     assert Atlas(metadata={}).collect_jsons(query=["a", "b"]) == [
-        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"}
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []}
     ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
 
@@ -46,7 +46,7 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
 
     Atlas(metadata={}).collect_jsons(query=["a"], out=str(outfile))
 
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO"\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "publications": []\n  }\n]'
 
 
 def test_filter_jsons_keeps_geo_scheme() -> None:

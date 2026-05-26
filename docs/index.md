@@ -24,19 +24,19 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 188-210
+  lines: 197-216
   anchor: cli-atlas
   keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 207-212
+  lines: 217-222
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 214-232
+  lines: 224-242
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, smoke check, mocked network
 
@@ -44,18 +44,18 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: atlas-workflow
   title: Atlas Workflow
-  lines: 78-103
+  lines: 78-102
   anchor: atlas-workflow
   keywords: Atlas, collect_jsons, query, file, out, empty queries, _filter_jsons, GEO, filter_jsons, harmonize_jsons
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 104-174
+  lines: 103-183
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_datalinks, Europe PMC, datalinks, accession records, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_datalinks, deduplicate, publications, Europe PMC, datalinks, accession records, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 175-187
+  lines: 184-195
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay

@@ -39,7 +39,8 @@ class EuropePMCWrapper:
 
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         publications = self.collect_publications(queries=queries)
-        return self.collect_datalinks(publications=publications)
+        datalinks = self.collect_datalinks(publications=publications)
+        return self._deduplicate_accessions(datalinks=datalinks)
 
     def collect_publications(self, queries: list[str]) -> list[dict]:
         publications = []
@@ -141,6 +142,56 @@ class EuropePMCWrapper:
         )
 
         return datalinks
+
+    def _deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
+        accessions = []
+        accession_index = {}
+        publication_keys = {}
+        skipped_rows = 0
+        duplicate_rows = 0
+
+        for datalink in datalinks:
+            datalink_id = str(datalink.get("datalink_id", "")).strip()
+
+            if not datalink_id:
+                skipped_rows += 1
+                continue
+
+            accession_key = datalink_id.upper()
+
+            if accession_key not in accession_index:
+                accession_index[accession_key] = len(accessions)
+                publication_keys[accession_key] = set()
+                accessions.append(
+                    {
+                        "datalink_id": datalink_id,
+                        "datalink_id_scheme": datalink.get("datalink_id_scheme", ""),
+                        "datalink_url": datalink.get("datalink_url", ""),
+                        "datalink_category": datalink.get("datalink_category", ""),
+                        "publications": [],
+                    }
+                )
+            else:
+                duplicate_rows += 1
+
+            publication = self._publication_from_datalink(datalink=datalink)
+            publication_key = self._publication_key(publication=publication)
+
+            if publication_key not in publication_keys[accession_key]:
+                publication_keys[accession_key].add(publication_key)
+                accessions[accession_index[accession_key]]["publications"].append(
+                    publication
+                )
+
+        logger.info(
+            "EuropePMC accession dedupe stats input_datalinks=%s output_accessions=%s duplicate_rows_collapsed=%s skipped_rows=%s",
+            len(datalinks),
+            len(accessions),
+            duplicate_rows,
+            skipped_rows,
+        )
+
+        return accessions
 
     def _search(self, query: str, cursor: str) -> dict:
         params = {
@@ -270,3 +321,23 @@ class EuropePMCWrapper:
                 )
 
         return datalinks
+
+    def _publication_from_datalink(self, datalink: dict) -> dict:
+        return {
+            "query": datalink.get("query", ""),
+            "epmc_id": datalink.get("epmc_id", ""),
+            "source": datalink.get("source", ""),
+            "pmid": datalink.get("pmid", ""),
+            "pmcid": datalink.get("pmcid", ""),
+            "doi": datalink.get("doi", ""),
+            "title": datalink.get("title", ""),
+        }
+
+    def _publication_key(self, publication: dict) -> tuple:
+        return (
+            publication.get("source", ""),
+            publication.get("epmc_id", ""),
+            publication.get("pmid", ""),
+            publication.get("pmcid", ""),
+            publication.get("doi", ""),
+        )

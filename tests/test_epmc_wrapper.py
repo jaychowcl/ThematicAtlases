@@ -28,14 +28,23 @@ class FakeResponse:
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     publications = [{"epmc_id": "1", "source": "MED"}]
-    expected = [{"datalink_id": "GSE1"}]
+    datalinks = [{"datalink_id": "GSE1"}]
+    expected = [{"datalink_id": "GSE1", "publications": []}]
+    calls = []
 
     def fake_collect_publications(self, queries: list[str]) -> list[dict]:
+        calls.append("publications")
         assert queries == ["fibrosis"]
         return publications
 
     def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
+        calls.append("datalinks")
         assert publications == [{"epmc_id": "1", "source": "MED"}]
+        return datalinks
+
+    def fake_deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
+        calls.append("dedupe")
+        assert datalinks == [{"datalink_id": "GSE1"}]
         return expected
 
     monkeypatch.setattr(
@@ -48,8 +57,14 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
         "collect_datalinks",
         fake_collect_datalinks,
     )
+    monkeypatch.setattr(
+        EuropePMCWrapper,
+        "_deduplicate_accessions",
+        fake_deduplicate_accessions,
+    )
 
     assert EuropePMCWrapper().collect_accessions(queries=["fibrosis"]) == expected
+    assert calls == ["publications", "datalinks", "dedupe"]
 
 
 def test_collect_publications_returns_empty_without_queries(monkeypatch) -> None:
@@ -481,3 +496,125 @@ def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
     assert "publications_checked=1" in caplog.text
     assert "datalinks_collected=1" in caplog.text
     assert "skipped_categories=1" in caplog.text
+
+
+def test_deduplicate_accessions_collapses_duplicate_ids() -> None:
+    datalinks = [
+        {
+            "query": "q1",
+            "epmc_id": "1",
+            "source": "MED",
+            "pmid": "1",
+            "pmcid": "PMC1",
+            "doi": "10.1/one",
+            "title": "One",
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+        },
+        {
+            "query": "q2",
+            "epmc_id": "2",
+            "source": "MED",
+            "pmid": "2",
+            "pmcid": "PMC2",
+            "doi": "10.1/two",
+            "title": "Two",
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "URL",
+            "datalink_url": "https://other.example.org/GSE1",
+            "datalink_category": "Other",
+        },
+    ]
+
+    assert EuropePMCWrapper()._deduplicate_accessions(datalinks=datalinks) == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [
+                {
+                    "query": "q1",
+                    "epmc_id": "1",
+                    "source": "MED",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                    "title": "One",
+                },
+                {
+                    "query": "q2",
+                    "epmc_id": "2",
+                    "source": "MED",
+                    "pmid": "2",
+                    "pmcid": "PMC2",
+                    "doi": "10.1/two",
+                    "title": "Two",
+                },
+            ],
+        }
+    ]
+
+
+def test_deduplicate_accessions_ignores_repeated_publication() -> None:
+    datalink = {
+        "query": "q",
+        "epmc_id": "1",
+        "source": "MED",
+        "pmid": "1",
+        "pmcid": "PMC1",
+        "doi": "10.1/one",
+        "title": "One",
+        "datalink_id": "GSE1",
+        "datalink_id_scheme": "GEO",
+        "datalink_url": "https://example.org/GSE1",
+        "datalink_category": "GEO",
+    }
+
+    result = EuropePMCWrapper()._deduplicate_accessions(datalinks=[datalink, datalink])
+
+    assert len(result) == 1
+    assert len(result[0]["publications"]) == 1
+
+
+def test_deduplicate_accessions_skips_empty_ids() -> None:
+    datalinks = [
+        {"datalink_id": "", "datalink_id_scheme": "GEO"},
+        {"datalink_id": "  ", "datalink_id_scheme": "GEO"},
+    ]
+
+    assert EuropePMCWrapper()._deduplicate_accessions(datalinks=datalinks) == []
+
+
+def test_deduplicate_accessions_is_case_insensitive() -> None:
+    datalinks = [
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "epmc_id": "1"},
+        {"datalink_id": "gse1", "datalink_id_scheme": "GEO", "epmc_id": "2"},
+    ]
+
+    result = EuropePMCWrapper()._deduplicate_accessions(datalinks=datalinks)
+
+    assert len(result) == 1
+    assert result[0]["datalink_id"] == "GSE1"
+    assert [publication["epmc_id"] for publication in result[0]["publications"]] == [
+        "1",
+        "2",
+    ]
+
+
+def test_deduplicate_accessions_logs_stats(caplog) -> None:
+    datalinks = [
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "epmc_id": "1"},
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "epmc_id": "2"},
+        {"datalink_id": "", "datalink_id_scheme": "GEO", "epmc_id": "3"},
+    ]
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    EuropePMCWrapper()._deduplicate_accessions(datalinks=datalinks)
+
+    assert "input_datalinks=3" in caplog.text
+    assert "output_accessions=1" in caplog.text
+    assert "duplicate_rows_collapsed=1" in caplog.text
+    assert "skipped_rows=1" in caplog.text

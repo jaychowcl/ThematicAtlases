@@ -14,6 +14,7 @@ class FakeEuropePMCWrapper:
             {
                 "datalink_id": f"GSE_{query}",
                 "datalink_id_scheme": "GEO",
+                "publications": [],
             }
             for query in queries
         ]
@@ -62,7 +63,7 @@ def test_collect_jsons_writes_outfile(
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_fibrosis",\n    "datalink_id_scheme": "GEO"\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_fibrosis",\n    "datalink_id_scheme": "GEO",\n    "publications": []\n  }\n]'
 
 
 def test_verbose_enables_info_logging(
