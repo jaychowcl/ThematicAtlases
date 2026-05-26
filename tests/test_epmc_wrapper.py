@@ -30,7 +30,6 @@ class FakeResponse:
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     publications = [{"epmc_id": "1", "source": "MED"}]
-    datalinks = [{"datalink_id": "GSE1"}]
     expected = [{"datalink_id": "GSE1", "publications": []}]
     calls = []
 
@@ -42,11 +41,6 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
         calls.append("datalinks")
         assert publications == [{"epmc_id": "1", "source": "MED"}]
-        return datalinks
-
-    def fake_deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
-        calls.append("dedupe")
-        assert datalinks == [{"datalink_id": "GSE1"}]
         return expected
 
     monkeypatch.setattr(
@@ -59,14 +53,9 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
         "collect_datalinks",
         fake_collect_datalinks,
     )
-    monkeypatch.setattr(
-        EuropePMCWrapper,
-        "_deduplicate_accessions",
-        fake_deduplicate_accessions,
-    )
 
     assert EuropePMCWrapper().collect_accessions(queries=["fibrosis"]) == expected
-    assert calls == ["publications", "datalinks", "dedupe"]
+    assert calls == ["publications", "datalinks"]
 
 
 def test_collect_publications_returns_empty_without_queries(monkeypatch) -> None:
@@ -545,7 +534,9 @@ def test_collect_datalinks_returns_empty_without_publications(monkeypatch) -> No
     assert calls == []
 
 
-def test_collect_datalinks_sends_expected_request_and_flattens_links(monkeypatch) -> None:
+def test_collect_datalinks_sends_expected_request_and_returns_accessions(
+    monkeypatch,
+) -> None:
     calls = []
     publication = {
         "query": "fibrosis",
@@ -626,17 +617,99 @@ def test_collect_datalinks_sends_expected_request_and_flattens_links(monkeypatch
     ]
     assert result == [
         {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [
+                {
+                    "query": "fibrosis",
+                    "epmc_id": "123",
+                    "source": "MED",
+                    "pmid": "123",
+                    "pmcid": "PMC123",
+                    "doi": "10.1/example",
+                    "title": "Fibrosis study",
+                    "abstractText": "Abstract",
+                    "text": "Text",
+                    "text_source": "fullTextXML",
+                    "full_text_status": "available",
+                }
+            ],
+        }
+    ]
+
+
+def test_collect_datalinks_deduplicates_flattened_rows(monkeypatch) -> None:
+    flattened_datalinks = []
+
+    def fake_get(url, params, timeout):
+        return FakeResponse(
+            {
+                "dataLinkList": {
+                    "Category": [
+                        {
+                            "Name": "GEO",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "GSE1",
+                                                        "IDScheme": "GEO",
+                                                        "IDURL": "https://example.org/GSE1",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        },
+                    ]
+                }
+            }
+        )
+
+    def fake_deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
+        flattened_datalinks.extend(datalinks)
+        return [{"datalink_id": "GSE1", "publications": []}]
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    monkeypatch.setattr(
+        EuropePMCWrapper,
+        "_deduplicate_accessions",
+        fake_deduplicate_accessions,
+    )
+
+    result = EuropePMCWrapper().collect_datalinks(
+        publications=[
+            {
+                "query": "fibrosis",
+                "epmc_id": "123",
+                "source": "MED",
+                "pmid": "123",
+            }
+        ]
+    )
+
+    assert result == [{"datalink_id": "GSE1", "publications": []}]
+    assert flattened_datalinks == [
+        {
             "query": "fibrosis",
             "epmc_id": "123",
             "source": "MED",
             "pmid": "123",
-            "pmcid": "PMC123",
-            "doi": "10.1/example",
-            "title": "Fibrosis study",
-            "abstractText": "Abstract",
-            "text": "Text",
-            "text_source": "fullTextXML",
-            "full_text_status": "available",
+            "pmcid": "",
+            "doi": "",
+            "title": "",
+            "abstractText": "",
+            "text": "",
+            "text_source": "",
+            "full_text_status": "",
             "datalink_id": "GSE1",
             "datalink_id_scheme": "GEO",
             "datalink_url": "https://example.org/GSE1",
@@ -692,6 +765,21 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
 
     assert len(calls) == 2
     assert result[0]["datalink_id"] == "PRJ1"
+    assert result[0]["publications"] == [
+        {
+            "query": "q",
+            "epmc_id": "1",
+            "source": "MED",
+            "pmid": "",
+            "pmcid": "",
+            "doi": "",
+            "title": "",
+            "abstractText": "",
+            "text": "",
+            "text_source": "",
+            "full_text_status": "",
+        }
+    ]
 
 
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:

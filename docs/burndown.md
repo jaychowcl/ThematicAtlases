@@ -7,15 +7,13 @@
 
 # ThematicAtlases
 ## big
-[] Major refactor of existing codebase.
-    []  3 main user facing api calls, ThematicAtlases.atlas.collect_jsons() -> jsons, ThematicAtlases.atlas.filter_jsons() -> jsons, ThematicAtlases.atlas.harmonize_jsons() -> jsons.
-    [] 
+[x] Major refactor of existing codebase.
+    [x]  3 main user facing api calls, ThematicAtlases.atlas.collect_jsons() -> jsons, ThematicAtlases.atlas.filter_jsons() -> jsons, ThematicAtlases.atlas.harmonize_jsons() -> jsons.
 
-
-
-
-[] Get gse list from any geo accession level
+[x] Get gse list from any geo accession level
 [] meta_standards_converter gse to json
+
+[] move pub text fetch to filter stage
 
 ## small
 

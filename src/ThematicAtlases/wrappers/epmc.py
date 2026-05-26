@@ -46,8 +46,7 @@ class EuropePMCWrapper:
 
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         publications = self.collect_publications(queries=queries)
-        datalinks = self.collect_datalinks(publications=publications)
-        return self._deduplicate_accessions(datalinks=datalinks)
+        return self.collect_datalinks(publications=publications)
 
     def collect_publications(self, queries: list[str]) -> list[dict]:
         publications = []
@@ -239,7 +238,7 @@ class EuropePMCWrapper:
             skipped_categories,
         )
 
-        return datalinks
+        return self._deduplicate_accessions(datalinks=datalinks)
 
     def _deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
         accessions = []
