@@ -25,7 +25,8 @@ src/ThematicAtlases/
 ├── cli_atlas.py
 └── wrappers/
     ├── __init__.py
-    └── epmc.py
+    ├── epmc.py
+    └── geo.py
 ```
 
 Root project files:
@@ -49,6 +50,7 @@ docs/burndown.md
 tests/test_atlas.py
 tests/test_cli_atlas.py
 tests/test_epmc_wrapper.py
+tests/test_geo_wrapper.py
 ```
 
 <a id="runtime-and-packaging"></a>
@@ -217,6 +219,39 @@ Each accession deduplication pass logs one INFO-level stats message with input d
 
 These request tuning values are stored together in an internal settings dictionary. Transient response statuses `429`, `500`, `502`, `503`, and `504` are retried. `Retry-After` is honored when present; otherwise retry delay uses short exponential backoff. Pagination is sequential, with no parallel requests.
 
+<a id="geo-wrapper"></a>
+### GEO Wrapper
+
+`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities. It is not wired into `Atlas.collect_jsons()` yet.
+
+Current public method:
+
+- `get_gse(accession: str) -> str | None`: returns a normalized `GSE...` accession or `None`.
+
+Resolution behavior:
+
+- `GSE...` returns itself without network access.
+- `GPL...` returns `None`, representing an entry that downstream callers should remove.
+- `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
+- Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
+- If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
+
+The ESearch request uses:
+
+```text
+https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi
+```
+
+with `db=gds`, `term={accession}[ACCN]`, `retmode=json`, and `retmax=20`. The ESummary request uses:
+
+```text
+https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi
+```
+
+with `db=gds`, comma-separated UIDs in `id`, and `retmode=json`. When ESearch returns related records, the wrapper only accepts the ESummary record whose `accession` exactly matches the requested GEO accession.
+
+`GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in E-utilities parameters when present. Request settings default to `timeout=30`, `request_delay=0.34`, and `max_retries=3`; the delay keeps the default path below the no-key E-utilities guideline of 3 requests per second.
+
 <a id="cli-atlas"></a>
 ## CLI Atlas
 
@@ -247,12 +282,12 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, and accession deduplication. Wrapper and CLI tests mock network access.
+Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper and CLI tests mock network access.
 
 Useful checks:
 
 ```bash
-python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py
+python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
 python3 -m pytest
 ```
 

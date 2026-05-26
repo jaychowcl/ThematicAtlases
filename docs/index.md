@@ -24,21 +24,21 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 220-239
+  lines: 255-274
   anchor: cli-atlas
   keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 240-245
+  lines: 275-280
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 247-265
+  lines: 282-300
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, smoke check, mocked network, publication text, section parsing
+  keywords: tests, py_compile, pytest, smoke check, mocked network, publication text, section parsing, GEO wrapper
 
 ## API Sections
 
@@ -50,12 +50,18 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 103-206
+  lines: 105-207
   anchor: epmc-wrapper
   keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, Europe PMC, datalinks, accession records, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 207-218
+  lines: 209-220
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay
+
+- id: geo-wrapper
+  title: GEO Wrapper
+  lines: 222-253
+  anchor: geo-wrapper
+  keywords: GEOWrapper, get_gse, GSE, GSM, GDS, GPL, NCBI E-utilities, ESearch, ESummary, api_key, tool, email
