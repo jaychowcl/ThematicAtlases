@@ -83,7 +83,7 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons()`: calls `EuropePMCWrapper.collect_accessions()` and returns its result.
+- `collect_jsons(query=None, file=None, out=None)`: combines explicit queries and file query lines, calls `EuropePMCWrapper.collect_accessions(queries=...)`, optionally writes the result list to `out`, and returns the result.
 - `filter_jsons(filter_criteria: dict)`: placeholder, returns `None`.
 - `harmonize_jsons(harmonization_criteria: dict)`: placeholder, returns `None`.
 
@@ -96,7 +96,7 @@ Filtering and harmonization currently use `pass`; there are no side effects, val
 
 Current behavior:
 
-- `collect_accessions() -> list[dict]` returns `[]`.
+- `collect_accessions(queries: list[str]) -> list[dict]` returns `[]`.
 - No network calls are made.
 - No archived wrapper code is imported.
 
@@ -107,11 +107,13 @@ Current behavior:
 
 Commands:
 
-- `collect-jsons`
+- `collect-jsons [--query QUERY] [--file FILE] [--out OUT]`
 - `filter-jsons`
 - `harmonize-jsons`
 
-Each command instantiates `Atlas(metadata={})`, calls the matching placeholder method, and prints compact JSON:
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before non-empty stripped file lines. `--out` writes the raw final result list, not the CLI envelope.
+
+Each command instantiates `Atlas(metadata={})`, calls the matching method, and prints compact JSON:
 
 ```json
 {"command":"collect-jsons","status":"placeholder","result":[]}

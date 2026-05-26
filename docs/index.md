@@ -24,19 +24,19 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 103-119
+  lines: 103-121
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, no args, collect-jsons, filter-jsons, harmonize-jsons
+  keywords: cli_atlas, argparse, query, file, out, collect-jsons, filter-jsons, harmonize-jsons
 
 - id: archive-reference
   title: Archive Reference
-  lines: 120-126
+  lines: 122-128
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 127-145
+  lines: 129-147
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, smoke check
 
@@ -46,10 +46,10 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
   title: Atlas Stub
   lines: 78-91
   anchor: atlas-stub
-  keywords: Atlas, collect_jsons, filter_jsons, harmonize_jsons, placeholder
+  keywords: Atlas, collect_jsons, query, file, out, filter_jsons, harmonize_jsons
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
   lines: 92-102
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, wrapper, scaffold
+  keywords: EuropePMCWrapper, collect_accessions, queries, wrapper, scaffold

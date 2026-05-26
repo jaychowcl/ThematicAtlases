@@ -1,3 +1,3 @@
 class EuropePMCWrapper:
-    def collect_accessions(self) -> list[dict]:
+    def collect_accessions(self, queries: list[str]) -> list[dict]:
         return []

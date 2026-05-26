@@ -27,6 +27,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "collect-jsons",
         help="Call the placeholder JSON collection workflow.",
     )
+    collect.add_argument("--query", action="append", default=None)
+    collect.add_argument("--file", default=None)
+    collect.add_argument("--out", default=None)
 
     subparsers.add_parser(
         "filter-jsons",
@@ -48,7 +51,11 @@ def main(argv: list[str] | None = None) -> int:
     atlas = Atlas(metadata={})
 
     if args.command == "collect-jsons":
-        result = atlas.collect_jsons()
+        result = atlas.collect_jsons(
+            query=args.query,
+            file=args.file,
+            out=args.out,
+        )
     elif args.command == "filter-jsons":
         result = atlas.filter_jsons()
     elif args.command == "harmonize-jsons":
