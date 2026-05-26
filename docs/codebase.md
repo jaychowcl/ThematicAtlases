@@ -9,7 +9,7 @@ python3 -m ThematicAtlases.cli_atlas collect-jsons
 python3 -m ThematicAtlases.cli_atlas collect-jsons --query fibrosis --out atlas.json
 ```
 
-`collect-jsons` is the first real workflow slice. It currently returns GEO-filtered, deduplicated accession records with publication provenance.
+`collect-jsons` is the first real workflow slice. It currently returns GEO-filtered, deduplicated accession records with publication provenance and publication text.
 
 <a id="project-purpose-and-layout"></a>
 ## Project Purpose And Layout
@@ -107,8 +107,9 @@ Filtering behavior:
 
 Current public methods:
 
-- `collect_accessions(queries: list[str]) -> list[dict]`: searches publications, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records.
+- `collect_accessions(queries: list[str]) -> list[dict]`: searches publications, enriches publications with text, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records.
 - `collect_publications(queries: list[str]) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
+- `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
 - `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows and returns flattened dataset datalinks.
 
 The wrapper uses `requests.get()` against:
@@ -143,7 +144,7 @@ fullTextUrls
 firstPublicationDate
 ```
 
-`collect_publications()` and `collect_datalinks()` are intermediate stages. `collect_accessions()` returns deduplicated accession records with:
+`collect_publications()`, `collect_publication_texts()`, and `collect_datalinks()` are intermediate stages. `collect_accessions()` returns deduplicated accession records with:
 
 ```text
 datalink_id
@@ -163,9 +164,20 @@ pmid
 pmcid
 doi
 title
+text
+text_source
+full_text_status
 ```
 
 Duplicate accessions are grouped by stripped uppercase `datalink_id`. Accession-level fields keep the first encountered values when duplicate rows conflict. Repeated publication entries under the same accession are collapsed by `source`, `epmc_id`, `pmid`, `pmcid`, and `doi`.
+
+Publication text enrichment uses:
+
+```text
+https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fullTextXML
+```
+
+The full-text ID is the publication `pmcid` when present, or `epmc_id` when it is PMC-style. Successful fullTextXML responses are parsed into plain text and stored as `text` with `text_source="fullTextXML"` and `full_text_status="available"`. If full text is unavailable, non-open-access, missing a PMC identifier, or fails with an unrecoverable error, the publication remains in provenance and `text` falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` or `none`, and `full_text_status` is `unavailable`, `missing_pmcid`, or `error`. Publisher pages and `fullTextUrls` are not fetched.
 
 The datalink request uses:
 
@@ -176,6 +188,8 @@ https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks
 with `format=json`. The current dataset category filter keeps `GEO`, `BioProject`, `BioStudies`, `Nucleotide Sequences`, `BioStudies: supplemental material and supporting data`, and `Functional Genomics Experiments`.
 
 Each query logs one INFO-level search stats message with the query, total hits from `hitCount` when present, collected hits, fetched pages, page limit, whether the page limit stopped pagination, and final cursor. Library code defines the logger but does not configure global logging.
+
+Each publication text enrichment pass logs one INFO-level stats message with publications checked, full text available, abstract fallbacks, and missing text.
 
 Each datalink collection pass logs one INFO-level stats message with publications checked, datalinks collected, and skipped categories.
 
@@ -212,7 +226,7 @@ Logging options are global and must appear before the subcommand. Default loggin
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout. Use `--out` as the JSON result channel and logging as the stats channel.
 
-`filter-jsons` and `harmonize-jsons` remain placeholders. `collect-jsons` is implemented through Europe PMC publication search, datalink collection, accession deduplication, and GEO filtering.
+`filter-jsons` and `harmonize-jsons` remain placeholders. `collect-jsons` is implemented through Europe PMC publication search, publication text enrichment, datalink collection, accession deduplication, and GEO filtering.
 
 <a id="archive-reference"></a>
 ## Archive Reference
@@ -224,7 +238,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, and datalink flattening. Wrapper and CLI tests mock network access.
+Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment, datalink flattening, and accession deduplication. Wrapper and CLI tests mock network access.
 
 Useful checks:
 

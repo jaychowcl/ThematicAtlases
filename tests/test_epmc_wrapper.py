@@ -13,10 +13,12 @@ class FakeResponse:
         payload: dict,
         status_code: int = 200,
         headers: dict[str, str] | None = None,
+        text: str = "",
     ):
         self.payload = payload
         self.status_code = status_code
         self.headers = headers or {}
+        self.text = text
 
     def json(self) -> dict:
         return self.payload
@@ -28,6 +30,7 @@ class FakeResponse:
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     publications = [{"epmc_id": "1", "source": "MED"}]
+    enriched_publications = [{"epmc_id": "1", "source": "MED", "text": "Text"}]
     datalinks = [{"datalink_id": "GSE1"}]
     expected = [{"datalink_id": "GSE1", "publications": []}]
     calls = []
@@ -37,9 +40,14 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
         assert queries == ["fibrosis"]
         return publications
 
+    def fake_collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+        calls.append("texts")
+        assert publications == [{"epmc_id": "1", "source": "MED"}]
+        return enriched_publications
+
     def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
         calls.append("datalinks")
-        assert publications == [{"epmc_id": "1", "source": "MED"}]
+        assert publications == [{"epmc_id": "1", "source": "MED", "text": "Text"}]
         return datalinks
 
     def fake_deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
@@ -54,6 +62,11 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         EuropePMCWrapper,
+        "collect_publication_texts",
+        fake_collect_publication_texts,
+    )
+    monkeypatch.setattr(
+        EuropePMCWrapper,
         "collect_datalinks",
         fake_collect_datalinks,
     )
@@ -64,7 +77,7 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     )
 
     assert EuropePMCWrapper().collect_accessions(queries=["fibrosis"]) == expected
-    assert calls == ["publications", "datalinks", "dedupe"]
+    assert calls == ["publications", "texts", "datalinks", "dedupe"]
 
 
 def test_collect_publications_returns_empty_without_queries(monkeypatch) -> None:
@@ -299,6 +312,158 @@ def test_collect_publications_logs_empty_page_as_fetched(monkeypatch, caplog) ->
     assert "pages_fetched=1" in caplog.text
 
 
+def test_collect_publication_texts_fetches_full_text_xml_by_pmcid(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append((url, timeout))
+        return FakeResponse(
+            {},
+            text="<article><body><sec><title>Methods</title><p>Body text.</p></sec></body></article>",
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper(timeout=12).collect_publication_texts(
+        publications=[
+            {
+                "epmc_id": "123",
+                "pmcid": "PMC123",
+                "abstractText": "Abstract",
+            }
+        ]
+    )
+
+    assert calls == [
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML",
+            12,
+        )
+    ]
+    assert result[0]["text"] == "Methods Body text."
+    assert result[0]["text_source"] == "fullTextXML"
+    assert result[0]["full_text_status"] == "available"
+
+
+def test_collect_publication_texts_uses_abstract_when_full_text_unavailable(
+    monkeypatch,
+) -> None:
+    def fake_get(url, timeout):
+        return FakeResponse({}, status_code=404)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper().collect_publication_texts(
+        publications=[
+            {
+                "epmc_id": "123",
+                "pmcid": "PMC123",
+                "abstractText": "Abstract fallback",
+            }
+        ]
+    )
+
+    assert result[0]["text"] == "Abstract fallback"
+    assert result[0]["text_source"] == "abstractText"
+    assert result[0]["full_text_status"] == "unavailable"
+
+
+def test_collect_publication_texts_missing_pmcid_skips_request(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        return FakeResponse({})
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper().collect_publication_texts(
+        publications=[
+            {
+                "epmc_id": "123",
+                "abstractText": "Abstract fallback",
+            }
+        ]
+    )
+
+    assert calls == []
+    assert result[0]["text"] == "Abstract fallback"
+    assert result[0]["text_source"] == "abstractText"
+    assert result[0]["full_text_status"] == "missing_pmcid"
+
+
+def test_collect_publication_texts_empty_abstract_has_no_text(monkeypatch) -> None:
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper().collect_publication_texts(
+        publications=[
+            {
+                "epmc_id": "123",
+                "abstractText": "",
+            }
+        ]
+    )
+
+    assert result[0]["text"] == ""
+    assert result[0]["text_source"] == "none"
+    assert result[0]["full_text_status"] == "missing_pmcid"
+
+
+def test_collect_publication_texts_retries_transient_failures(monkeypatch) -> None:
+    calls = []
+    responses = [
+        FakeResponse({}, status_code=503),
+        FakeResponse({}, text="<article><body><p>Recovered text.</p></body></article>"),
+    ]
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper(max_retries=1).collect_publication_texts(
+        publications=[
+            {
+                "pmcid": "PMC123",
+                "abstractText": "Abstract",
+            }
+        ]
+    )
+
+    assert len(calls) == 2
+    assert result[0]["text"] == "Recovered text."
+    assert result[0]["text_source"] == "fullTextXML"
+
+
+def test_collect_publication_texts_uses_pmc_epmc_id_without_pmcid(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        return FakeResponse({}, text="<article><body><p>Text.</p></body></article>")
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    EuropePMCWrapper().collect_publication_texts(
+        publications=[
+            {
+                "epmc_id": "PMC123",
+                "abstractText": "Abstract",
+            }
+        ]
+    )
+
+    assert calls == [
+        "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML"
+    ]
+
+
 def test_collect_datalinks_returns_empty_without_publications(monkeypatch) -> None:
     calls = []
 
@@ -322,6 +487,10 @@ def test_collect_datalinks_sends_expected_request_and_flattens_links(monkeypatch
         "pmcid": "PMC123",
         "doi": "10.1/example",
         "title": "Fibrosis study",
+        "abstractText": "Abstract",
+        "text": "Text",
+        "text_source": "fullTextXML",
+        "full_text_status": "available",
     }
 
     def fake_get(url, params, timeout):
@@ -396,6 +565,10 @@ def test_collect_datalinks_sends_expected_request_and_flattens_links(monkeypatch
             "pmcid": "PMC123",
             "doi": "10.1/example",
             "title": "Fibrosis study",
+            "abstractText": "Abstract",
+            "text": "Text",
+            "text_source": "fullTextXML",
+            "full_text_status": "available",
             "datalink_id": "GSE1",
             "datalink_id_scheme": "GEO",
             "datalink_url": "https://example.org/GSE1",
@@ -543,6 +716,9 @@ def test_deduplicate_accessions_collapses_duplicate_ids() -> None:
                     "pmcid": "PMC1",
                     "doi": "10.1/one",
                     "title": "One",
+                    "text": "",
+                    "text_source": "",
+                    "full_text_status": "",
                 },
                 {
                     "query": "q2",
@@ -552,6 +728,9 @@ def test_deduplicate_accessions_collapses_duplicate_ids() -> None:
                     "pmcid": "PMC2",
                     "doi": "10.1/two",
                     "title": "Two",
+                    "text": "",
+                    "text_source": "",
+                    "full_text_status": "",
                 },
             ],
         }
@@ -577,6 +756,31 @@ def test_deduplicate_accessions_ignores_repeated_publication() -> None:
 
     assert len(result) == 1
     assert len(result[0]["publications"]) == 1
+
+
+def test_deduplicate_accessions_preserves_publication_text_fields() -> None:
+    datalinks = [
+        {
+            "query": "q",
+            "epmc_id": "1",
+            "source": "MED",
+            "pmid": "1",
+            "pmcid": "PMC1",
+            "doi": "10.1/one",
+            "title": "One",
+            "text": "Publication text",
+            "text_source": "fullTextXML",
+            "full_text_status": "available",
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+        },
+    ]
+
+    result = EuropePMCWrapper()._deduplicate_accessions(datalinks=datalinks)
+
+    assert result[0]["publications"][0]["text"] == "Publication text"
+    assert result[0]["publications"][0]["text_source"] == "fullTextXML"
+    assert result[0]["publications"][0]["full_text_status"] == "available"
 
 
 def test_deduplicate_accessions_skips_empty_ids() -> None:

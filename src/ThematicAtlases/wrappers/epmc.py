@@ -1,5 +1,6 @@
 import logging
 import time
+import xml.etree.ElementTree as ET
 
 import requests
 
@@ -35,10 +36,14 @@ class EuropePMCWrapper:
         self._datalinks_url = (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks"
         )
+        self._full_text_xml_url = (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/{epmc_id}/fullTextXML"
+        )
         self._retry_statuses = {429, 500, 502, 503, 504}
 
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         publications = self.collect_publications(queries=queries)
+        publications = self.collect_publication_texts(publications=publications)
         datalinks = self.collect_datalinks(publications=publications)
         return self._deduplicate_accessions(datalinks=datalinks)
 
@@ -98,6 +103,69 @@ class EuropePMCWrapper:
             )
 
         return publications
+
+    def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+        enriched_publications = []
+        full_text_available = 0
+        abstract_fallbacks = 0
+        missing_text = 0
+
+        for publication in publications:
+            full_text_id = self._full_text_id(publication=publication)
+
+            if not full_text_id:
+                enriched_publication = self._publication_with_fallback_text(
+                    publication=publication,
+                    full_text_status="missing_pmcid",
+                )
+            else:
+                try:
+                    logger.debug(
+                        "EuropePMC fullTextXML request epmc_id=%r",
+                        full_text_id,
+                    )
+                    full_text_xml = self._full_text_xml(epmc_id=full_text_id)
+                    enriched_publication = {
+                        **publication,
+                        "text": self._plain_text_from_xml(full_text_xml),
+                        "text_source": "fullTextXML",
+                        "full_text_status": "available",
+                    }
+                except requests.HTTPError as error:
+                    response = error.response
+                    status_code = response.status_code if response is not None else None
+                    full_text_status = (
+                        "unavailable" if status_code == 404 else "error"
+                    )
+                    enriched_publication = self._publication_with_fallback_text(
+                        publication=publication,
+                        full_text_status=full_text_status,
+                    )
+                except (requests.RequestException, ET.ParseError):
+                    enriched_publication = self._publication_with_fallback_text(
+                        publication=publication,
+                        full_text_status="error",
+                    )
+
+            if enriched_publication["full_text_status"] == "available":
+                full_text_available += 1
+            elif enriched_publication["text_source"] == "abstractText":
+                abstract_fallbacks += 1
+            else:
+                missing_text += 1
+
+            enriched_publications.append(enriched_publication)
+            time.sleep(self._request_settings["request_delay"])
+
+        logger.info(
+            "EuropePMC publication text stats publications_checked=%s full_text_available=%s abstract_fallbacks=%s missing_text=%s",
+            len(publications),
+            full_text_available,
+            abstract_fallbacks,
+            missing_text,
+        )
+
+        return enriched_publications
 
     def collect_datalinks(self, publications: list[dict]) -> list[dict]:
         datalinks = []
@@ -259,6 +327,34 @@ class EuropePMCWrapper:
 
         return {}
 
+    def _full_text_xml(self, epmc_id: str) -> str:
+        url = self._full_text_xml_url.format(epmc_id=epmc_id)
+
+        for attempt in range(self._request_settings["max_retries"] + 1):
+            response = requests.get(
+                url,
+                timeout=self._request_settings["timeout"],
+            )
+
+            if (
+                response.status_code in self._retry_statuses
+                and attempt < self._request_settings["max_retries"]
+            ):
+                retry_delay = self._retry_delay(response=response, attempt=attempt)
+                logger.debug(
+                    "EuropePMC fullTextXML retry status=%s attempt=%s delay=%s",
+                    response.status_code,
+                    attempt + 1,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
+                continue
+
+            response.raise_for_status()
+            return response.text
+
+        return ""
+
     def _retry_delay(self, response: requests.Response, attempt: int) -> float:
         retry_after = response.headers.get("Retry-After")
 
@@ -313,6 +409,10 @@ class EuropePMCWrapper:
                         "pmcid": publication.get("pmcid", ""),
                         "doi": publication.get("doi", ""),
                         "title": publication.get("title", ""),
+                        "abstractText": publication.get("abstractText", ""),
+                        "text": publication.get("text", ""),
+                        "text_source": publication.get("text_source", ""),
+                        "full_text_status": publication.get("full_text_status", ""),
                         "datalink_id": datalink_id,
                         "datalink_id_scheme": datalink_id_scheme,
                         "datalink_url": datalink_url,
@@ -331,6 +431,9 @@ class EuropePMCWrapper:
             "pmcid": datalink.get("pmcid", ""),
             "doi": datalink.get("doi", ""),
             "title": datalink.get("title", ""),
+            "text": datalink.get("text", ""),
+            "text_source": datalink.get("text_source", ""),
+            "full_text_status": datalink.get("full_text_status", ""),
         }
 
     def _publication_key(self, publication: dict) -> tuple:
@@ -341,3 +444,37 @@ class EuropePMCWrapper:
             publication.get("pmcid", ""),
             publication.get("doi", ""),
         )
+
+    def _full_text_id(self, publication: dict) -> str:
+        pmcid = str(publication.get("pmcid", "")).strip()
+        epmc_id = str(publication.get("epmc_id", "")).strip()
+
+        if pmcid:
+            return pmcid
+
+        if epmc_id.upper().startswith("PMC"):
+            return epmc_id
+
+        return ""
+
+    def _plain_text_from_xml(self, full_text_xml: str) -> str:
+        root = ET.fromstring(full_text_xml)
+        text_parts = [
+            text.strip()
+            for text in root.itertext()
+            if text and text.strip()
+        ]
+        return " ".join(" ".join(text_parts).split())
+
+    def _publication_with_fallback_text(
+        self,
+        publication: dict,
+        full_text_status: str,
+    ) -> dict:
+        abstract_text = publication.get("abstractText") or ""
+        return {
+            **publication,
+            "text": abstract_text,
+            "text_source": "abstractText" if abstract_text else "none",
+            "full_text_status": full_text_status,
+        }
