@@ -85,7 +85,7 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to allowed GEO records, normalizes GEO accessions to GSE records, enriches the surviving nested publications with Europe PMC text, optionally writes the final result list to `out`, and returns the final result.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, normalizes GEO accessions to GSE records, enriches the surviving nested publications with Europe PMC text, optionally writes the final result list to `out`, and returns the final result.
 - `filter_jsons()`: placeholder, returns `None`.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
@@ -98,8 +98,9 @@ Query loading behavior:
 
 Filtering behavior:
 
-- `_filter_jsons(jsons)` is an internal filter used by `collect_jsons()`.
-- Allowed records have `datalink_id_scheme` equal to `GEO`, case-insensitive, or a `datalink_id` starting with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
+- `_filter_jsons(jsons)` is an internal filter used by `collect_jsons()` to keep accessions handled by the live workflow.
+- `_is_handled_accession(record)` currently uses the GEO rules: records are handled when `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
+- Future platform support should extend `_is_handled_accession(record)` with additional platform checks.
 - `_collect_gse_jsons(jsons)` is an internal normalization step used after filtering.
 - GSE normalization uses `GEOWrapper.get_gse()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, and records original datalink evidence in `original_datalinks`.

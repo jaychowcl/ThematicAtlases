@@ -22,10 +22,10 @@ class Atlas():
         return [
             record
             for record in jsons
-            if self._is_geo_accession(record=record)
+            if self._is_handled_accession(record=record)
         ]
 
-    def _is_geo_accession(self, record: dict) -> bool:
+    def _is_handled_accession(self, record: dict) -> bool:
         datalink_id_scheme = str(record.get("datalink_id_scheme", "")).upper()
         datalink_id = str(record.get("datalink_id", "")).upper()
 
