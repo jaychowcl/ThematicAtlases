@@ -27,16 +27,26 @@ class FakeResponse:
 
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
-    expected = [{"epmc_id": "1"}]
+    publications = [{"epmc_id": "1", "source": "MED"}]
+    expected = [{"datalink_id": "GSE1"}]
 
     def fake_collect_publications(self, queries: list[str]) -> list[dict]:
         assert queries == ["fibrosis"]
+        return publications
+
+    def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
+        assert publications == [{"epmc_id": "1", "source": "MED"}]
         return expected
 
     monkeypatch.setattr(
         EuropePMCWrapper,
         "collect_publications",
         fake_collect_publications,
+    )
+    monkeypatch.setattr(
+        EuropePMCWrapper,
+        "collect_datalinks",
+        fake_collect_datalinks,
     )
 
     assert EuropePMCWrapper().collect_accessions(queries=["fibrosis"]) == expected
@@ -272,3 +282,202 @@ def test_collect_publications_logs_empty_page_as_fetched(monkeypatch, caplog) ->
     assert "total_hits=0" in caplog.text
     assert "collected_hits=0" in caplog.text
     assert "pages_fetched=1" in caplog.text
+
+
+def test_collect_datalinks_returns_empty_without_publications(monkeypatch) -> None:
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        return FakeResponse({})
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+
+    assert EuropePMCWrapper().collect_datalinks(publications=[]) == []
+    assert calls == []
+
+
+def test_collect_datalinks_sends_expected_request_and_flattens_links(monkeypatch) -> None:
+    calls = []
+    publication = {
+        "query": "fibrosis",
+        "epmc_id": "123",
+        "source": "MED",
+        "pmid": "123",
+        "pmcid": "PMC123",
+        "doi": "10.1/example",
+        "title": "Fibrosis study",
+    }
+
+    def fake_get(url, params, timeout):
+        calls.append((url, params, timeout))
+        return FakeResponse(
+            {
+                "dataLinkList": {
+                    "Category": [
+                        {
+                            "Name": "GEO",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "GSE1",
+                                                        "IDScheme": "GEO",
+                                                        "IDURL": "https://example.org/GSE1",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        },
+                        {
+                            "Name": "Ignored",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "IGNORE1",
+                                                        "IDScheme": "OTHER",
+                                                        "IDURL": "https://example.org/IGNORE1",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        },
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper(timeout=12).collect_datalinks(publications=[publication])
+
+    assert calls == [
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
+            {"format": "json"},
+            12,
+        )
+    ]
+    assert result == [
+        {
+            "query": "fibrosis",
+            "epmc_id": "123",
+            "source": "MED",
+            "pmid": "123",
+            "pmcid": "PMC123",
+            "doi": "10.1/example",
+            "title": "Fibrosis study",
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+        }
+    ]
+
+
+def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
+    calls = []
+    responses = [
+        FakeResponse({}, status_code=503),
+        FakeResponse(
+            {
+                "dataLinkList": {
+                    "Category": [
+                        {
+                            "Name": "BioProject",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "PRJ1",
+                                                        "IDScheme": "BioProject",
+                                                        "IDURL": "https://example.org/PRJ1",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        ),
+    ]
+
+    def fake_get(url, params, timeout):
+        calls.append(params.copy())
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper(max_retries=1).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "1"}]
+    )
+
+    assert len(calls) == 2
+    assert result[0]["datalink_id"] == "PRJ1"
+
+
+def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
+    def fake_get(url, params, timeout):
+        return FakeResponse(
+            {
+                "dataLinkList": {
+                    "Category": [
+                        {
+                            "Name": "GEO",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "GSE1",
+                                                        "IDScheme": "GEO",
+                                                        "IDURL": "",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        },
+                        {"Name": "Ignored", "Section": []},
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    EuropePMCWrapper().collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "1"}]
+    )
+
+    assert "publications_checked=1" in caplog.text
+    assert "datalinks_collected=1" in caplog.text
+    assert "skipped_categories=1" in caplog.text

@@ -101,8 +101,9 @@ Query loading behavior:
 
 Current public methods:
 
-- `collect_accessions(queries: list[str]) -> list[dict]`: currently delegates to `collect_publications(queries=queries)` and returns publication metadata dictionaries.
+- `collect_accessions(queries: list[str]) -> list[dict]`: searches publications, fetches Europe PMC datalinks for each publication, and returns dataset accession records.
 - `collect_publications(queries: list[str]) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
+- `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows and returns flattened dataset datalinks.
 
 The wrapper uses `requests.get()` against:
 
@@ -136,9 +137,33 @@ fullTextUrls
 firstPublicationDate
 ```
 
-This is a temporary return shape for the first implementation slice. Dataset datalink and accession extraction are not implemented yet.
+`collect_publications()` is an intermediate stage. `collect_accessions()` returns flattened datalink records with:
+
+```text
+query
+epmc_id
+source
+pmid
+pmcid
+doi
+title
+datalink_id
+datalink_id_scheme
+datalink_url
+datalink_category
+```
+
+The datalink request uses:
+
+```text
+https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks
+```
+
+with `format=json`. The current dataset category filter keeps `GEO`, `BioProject`, `BioStudies`, `Nucleotide Sequences`, `BioStudies: supplemental material and supporting data`, and `Functional Genomics Experiments`.
 
 Each query logs one INFO-level search stats message with the query, total hits from `hitCount` when present, collected hits, fetched pages, page limit, whether the page limit stopped pagination, and final cursor. Library code defines the logger but does not configure global logging.
+
+Each datalink collection pass logs one INFO-level stats message with publications checked, datalinks collected, and skipped categories.
 
 <a id="rate-handling"></a>
 ### Rate Handling
@@ -187,7 +212,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, and publication field normalization. Wrapper and CLI tests mock network access.
+Live tests cover atlas query loading, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, and datalink flattening. Wrapper and CLI tests mock network access.
 
 Useful checks:
 
