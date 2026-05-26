@@ -30,7 +30,6 @@ class FakeResponse:
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     publications = [{"epmc_id": "1", "source": "MED"}]
-    enriched_publications = [{"epmc_id": "1", "source": "MED", "text": "Text"}]
     datalinks = [{"datalink_id": "GSE1"}]
     expected = [{"datalink_id": "GSE1", "publications": []}]
     calls = []
@@ -40,14 +39,9 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
         assert queries == ["fibrosis"]
         return publications
 
-    def fake_collect_publication_texts(self, publications: list[dict]) -> list[dict]:
-        calls.append("texts")
-        assert publications == [{"epmc_id": "1", "source": "MED"}]
-        return enriched_publications
-
     def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
         calls.append("datalinks")
-        assert publications == [{"epmc_id": "1", "source": "MED", "text": "Text"}]
+        assert publications == [{"epmc_id": "1", "source": "MED"}]
         return datalinks
 
     def fake_deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
@@ -62,11 +56,6 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         EuropePMCWrapper,
-        "collect_publication_texts",
-        fake_collect_publication_texts,
-    )
-    monkeypatch.setattr(
-        EuropePMCWrapper,
         "collect_datalinks",
         fake_collect_datalinks,
     )
@@ -77,7 +66,7 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     )
 
     assert EuropePMCWrapper().collect_accessions(queries=["fibrosis"]) == expected
-    assert calls == ["publications", "texts", "datalinks", "dedupe"]
+    assert calls == ["publications", "datalinks", "dedupe"]
 
 
 def test_collect_publications_returns_empty_without_queries(monkeypatch) -> None:
@@ -795,6 +784,7 @@ def test_deduplicate_accessions_collapses_duplicate_ids() -> None:
                     "pmcid": "PMC1",
                     "doi": "10.1/one",
                     "title": "One",
+                    "abstractText": "",
                     "text": "",
                     "text_source": "",
                     "full_text_status": "",
@@ -807,6 +797,7 @@ def test_deduplicate_accessions_collapses_duplicate_ids() -> None:
                     "pmcid": "PMC2",
                     "doi": "10.1/two",
                     "title": "Two",
+                    "abstractText": "",
                     "text": "",
                     "text_source": "",
                     "full_text_status": "",
@@ -860,6 +851,23 @@ def test_deduplicate_accessions_preserves_publication_text_fields() -> None:
     assert result[0]["publications"][0]["text"] == "Publication text"
     assert result[0]["publications"][0]["text_source"] == "fullTextXML"
     assert result[0]["publications"][0]["full_text_status"] == "available"
+
+
+def test_deduplicate_accessions_preserves_publication_abstract_text() -> None:
+    datalinks = [
+        {
+            "query": "q",
+            "epmc_id": "1",
+            "source": "MED",
+            "abstractText": "Abstract fallback",
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+        },
+    ]
+
+    result = EuropePMCWrapper()._deduplicate_accessions(datalinks=datalinks)
+
+    assert result[0]["publications"][0]["abstractText"] == "Abstract fallback"
 
 
 def test_deduplicate_accessions_skips_empty_ids() -> None:

@@ -116,6 +116,43 @@ class Atlas():
             publication.get("doi", ""),
         )
 
+    def _collect_publication_texts(self, jsons: list[dict]) -> list[dict]:
+        publications = []
+        publication_index = {}
+
+        for record in jsons:
+            for publication in record.get("publications", []):
+                publication_key = self._publication_key(publication=publication)
+
+                if publication_key not in publication_index:
+                    publication_index[publication_key] = len(publications)
+                    publications.append(publication)
+
+        if not publications:
+            return jsons
+
+        enriched_publications = EuropePMCWrapper().collect_publication_texts(
+            publications=publications
+        )
+        enriched_publication_index = {
+            self._publication_key(publication=publication): publication
+            for publication in enriched_publications
+        }
+
+        return [
+            {
+                **record,
+                "publications": [
+                    enriched_publication_index.get(
+                        self._publication_key(publication=publication),
+                        publication,
+                    )
+                    for publication in record.get("publications", [])
+                ],
+            }
+            for record in jsons
+        ]
+
     def collect_jsons(
         self,
         query: list[str] | None = None,
@@ -131,6 +168,7 @@ class Atlas():
             EuropePMCWrapper().collect_accessions(queries=queries)
         )
         result = self._collect_gse_jsons(jsons=result)
+        result = self._collect_publication_texts(jsons=result)
 
         if out is not None:
             with open(out, "w", encoding="utf-8") as handle:

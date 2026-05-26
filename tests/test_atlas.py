@@ -4,6 +4,7 @@ from ThematicAtlases.atlas import Atlas
 
 class FakeEuropePMCWrapper:
     queries: list[str] | None = None
+    publications: list[dict] | None = None
 
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         self.__class__.queries = queries
@@ -16,6 +17,18 @@ class FakeEuropePMCWrapper:
                 "publications": [{"source": "MED", "epmc_id": "1"}],
             },
             {"datalink_id": "ERR1", "datalink_id_scheme": "ENA", "publications": []},
+        ]
+
+    def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+        self.__class__.publications = publications
+        return [
+            {
+                **publication,
+                "text": f"Text {publication.get('epmc_id', '')}",
+                "text_source": "abstractText",
+                "full_text_status": "missing_pmcid",
+            }
+            for publication in publications
         ]
 
 
@@ -37,6 +50,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
     FakeGEOWrapper.accessions = []
+    FakeEuropePMCWrapper.publications = None
 
     assert Atlas(metadata={}).collect_jsons(query=["a", "b"]) == [
         {
@@ -44,7 +58,15 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
             "datalink_id_scheme": "GEO",
             "datalink_url": "https://example.org/GSE1",
             "datalink_category": "GEO",
-            "publications": [{"source": "MED", "epmc_id": "1"}],
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "text": "Text 1",
+                    "text_source": "abstractText",
+                    "full_text_status": "missing_pmcid",
+                }
+            ],
             "original_datalinks": [
                 {
                     "datalink_id": "GSE1",
@@ -56,6 +78,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
         }
     ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
+    assert FakeEuropePMCWrapper.publications == [{"source": "MED", "epmc_id": "1"}]
     assert FakeGEOWrapper.accessions == ["GSE1"]
 
 
@@ -65,6 +88,7 @@ def test_collect_jsons_combines_query_and_file_lines(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
     FakeGEOWrapper.accessions = []
+    FakeEuropePMCWrapper.publications = None
 
     Atlas(metadata={}).collect_jsons(query=["a", "b"], file=str(query_file))
 
@@ -75,6 +99,7 @@ def test_collect_jsons_passes_empty_queries_without_inputs(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
     FakeGEOWrapper.accessions = []
+    FakeEuropePMCWrapper.publications = None
 
     Atlas(metadata={}).collect_jsons()
 
@@ -86,10 +111,11 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
     FakeGEOWrapper.accessions = []
+    FakeEuropePMCWrapper.publications = None
 
     Atlas(metadata={}).collect_jsons(query=["a"], out=str(outfile))
 
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "datalink_url": "https://example.org/GSE1",\n    "datalink_category": "GEO",\n    "publications": [\n      {\n        "source": "MED",\n        "epmc_id": "1"\n      }\n    ],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE1",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "https://example.org/GSE1",\n        "datalink_category": "GEO"\n      }\n    ]\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "datalink_url": "https://example.org/GSE1",\n    "datalink_category": "GEO",\n    "publications": [\n      {\n        "source": "MED",\n        "epmc_id": "1",\n        "text": "Text 1",\n        "text_source": "abstractText",\n        "full_text_status": "missing_pmcid"\n      }\n    ],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE1",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "https://example.org/GSE1",\n        "datalink_category": "GEO"\n      }\n    ]\n  }\n]'
 
 
 def test_filter_jsons_keeps_geo_scheme() -> None:
@@ -301,3 +327,121 @@ def test_collect_gse_jsons_collapses_same_gse_and_merges_metadata(
             "doi": "10.1/two",
         },
     ]
+
+
+def test_collect_publication_texts_enriches_unique_publications(monkeypatch) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    FakeEuropePMCWrapper.publications = None
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                }
+            ],
+        },
+        {
+            "datalink_id": "GSE2",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                }
+            ],
+        },
+    ]
+
+    result = Atlas(metadata={})._collect_publication_texts(jsons=records)
+
+    assert FakeEuropePMCWrapper.publications == [
+        {
+            "source": "MED",
+            "epmc_id": "1",
+            "pmid": "1",
+            "pmcid": "PMC1",
+            "doi": "10.1/one",
+        }
+    ]
+    assert result[0]["publications"][0]["text"] == "Text 1"
+    assert result[1]["publications"][0]["text"] == "Text 1"
+
+
+def test_collect_publication_texts_skips_empty_publication_lists(monkeypatch) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    FakeEuropePMCWrapper.publications = None
+    records = [{"datalink_id": "GSE1", "publications": []}]
+
+    assert Atlas(metadata={})._collect_publication_texts(jsons=records) == records
+    assert FakeEuropePMCWrapper.publications is None
+
+
+def test_collect_jsons_enriches_only_surviving_publications(monkeypatch) -> None:
+    class LocalEuropePMCWrapper:
+        publications: list[dict] | None = None
+
+        def collect_accessions(self, queries: list[str]) -> list[dict]:
+            return [
+                {
+                    "datalink_id": "GSE1",
+                    "datalink_id_scheme": "GEO",
+                    "publications": [
+                        {
+                            "source": "MED",
+                            "epmc_id": "1",
+                            "abstractText": "Kept abstract",
+                        }
+                    ],
+                },
+                {
+                    "datalink_id": "ERR1",
+                    "datalink_id_scheme": "ENA",
+                    "publications": [
+                        {
+                            "source": "MED",
+                            "epmc_id": "2",
+                            "abstractText": "Dropped abstract",
+                        }
+                    ],
+                },
+                {
+                    "datalink_id": "GPL1",
+                    "datalink_id_scheme": "GEO",
+                    "publications": [
+                        {
+                            "source": "MED",
+                            "epmc_id": "3",
+                            "abstractText": "Unresolved abstract",
+                        }
+                    ],
+                },
+            ]
+
+        def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+            self.__class__.publications = publications
+            return [
+                {
+                    **publication,
+                    "text": publication.get("abstractText", ""),
+                    "text_source": "abstractText",
+                    "full_text_status": "missing_pmcid",
+                }
+                for publication in publications
+            ]
+
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", LocalEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    result = Atlas(metadata={}).collect_jsons(query=["fibrosis"])
+
+    assert LocalEuropePMCWrapper.publications == [
+        {"source": "MED", "epmc_id": "1", "abstractText": "Kept abstract"}
+    ]
+    assert result[0]["publications"][0]["text"] == "Kept abstract"

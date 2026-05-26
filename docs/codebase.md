@@ -85,7 +85,7 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to allowed GEO records, normalizes GEO accessions to GSE records, optionally writes the normalized result list to `out`, and returns the normalized result.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to allowed GEO records, normalizes GEO accessions to GSE records, enriches the surviving nested publications with Europe PMC text, optionally writes the final result list to `out`, and returns the final result.
 - `filter_jsons()`: placeholder, returns `None`.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
@@ -103,6 +103,7 @@ Filtering behavior:
 - `_collect_gse_jsons(jsons)` is an internal normalization step used after filtering.
 - GSE normalization uses `GEOWrapper.get_gse()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, and records original datalink evidence in `original_datalinks`.
+- `_collect_publication_texts(jsons)` runs after GSE normalization. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and merges enriched text fields back into each final accession record.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
 
 <a id="epmc-wrapper"></a>
@@ -112,7 +113,7 @@ Filtering behavior:
 
 Current public methods:
 
-- `collect_accessions(queries: list[str]) -> list[dict]`: searches publications, enriches publications with text, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records.
+- `collect_accessions(queries: list[str]) -> list[dict]`: searches publications, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records before publication text enrichment.
 - `collect_publications(queries: list[str]) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
 - `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
 - `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows and returns flattened dataset datalinks.
@@ -150,7 +151,7 @@ fullTextUrls
 firstPublicationDate
 ```
 
-`collect_publications()`, `collect_publication_texts()`, and `collect_datalinks()` are intermediate stages. `collect_accessions()` returns deduplicated accession records with:
+`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_publication_texts()` remains a reusable enrichment stage and is called by `Atlas.collect_jsons()` after GEO filtering and GSE normalization. `collect_accessions()` returns deduplicated accession records with:
 
 ```text
 datalink_id
@@ -185,12 +186,15 @@ pmid
 pmcid
 doi
 title
+abstractText
 text
 text_source
 full_text_status
 ```
 
 Duplicate accessions are grouped by stripped uppercase `datalink_id`. Accession-level fields keep the first encountered values when duplicate rows conflict. Repeated publication entries under the same accession are collapsed by `source`, `epmc_id`, `pmid`, `pmcid`, and `doi`.
+
+The final atlas JSON contains publication text only for surviving normalized GSE records. Publications attached only to non-GEO, GPL, or unresolved records are not sent through the fullTextXML enrichment stage.
 
 Publication text enrichment uses:
 

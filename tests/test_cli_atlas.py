@@ -19,6 +19,9 @@ class FakeEuropePMCWrapper:
             for query in queries
         ]
 
+    def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+        return publications
+
 
 def test_collect_jsons_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
