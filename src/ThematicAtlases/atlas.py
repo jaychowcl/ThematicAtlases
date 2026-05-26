@@ -73,7 +73,22 @@ class Atlas():
             publication.get("doi", ""),
         )
 
-    def _collect_publication_texts(self, jsons: list[dict]) -> list[dict]:
+    def _publication_text_ref(self, publication: dict) -> str:
+        for key in ("pmid", "pmcid", "doi"):
+            value = str(publication.get(key, "")).strip()
+
+            if value:
+                return value
+
+        source = str(publication.get("source", "")).strip()
+        epmc_id = str(publication.get("epmc_id", "")).strip()
+
+        if source or epmc_id:
+            return f"{source}:{epmc_id}"
+
+        return ""
+
+    def _collect_publication_texts(self, jsons: list[dict]) -> dict:
         publications = []
         publication_index = {}
 
@@ -86,29 +101,57 @@ class Atlas():
                     publications.append(publication)
 
         if not publications:
-            return jsons
+            return {}
 
         enriched_publications = EuropePMCWrapper().collect_publication_texts(
             publications=publications
         )
-        enriched_publication_index = {
-            self._publication_key(publication=publication): publication
+
+        return {
+            publication_ref: {
+                "text": publication.get("text", ""),
+                "text_source": publication.get("text_source", "none"),
+                "full_text_status": publication.get("full_text_status", "unavailable"),
+            }
             for publication in enriched_publications
+            if (publication_ref := self._publication_text_ref(publication=publication))
         }
 
+    def _accessions_with_publication_text_refs(
+        self,
+        jsons: list[dict],
+        publication_texts: dict,
+    ) -> list[dict]:
         return [
             {
                 **record,
                 "publications": [
-                    enriched_publication_index.get(
-                        self._publication_key(publication=publication),
-                        publication,
+                    self._publication_with_text_ref(
+                        publication=publication,
+                        publication_texts=publication_texts,
                     )
                     for publication in record.get("publications", [])
                 ],
             }
             for record in jsons
         ]
+
+    def _publication_with_text_ref(
+        self,
+        publication: dict,
+        publication_texts: dict,
+    ) -> dict:
+        publication_ref = self._publication_text_ref(publication=publication)
+        publication = {
+            key: value
+            for key, value in publication.items()
+            if key not in {"text", "text_source", "full_text_status"}
+        }
+
+        if publication_ref in publication_texts:
+            publication["publication_text_ref"] = publication_ref
+
+        return publication
 
     def collect_jsons(
         self,
@@ -125,7 +168,6 @@ class Atlas():
             EuropePMCWrapper().collect_accessions(queries=queries)
         )
         result = self._collect_accession_metadata(jsons=result)
-        result = self._collect_publication_texts(jsons=result)
 
         if out is not None:
             with open(out, "w", encoding="utf-8") as handle:
@@ -133,8 +175,17 @@ class Atlas():
 
         return result
 
-    def filter_jsons(self,) -> list[dict]:
-        pass
+    def filter_jsons(self, jsons: list[dict] | None = None) -> dict:
+        jsons = list(jsons or [])
+        publication_texts = self._collect_publication_texts(jsons=jsons)
+
+        return {
+            "accessions": self._accessions_with_publication_text_refs(
+                jsons=jsons,
+                publication_texts=publication_texts,
+            ),
+            "publication_texts": publication_texts,
+        }
 
     def harmonize_jsons(self, ) -> list[dict]:
         pass

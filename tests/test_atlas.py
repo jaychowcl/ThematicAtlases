@@ -82,9 +82,6 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
                 {
                     "source": "MED",
                     "epmc_id": "1",
-                    "text": "Text 1",
-                    "text_source": "abstractText",
-                    "full_text_status": "missing_pmcid",
                 }
             ],
             "original_datalinks": [
@@ -98,7 +95,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
         }
     ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
-    assert FakeEuropePMCWrapper.publications == [{"source": "MED", "epmc_id": "1"}]
+    assert FakeEuropePMCWrapper.publications is None
     assert FakeGEOWrapper.accessions == ["GSE1"]
     assert FakeGEOWrapper.jsons == [
         {
@@ -147,7 +144,7 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
 
     Atlas(metadata={}).collect_jsons(query=["a"], out=str(outfile))
 
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "datalink_url": "https://example.org/GSE1",\n    "datalink_category": "GEO",\n    "publications": [\n      {\n        "source": "MED",\n        "epmc_id": "1",\n        "text": "Text 1",\n        "text_source": "abstractText",\n        "full_text_status": "missing_pmcid"\n      }\n    ],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE1",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "https://example.org/GSE1",\n        "datalink_category": "GEO"\n      }\n    ]\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "datalink_url": "https://example.org/GSE1",\n    "datalink_category": "GEO",\n    "publications": [\n      {\n        "source": "MED",\n        "epmc_id": "1"\n      }\n    ],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE1",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "https://example.org/GSE1",\n        "datalink_category": "GEO"\n      }\n    ]\n  }\n]'
 
 
 def test_filter_accessions_keeps_handled_geo_scheme() -> None:
@@ -261,7 +258,7 @@ def test_collect_accession_metadata_routes_geo_records(monkeypatch) -> None:
     assert FakeGEOWrapper.jsons == records
 
 
-def test_collect_publication_texts_enriches_unique_publications(monkeypatch) -> None:
+def test_collect_publication_texts_returns_shared_text_map(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     FakeEuropePMCWrapper.publications = None
     records = [
@@ -302,8 +299,13 @@ def test_collect_publication_texts_enriches_unique_publications(monkeypatch) -> 
             "doi": "10.1/one",
         }
     ]
-    assert result[0]["publications"][0]["text"] == "Text 1"
-    assert result[1]["publications"][0]["text"] == "Text 1"
+    assert result == {
+        "1": {
+            "text": "Text 1",
+            "text_source": "abstractText",
+            "full_text_status": "missing_pmcid",
+        }
+    }
 
 
 def test_collect_publication_texts_skips_empty_publication_lists(monkeypatch) -> None:
@@ -311,11 +313,139 @@ def test_collect_publication_texts_skips_empty_publication_lists(monkeypatch) ->
     FakeEuropePMCWrapper.publications = None
     records = [{"datalink_id": "GSE1", "publications": []}]
 
-    assert Atlas(metadata={})._collect_publication_texts(jsons=records) == records
+    assert Atlas(metadata={})._collect_publication_texts(jsons=records) == {}
     assert FakeEuropePMCWrapper.publications is None
 
 
-def test_collect_jsons_enriches_only_surviving_publications(monkeypatch) -> None:
+def test_filter_jsons_returns_accessions_and_publication_texts(monkeypatch) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    FakeEuropePMCWrapper.publications = None
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                }
+            ],
+        },
+        {
+            "datalink_id": "GSE2",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                }
+            ],
+        },
+    ]
+
+    assert Atlas(metadata={}).filter_jsons(jsons=records) == {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "1",
+                        "pmid": "1",
+                        "pmcid": "PMC1",
+                        "doi": "10.1/one",
+                        "publication_text_ref": "1",
+                    }
+                ],
+            },
+            {
+                "datalink_id": "GSE2",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "1",
+                        "pmid": "1",
+                        "pmcid": "PMC1",
+                        "doi": "10.1/one",
+                        "publication_text_ref": "1",
+                    }
+                ],
+            },
+        ],
+        "publication_texts": {
+            "1": {
+                "text": "Text 1",
+                "text_source": "abstractText",
+                "full_text_status": "missing_pmcid",
+            }
+        },
+    }
+    assert FakeEuropePMCWrapper.publications == [
+        {
+            "source": "MED",
+            "epmc_id": "1",
+            "pmid": "1",
+            "pmcid": "PMC1",
+            "doi": "10.1/one",
+        }
+    ]
+
+
+def test_publication_text_ref_prefers_pmid_then_fallbacks() -> None:
+    atlas = Atlas(metadata={})
+
+    assert atlas._publication_text_ref({"pmid": "1", "pmcid": "PMC1"}) == "1"
+    assert atlas._publication_text_ref({"pmcid": "PMC1", "doi": "10.1/one"}) == "PMC1"
+    assert atlas._publication_text_ref({"doi": "10.1/one"}) == "10.1/one"
+    assert atlas._publication_text_ref({"source": "MED", "epmc_id": "1"}) == "MED:1"
+
+
+def test_filter_jsons_strips_duplicate_text_from_publications(monkeypatch) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "text": "Old text",
+                    "text_source": "fullTextXML",
+                    "full_text_status": "available",
+                }
+            ],
+        }
+    ]
+
+    publication = Atlas(metadata={}).filter_jsons(jsons=records)["accessions"][0][
+        "publications"
+    ][0]
+
+    assert publication == {
+        "source": "MED",
+        "epmc_id": "1",
+        "pmid": "1",
+        "publication_text_ref": "1",
+    }
+
+
+def test_filter_jsons_empty_input_returns_empty_shape(monkeypatch) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    FakeEuropePMCWrapper.publications = None
+
+    assert Atlas(metadata={}).filter_jsons() == {
+        "accessions": [],
+        "publication_texts": {},
+    }
+    assert FakeEuropePMCWrapper.publications is None
+
+
+def test_filter_jsons_enriches_only_surviving_publications(monkeypatch) -> None:
     class LocalEuropePMCWrapper:
         publications: list[dict] | None = None
 
@@ -371,9 +501,15 @@ def test_collect_jsons_enriches_only_surviving_publications(monkeypatch) -> None
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", LocalEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    result = Atlas(metadata={}).collect_jsons(query=["fibrosis"])
+    jsons = Atlas(metadata={}).collect_jsons(query=["fibrosis"])
+    result = Atlas(metadata={}).filter_jsons(jsons=jsons)
 
     assert LocalEuropePMCWrapper.publications == [
         {"source": "MED", "epmc_id": "1", "abstractText": "Kept abstract"}
     ]
-    assert result[0]["publications"][0]["text"] == "Kept abstract"
+    assert result["accessions"][0]["publications"][0]["publication_text_ref"] == "MED:1"
+    assert result["publication_texts"]["MED:1"] == {
+        "text": "Kept abstract",
+        "text_source": "abstractText",
+        "full_text_status": "missing_pmcid",
+    }

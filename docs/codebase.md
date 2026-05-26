@@ -9,7 +9,7 @@ python3 -m ThematicAtlases.cli_atlas collect-jsons
 python3 -m ThematicAtlases.cli_atlas collect-jsons --query fibrosis --out atlas.json
 ```
 
-`collect-jsons` is the first real workflow slice. It currently returns GEO-filtered, deduplicated accession records with publication provenance and publication text.
+`collect-jsons` is the first real workflow slice. It currently returns GEO-filtered, deduplicated accession records with publication provenance and accession metadata. `filter_jsons()` is the publication text mapping stage for those collected records.
 
 <a id="project-purpose-and-layout"></a>
 ## Project Purpose And Layout
@@ -85,8 +85,8 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, enriches the surviving nested publications with Europe PMC text, optionally writes the final result list to `out`, and returns the final result.
-- `filter_jsons()`: placeholder, returns `None`.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, optionally writes the collected accession list to `out`, and returns that list.
+- `filter_jsons(jsons=None)`: accepts collected accession records, gathers unique publication text, adds lightweight publication text references under nested publication metadata, and returns a top-level filtered JSON object.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
 Query loading behavior:
@@ -107,7 +107,8 @@ Filtering behavior:
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
-- `_collect_publication_texts(jsons)` runs after GSE normalization. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and merges enriched text fields back into each final accession record.
+- `_collect_publication_texts(jsons)` is used by `filter_jsons()`. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and returns a shared `publication_texts` map keyed by PMID, then PMCID, DOI, or `source:epmc_id`.
+- `_accessions_with_publication_text_refs(jsons, publication_texts)` adds `publication_text_ref` to nested publication metadata when text is available. Full text is not duplicated inside accession records.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
 
 <a id="epmc-wrapper"></a>
@@ -155,7 +156,7 @@ fullTextUrls
 firstPublicationDate
 ```
 
-`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by `Atlas.collect_jsons()` after GEO filtering and GSE normalization. `collect_accessions()` returns deduplicated accession records with:
+`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by `Atlas.filter_jsons()` after accession collection and metadata routing. `collect_accessions()` returns deduplicated accession records with:
 
 ```text
 datalink_id
@@ -196,14 +197,19 @@ pmcid
 doi
 title
 abstractText
-text
-text_source
-full_text_status
+publication_text_ref
 ```
 
 Duplicate accessions are grouped by stripped uppercase `datalink_id`. Accession-level fields keep the first encountered values when duplicate rows conflict. Repeated publication entries under the same accession are collapsed by `source`, `epmc_id`, `pmid`, `pmcid`, and `doi`.
 
-The final atlas JSON contains publication text only for surviving normalized GSE records. Publications attached only to non-GEO, GPL, or unresolved records are not sent through the fullTextXML enrichment stage.
+`filter_jsons()` returns a top-level object with collected accession records and a shared publication text map:
+
+```text
+accessions
+publication_texts
+```
+
+Each `publication_texts` entry contains `text`, `text_source`, and `full_text_status`. Publications attached only to non-GEO, GPL, or unresolved records are not sent through the fullTextXML enrichment stage.
 
 Publication text enrichment uses:
 
@@ -219,7 +225,7 @@ The full-text ID is the publication `pmcid` when present, or `epmc_id` when it i
 
 `publication_text_sections(text)` converts delimited text back into ordered dictionaries such as `{"title": "Methods", "text": "..."}`. For plain fallback text without sentinels, it returns one `Text` section when text is non-empty.
 
-If full text is unavailable, non-open-access, missing a PMC identifier, or fails with an unrecoverable error, the publication remains in provenance and `text` falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` or `none`, `full_text_status` is `unavailable`, `missing_pmcid`, or `error`, and the fallback text is not delimiter-wrapped. Publisher pages and `fullTextUrls` are not fetched.
+If full text is unavailable, non-open-access, missing a PMC identifier, or fails with an unrecoverable error, the publication remains in provenance and the shared publication text map falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` or `none`, `full_text_status` is `unavailable`, `missing_pmcid`, or `error`, and the fallback text is not delimiter-wrapped. Publisher pages and `fullTextUrls` are not fetched.
 
 The datalink request uses:
 
@@ -312,11 +318,11 @@ Commands:
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables `INFO`, and `-vv` enables `DEBUG`. Without `--log-file`, logs go to stderr. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw collected accession list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout. Use `--out` as the JSON result channel and logging as the stats channel.
 
-`filter-jsons` and `harmonize-jsons` remain placeholders. `collect-jsons` is implemented through Europe PMC publication search, publication text enrichment, datalink collection, accession deduplication, GEO filtering, and GEO-to-GSE normalization.
+The CLI `filter-jsons` command still has no file input options, so it calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=...)` is implemented as the publication text mapping stage.
 
 <a id="archive-reference"></a>
 ## Archive Reference
