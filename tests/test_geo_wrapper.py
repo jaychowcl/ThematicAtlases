@@ -23,6 +23,179 @@ class FakeResponse:
             raise requests.HTTPError(response=self)
 
 
+class FakeGEOWrapper(GEOWrapper):
+    accessions: list[str] = []
+    accessions_to_gse: dict[str, str | None] = {
+        "GSE1": "GSE1",
+        "GSM1": "GSE1",
+        "GDS1": "GSE1",
+        "GPL1": None,
+    }
+
+    def get_gse(self, accession: str) -> str | None:
+        self.__class__.accessions.append(accession)
+        return self.accessions_to_gse.get(accession)
+
+
+def test_collect_accession_metadata_keeps_gse_and_publications() -> None:
+    FakeGEOWrapper.accessions = []
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        }
+    ]
+
+    assert FakeGEOWrapper().collect_accession_metadata(jsons=records) == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+            "original_datalinks": [
+                {
+                    "datalink_id": "GSE1",
+                    "datalink_id_scheme": "GEO",
+                    "datalink_url": "https://example.org/GSE1",
+                    "datalink_category": "GEO",
+                }
+            ],
+        }
+    ]
+    assert FakeGEOWrapper.accessions == ["GSE1"]
+
+
+def test_collect_accession_metadata_resolves_gsm_and_preserves_original_metadata() -> None:
+    FakeGEOWrapper.accessions = []
+    records = [
+        {
+            "datalink_id": "GSM1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSM1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        }
+    ]
+
+    result = FakeGEOWrapper().collect_accession_metadata(jsons=records)
+
+    assert result[0]["datalink_id"] == "GSE1"
+    assert result[0]["original_datalinks"] == [
+        {
+            "datalink_id": "GSM1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSM1",
+            "datalink_category": "GEO",
+        }
+    ]
+    assert result[0]["publications"] == [{"source": "MED", "epmc_id": "1"}]
+
+
+def test_collect_accession_metadata_resolves_gds() -> None:
+    records = [
+        {
+            "datalink_id": "GDS1",
+            "datalink_id_scheme": "GEO",
+            "publications": [],
+        }
+    ]
+
+    assert FakeGEOWrapper().collect_accession_metadata(jsons=records)[0][
+        "datalink_id"
+    ] == "GSE1"
+
+
+def test_collect_accession_metadata_drops_gpl_and_unresolved() -> None:
+    records = [
+        {"datalink_id": "GPL1", "datalink_id_scheme": "GEO", "publications": []},
+        {"datalink_id": "GSM404", "datalink_id_scheme": "GEO", "publications": []},
+    ]
+
+    assert FakeGEOWrapper().collect_accession_metadata(jsons=records) == []
+
+
+def test_collect_accession_metadata_collapses_same_gse_and_merges_metadata() -> None:
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                }
+            ],
+        },
+        {
+            "datalink_id": "GSM1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSM1",
+            "datalink_category": "GEO",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "pmcid": "PMC1",
+                    "doi": "10.1/one",
+                },
+                {
+                    "source": "MED",
+                    "epmc_id": "2",
+                    "pmid": "2",
+                    "pmcid": "PMC2",
+                    "doi": "10.1/two",
+                },
+            ],
+        },
+    ]
+
+    result = FakeGEOWrapper().collect_accession_metadata(jsons=records)
+
+    assert len(result) == 1
+    assert result[0]["datalink_id"] == "GSE1"
+    assert result[0]["datalink_url"] == "https://example.org/GSE1"
+    assert result[0]["original_datalinks"] == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+        },
+        {
+            "datalink_id": "GSM1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSM1",
+            "datalink_category": "GEO",
+        },
+    ]
+    assert result[0]["publications"] == [
+        {
+            "source": "MED",
+            "epmc_id": "1",
+            "pmid": "1",
+            "pmcid": "PMC1",
+            "doi": "10.1/one",
+        },
+        {
+            "source": "MED",
+            "epmc_id": "2",
+            "pmid": "2",
+            "pmcid": "PMC2",
+            "doi": "10.1/two",
+        },
+    ]
+
+
 def test_get_gse_returns_gse_without_network(monkeypatch) -> None:
     calls = []
 

@@ -24,6 +24,19 @@ class GEOWrapper:
         self._base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self._retry_statuses = {429, 500, 502, 503, 504}
 
+    def collect_accession_metadata(self, jsons: list[dict]) -> list[dict]:
+        records = []
+
+        for record in jsons:
+            gse_accession = self.get_gse(record.get("datalink_id", ""))
+
+            if gse_accession is None:
+                continue
+
+            records.append(self._gse_record(record=record, gse_accession=gse_accession))
+
+        return self._deduplicate_gse_jsons(jsons=records)
+
     def get_gse(self, accession: str) -> str | None:
         accession = self._normalize_accession(accession=accession)
 
@@ -141,3 +154,72 @@ class GEOWrapper:
 
     def _normalize_accession(self, accession: str) -> str:
         return str(accession or "").strip().upper()
+
+    def _gse_record(self, record: dict, gse_accession: str) -> dict:
+        return {
+            **record,
+            "datalink_id": gse_accession,
+            "original_datalinks": [
+                {
+                    "datalink_id": record.get("datalink_id", ""),
+                    "datalink_id_scheme": record.get("datalink_id_scheme", ""),
+                    "datalink_url": record.get("datalink_url", ""),
+                    "datalink_category": record.get("datalink_category", ""),
+                }
+            ],
+        }
+
+    def _deduplicate_gse_jsons(self, jsons: list[dict]) -> list[dict]:
+        records = []
+        record_index = {}
+        publication_keys = {}
+        original_datalink_keys = {}
+
+        for record in jsons:
+            gse_accession = str(record.get("datalink_id", "")).strip().upper()
+
+            if not gse_accession:
+                continue
+
+            if gse_accession not in record_index:
+                record_index[gse_accession] = len(records)
+                publication_keys[gse_accession] = set()
+                original_datalink_keys[gse_accession] = set()
+                records.append({**record, "publications": [], "original_datalinks": []})
+
+            target_record = records[record_index[gse_accession]]
+
+            for original_datalink in record.get("original_datalinks", []):
+                original_datalink_key = self._original_datalink_key(
+                    original_datalink=original_datalink
+                )
+
+                if original_datalink_key not in original_datalink_keys[gse_accession]:
+                    original_datalink_keys[gse_accession].add(original_datalink_key)
+                    target_record["original_datalinks"].append(original_datalink)
+
+            for publication in record.get("publications", []):
+                publication_key = self._publication_key(publication=publication)
+
+                if publication_key not in publication_keys[gse_accession]:
+                    publication_keys[gse_accession].add(publication_key)
+                    target_record["publications"].append(publication)
+
+        return records
+
+    def _original_datalink_key(self, original_datalink: dict) -> tuple:
+        return (
+            original_datalink.get("datalink_id", ""),
+            original_datalink.get("datalink_id_scheme", ""),
+            original_datalink.get("datalink_url", ""),
+            original_datalink.get("datalink_category", ""),
+        )
+
+    def _publication_key(self, publication: dict) -> tuple:
+        return (
+            publication.get("source", ""),
+            publication.get("epmc_id", ""),
+            publication.get("pmid", ""),
+            publication.get("pmcid", ""),
+            publication.get("doi", ""),
+        )

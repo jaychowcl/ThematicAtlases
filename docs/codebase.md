@@ -85,7 +85,7 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, normalizes GEO accessions to GSE records, enriches the surviving nested publications with Europe PMC text, optionally writes the final result list to `out`, and returns the final result.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, enriches the surviving nested publications with Europe PMC text, optionally writes the final result list to `out`, and returns the final result.
 - `filter_jsons()`: placeholder, returns `None`.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
@@ -101,8 +101,10 @@ Filtering behavior:
 - `_filter_jsons(jsons)` is an internal filter used by `collect_jsons()` to keep accessions handled by the live workflow.
 - `_is_handled_accession(record)` currently uses the GEO rules: records are handled when `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
 - Future platform support should extend `_is_handled_accession(record)` with additional platform checks.
-- `_collect_gse_jsons(jsons)` is an internal normalization step used after filtering.
-- GSE normalization uses `GEOWrapper.get_gse()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
+- `_collect_accession_metadata(jsons)` is the metadata repository routing step used after filtering.
+- `_metadata_repository(record)` currently returns `geo` for handled GEO records and `None` for unhandled records.
+- `_metadata_handler(repository)` currently routes `geo` records to `GEOWrapper`.
+- GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, and records original datalink evidence in `original_datalinks`.
 - `_collect_publication_texts(jsons)` runs after GSE normalization. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and merges enriched text fields back into each final accession record.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
@@ -245,10 +247,11 @@ These request tuning values are stored together in an internal settings dictiona
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
 
-`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities. `Atlas.collect_jsons()` uses it after GEO filtering to produce GSE-level output.
+`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities. `Atlas.collect_jsons()` routes GEO records to it through `_collect_accession_metadata()`.
 
-Current public method:
+Current public methods:
 
+- `collect_accession_metadata(jsons: list[dict]) -> list[dict]`: normalizes GEO records to GSE-level accession records, preserves `original_datalinks` and `publications`, and drops GPL or unresolved records.
 - `get_gse(accession: str) -> str | None`: returns a normalized `GSE...` accession or `None`.
 
 Resolution behavior:
@@ -258,6 +261,7 @@ Resolution behavior:
 - `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
 - Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
 - If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
+- GEO MINiML JSON metadata collection is not implemented yet; `collect_accession_metadata()` is the intended location for that later integration.
 
 The ESearch request uses:
 
