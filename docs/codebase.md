@@ -83,7 +83,7 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, optionally writes the result list to `out`, and returns the result.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to allowed GEO records, optionally writes the filtered result list to `out`, and returns the filtered result.
 - `filter_jsons()`: placeholder, returns `None`.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
@@ -93,6 +93,12 @@ Query loading behavior:
 - `file` values are read as UTF-8 text.
 - Query files ignore blank lines and lines starting with `#`.
 - If neither `query` nor `file` is provided, the wrapper receives an empty query list.
+
+Filtering behavior:
+
+- `_filter_jsons(jsons)` is an internal filter used by `collect_jsons()`.
+- Allowed records have `datalink_id_scheme` equal to `GEO`, case-insensitive, or a `datalink_id` starting with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
+- Raw non-GEO datalinks are not preserved by `collect_jsons()` in this step.
 
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
@@ -208,7 +214,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, and datalink flattening. Wrapper and CLI tests mock network access.
+Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, and datalink flattening. Wrapper and CLI tests mock network access.
 
 Useful checks:
 

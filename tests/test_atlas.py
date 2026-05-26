@@ -7,13 +7,18 @@ class FakeEuropePMCWrapper:
 
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         self.__class__.queries = queries
-        return [{"accession": "GSE1"}]
+        return [
+            {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
+            {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
+        ]
 
 
 def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
 
-    assert Atlas(metadata={}).collect_jsons(query=["a", "b"]) == [{"accession": "GSE1"}]
+    assert Atlas(metadata={}).collect_jsons(query=["a", "b"]) == [
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"}
+    ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
 
 
@@ -41,4 +46,47 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
 
     Atlas(metadata={}).collect_jsons(query=["a"], out=str(outfile))
 
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "accession": "GSE1"\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO"\n  }\n]'
+
+
+def test_filter_jsons_keeps_geo_scheme() -> None:
+    records = [
+        {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"},
+        {"datalink_id": "ERR2", "datalink_id_scheme": "ENA"},
+    ]
+
+    assert Atlas(metadata={})._filter_jsons(records) == [
+        {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"}
+    ]
+
+
+def test_filter_jsons_keeps_geo_prefixes() -> None:
+    records = [
+        {"datalink_id": "GSE1", "datalink_id_scheme": ""},
+        {"datalink_id": "GSM1", "datalink_id_scheme": "URL"},
+        {"datalink_id": "GPL1", "datalink_id_scheme": "ArrayExpress"},
+        {"datalink_id": "GDS1", "datalink_id_scheme": "BioProject"},
+    ]
+
+    assert Atlas(metadata={})._filter_jsons(records) == records
+
+
+def test_filter_jsons_drops_non_geo_records() -> None:
+    records = [
+        {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
+        {"datalink_id": "PRJ1", "datalink_id_scheme": "BioProject"},
+        {"datalink_id": "E-MTAB-1", "datalink_id_scheme": "ArrayExpress"},
+        {"datalink_id": "https://example.org", "datalink_id_scheme": "URL"},
+        {"datalink_id": "ABC1", "datalink_id_scheme": ""},
+    ]
+
+    assert Atlas(metadata={})._filter_jsons(records) == []
+
+
+def test_filter_jsons_is_case_insensitive() -> None:
+    records = [
+        {"datalink_id": "gse1", "datalink_id_scheme": ""},
+        {"datalink_id": "ERR1", "datalink_id_scheme": "geo"},
+    ]
+
+    assert Atlas(metadata={})._filter_jsons(records) == records

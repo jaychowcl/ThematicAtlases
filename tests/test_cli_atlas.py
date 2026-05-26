@@ -10,7 +10,13 @@ class FakeEuropePMCWrapper:
     def collect_accessions(self, queries: list[str]) -> list[dict]:
         logging.getLogger("ThematicAtlases.test").info("fake info")
         logging.getLogger("ThematicAtlases.test").debug("fake debug")
-        return [{"epmc_id": query} for query in queries]
+        return [
+            {
+                "datalink_id": f"GSE_{query}",
+                "datalink_id_scheme": "GEO",
+            }
+            for query in queries
+        ]
 
 
 def test_collect_jsons_does_not_emit_stdout(
@@ -56,7 +62,7 @@ def test_collect_jsons_writes_outfile(
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "epmc_id": "fibrosis"\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_fibrosis",\n    "datalink_id_scheme": "GEO"\n  }\n]'
 
 
 def test_verbose_enables_info_logging(
