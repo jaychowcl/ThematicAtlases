@@ -235,7 +235,11 @@ https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks
 
 with `format=json`. The current dataset category filter keeps `GEO`, `BioProject`, `BioStudies`, `Nucleotide Sequences`, `BioStudies: supplemental material and supporting data`, and `Functional Genomics Experiments`.
 
-Each query logs one INFO-level search stats message with the query, total hits from `hitCount` when present, collected hits, fetched pages, page limit, whether the page limit stopped pagination, and final cursor. Library code defines the logger but does not configure global logging.
+Atlas, EuropePMC, and GEO library modules define loggers but do not configure global logging. The CLI is responsible for logging configuration.
+
+Atlas emits INFO-level progress logs for collection stages, including query loading, Europe PMC accession collection, accession filtering, metadata collection, output writing, publication text collection, and publication text-reference attachment. Atlas also emits INFO-level stats for query count, raw accession count, filtered accession count, metadata output count, publication text map count, and accessions with publication text references.
+
+Each EuropePMC query logs one INFO-level search stats message with the query, total hits from `hitCount` when present, collected hits, fetched pages, page limit, whether the page limit stopped pagination, and final cursor.
 
 Each publication text enrichment pass logs one INFO-level stats message with publications checked, full text available, abstract fallbacks, and missing text.
 
@@ -304,6 +308,8 @@ with `db=gds`, comma-separated UIDs in `id`, and `retmode=json`. When ESearch re
 
 `GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in E-utilities parameters when present. Request settings default to `timeout=30`, `request_delay=0.34`, and `max_retries=3`; the delay keeps the default path below the no-key E-utilities guideline of 3 requests per second.
 
+GEO emits INFO-level progress logs while resolving accessions and collecting metadata for each GSE. GEO emits INFO-level stats for resolved records, dropped records, metadata packages, related records, error/unavailable records, deduplicated output rows, publication links, and original datalink links. GEO DEBUG logs include ESearch/ESummary request details, retry status/attempt/delay, `geo2json` calls, and accession routing decisions.
+
 <a id="cli-atlas"></a>
 ## CLI Atlas
 
@@ -316,7 +322,7 @@ Commands:
 - `filter-jsons`
 - `harmonize-jsons`
 
-Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables `INFO`, and `-vv` enables `DEBUG`. Without `--log-file`, logs go to stderr. With `--log-file`, logs are written to that UTF-8 file only.
+Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stderr. With `--log-file`, logs are written to that UTF-8 file only.
 
 `--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw collected accession list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
 

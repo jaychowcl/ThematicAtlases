@@ -1,3 +1,5 @@
+import logging
+
 from ThematicAtlases import atlas as atlas_module
 from ThematicAtlases.atlas import Atlas
 
@@ -513,3 +515,68 @@ def test_filter_jsons_enriches_only_surviving_publications(monkeypatch) -> None:
         "text_source": "abstractText",
         "full_text_status": "missing_pmcid",
     }
+
+
+def test_collect_jsons_logs_progress_and_stats(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+    caplog.set_level(logging.INFO, logger=atlas_module.__name__)
+
+    Atlas(metadata={}).collect_jsons(query=["a", "b"])
+
+    assert "stage=query-loading" in caplog.text
+    assert "stage=collect-accessions" in caplog.text
+    assert "query_count=2" in caplog.text
+    assert "raw_accessions=2" in caplog.text
+    assert "metadata_records=1" in caplog.text
+
+
+def test_filter_accessions_logs_stats(caplog) -> None:
+    caplog.set_level(logging.INFO, logger=atlas_module.__name__)
+
+    Atlas(metadata={})._filter_accessions(
+        [
+            {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
+            {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
+        ]
+    )
+
+    assert "Atlas accession filter stats" in caplog.text
+    assert "input_accessions=2" in caplog.text
+    assert "output_accessions=1" in caplog.text
+    assert "dropped_accessions=1" in caplog.text
+
+
+def test_collect_accession_metadata_logs_repository_stats(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+    caplog.set_level(logging.INFO, logger=atlas_module.__name__)
+
+    Atlas(metadata={})._collect_accession_metadata(
+        jsons=[
+            {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
+            {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
+        ]
+    )
+
+    assert "Atlas metadata collection progress repository=geo records=1" in caplog.text
+    assert "input_records=2" in caplog.text
+    assert "repositories=geo:1" in caplog.text
+    assert "skipped_records=1" in caplog.text
+
+
+def test_filter_jsons_logs_publication_text_stats(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    caplog.set_level(logging.INFO, logger=atlas_module.__name__)
+
+    Atlas(metadata={}).filter_jsons(
+        jsons=[
+            {
+                "datalink_id": "GSE1",
+                "publications": [{"source": "MED", "epmc_id": "1", "pmid": "1"}],
+            }
+        ]
+    )
+
+    assert "stage=collect-publication-texts" in caplog.text
+    assert "publication_texts=1" in caplog.text
+    assert "accessions_with_text_refs=1" in caplog.text

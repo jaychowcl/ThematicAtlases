@@ -1,3 +1,5 @@
+import logging
+
 import requests
 
 from ThematicAtlases.wrappers import geo as geo_module
@@ -487,6 +489,67 @@ def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
     ]
 
 
+def test_collect_accession_metadata_logs_progress_and_stats(caplog) -> None:
+    caplog.set_level(logging.INFO, logger=geo_module.__name__)
+
+    FakeGEOWrapper().collect_accession_metadata(
+        jsons=[
+            {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
+            {"datalink_id": "GPL1", "datalink_id_scheme": "GEO"},
+        ]
+    )
+
+    assert "stage=resolve-accessions input_records=2" in caplog.text
+    assert "resolved_records=1" in caplog.text
+    assert "dropped_records=1" in caplog.text
+    assert "stage=collect-gse-metadata gse_records=1" in caplog.text
+    assert "output_records=1" in caplog.text
+
+
+def test_collect_gse_metadata_records_logs_progress_and_stats(caplog) -> None:
+    caplog.set_level(logging.INFO, logger=geo_module.__name__)
+
+    FakeGEOWrapper()._collect_gse_metadata_records(
+        records=[
+            {
+                "datalink_id": "GSE1",
+                "publications": [],
+                "original_datalinks": [],
+            }
+        ]
+    )
+
+    assert "GEO metadata progress gse_index=1 gse_total=1 gse_accession=GSE1" in caplog.text
+    assert "metadata_packages=1" in caplog.text
+    assert "output_records=1" in caplog.text
+
+
+def test_deduplicate_gse_jsons_logs_stats(caplog) -> None:
+    caplog.set_level(logging.INFO, logger=geo_module.__name__)
+
+    GEOWrapper()._deduplicate_gse_jsons(
+        jsons=[
+            {
+                "datalink_id": "GSE1",
+                "publications": [{"source": "MED", "epmc_id": "1"}],
+                "original_datalinks": [{"datalink_id": "GSE1"}],
+            },
+            {
+                "datalink_id": "GSE1",
+                "publications": [{"source": "MED", "epmc_id": "2"}],
+                "original_datalinks": [{"datalink_id": "GSM1"}],
+            },
+        ]
+    )
+
+    assert "GEO GSE dedupe stats" in caplog.text
+    assert "input_rows=2" in caplog.text
+    assert "output_rows=1" in caplog.text
+    assert "duplicate_rows_collapsed=1" in caplog.text
+    assert "publication_links=2" in caplog.text
+    assert "original_datalink_links=2" in caplog.text
+
+
 def test_get_gse_returns_gse_without_network(monkeypatch) -> None:
     calls = []
 
@@ -736,7 +799,7 @@ def test_get_gse_sends_expected_request_params(monkeypatch) -> None:
     ]
 
 
-def test_get_gse_retries_transient_failures(monkeypatch) -> None:
+def test_get_gse_retries_transient_failures(monkeypatch, caplog) -> None:
     calls = []
     responses = [
         FakeResponse({}, status_code=503),
@@ -749,9 +812,12 @@ def test_get_gse_retries_transient_failures(monkeypatch) -> None:
 
     monkeypatch.setattr(geo_module.requests, "get", fake_get)
     monkeypatch.setattr(geo_module.time, "sleep", lambda delay: None)
+    caplog.set_level(logging.DEBUG, logger=geo_module.__name__)
 
     assert GEOWrapper(max_retries=1).get_gse("GSM1") is None
     assert len(calls) == 2
+    assert "GEO retry status=503 attempt=1" in caplog.text
+    assert "GEO ESearch request accession='GSM1'" in caplog.text
 
 
 def test_get_gse_honors_retry_after(monkeypatch) -> None:

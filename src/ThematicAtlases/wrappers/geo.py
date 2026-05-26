@@ -1,7 +1,10 @@
+import logging
 import time
 
 from meta_standards_converter.converters.geo2json import geo2json
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class GEOWrapper:
@@ -27,46 +30,99 @@ class GEOWrapper:
 
     def collect_accession_metadata(self, jsons: list[dict]) -> list[dict]:
         records = []
+        dropped_records = 0
+
+        logger.info(
+            "GEO accession metadata progress stage=resolve-accessions input_records=%s",
+            len(jsons),
+        )
 
         for record in jsons:
             gse_accession = self.get_gse(record.get("datalink_id", ""))
 
             if gse_accession is None:
+                dropped_records += 1
                 continue
 
             records.append(self._gse_record(record=record, gse_accession=gse_accession))
 
-        return self._collect_gse_metadata_records(
-            records=self._deduplicate_gse_jsons(jsons=records)
+        deduplicated_records = self._deduplicate_gse_jsons(jsons=records)
+        logger.info(
+            "GEO accession resolution stats input_records=%s resolved_records=%s dropped_records=%s deduplicated_gse_records=%s",
+            len(jsons),
+            len(records),
+            dropped_records,
+            len(deduplicated_records),
         )
+        logger.info(
+            "GEO accession metadata progress stage=collect-gse-metadata gse_records=%s",
+            len(deduplicated_records),
+        )
+        result = self._collect_gse_metadata_records(records=deduplicated_records)
+        logger.info(
+            "GEO accession metadata stats input_records=%s output_records=%s dropped_records=%s",
+            len(jsons),
+            len(result),
+            dropped_records,
+        )
+        return result
 
     def get_gse(self, accession: str) -> str | None:
         accession = self._normalize_accession(accession=accession)
 
         if not accession:
+            logger.debug("GEO accession resolution decision accession=%r result=empty", accession)
             return None
 
         if accession.startswith("GSE"):
+            logger.debug(
+                "GEO accession resolution decision accession=%r result=direct_gse",
+                accession,
+            )
             return accession
 
         if accession.startswith("GPL"):
+            logger.debug(
+                "GEO accession resolution decision accession=%r result=drop_gpl",
+                accession,
+            )
             return None
 
         if not accession.startswith(("GDS", "GSM")):
+            logger.debug(
+                "GEO accession resolution decision accession=%r result=unsupported_prefix",
+                accession,
+            )
             return None
 
         uids = self._search(accession=accession)
 
         if not uids:
+            logger.debug(
+                "GEO accession resolution decision accession=%r result=no_uids",
+                accession,
+            )
             return None
 
         summaries = self._summary(uids=uids)
         summary = self._matching_summary(accession=accession, summaries=summaries)
 
         if summary is None:
+            logger.debug(
+                "GEO accession resolution decision accession=%r result=no_matching_summary uids=%s",
+                accession,
+                len(uids),
+            )
             return None
 
-        return self._gse_from_summary(summary=summary)
+        gse_accession = self._gse_from_summary(summary=summary)
+        logger.debug(
+            "GEO accession resolution decision accession=%r result=%r uids=%s",
+            accession,
+            gse_accession,
+            len(uids),
+        )
+        return gse_accession
 
     def _search(self, accession: str) -> list[str]:
         params = self._params(
@@ -77,8 +133,11 @@ class GEOWrapper:
                 "retmax": 20,
             }
         )
+        logger.debug("GEO ESearch request accession=%r", accession)
         response = self._get(url=f"{self._base_url}/esearch.fcgi", params=params)
-        return response.get("esearchresult", {}).get("idlist", [])
+        uids = response.get("esearchresult", {}).get("idlist", [])
+        logger.debug("GEO ESearch response accession=%r uid_count=%s", accession, len(uids))
+        return uids
 
     def _summary(self, uids: list[str]) -> dict:
         params = self._params(
@@ -88,6 +147,7 @@ class GEOWrapper:
                 "retmode": "json",
             }
         )
+        logger.debug("GEO ESummary request uid_count=%s", len(uids))
         return self._get(url=f"{self._base_url}/esummary.fcgi", params=params)
 
     def _get(self, url: str, params: dict) -> dict:
@@ -102,7 +162,14 @@ class GEOWrapper:
                 response.status_code in self._retry_statuses
                 and attempt < self._request_settings["max_retries"]
             ):
-                time.sleep(self._retry_delay(response=response, attempt=attempt))
+                retry_delay = self._retry_delay(response=response, attempt=attempt)
+                logger.debug(
+                    "GEO retry status=%s attempt=%s delay=%s",
+                    response.status_code,
+                    attempt + 1,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
                 continue
 
             response.raise_for_status()
@@ -160,22 +227,38 @@ class GEOWrapper:
 
     def _collect_gse_metadata_records(self, records: list[dict]) -> list[dict]:
         metadata_records = []
+        packages_returned = 0
+        related_records = 0
+        error_records = 0
+        unavailable_records = 0
 
-        for record in records:
+        for index, record in enumerate(records, start=1):
+            gse_accession = record.get("datalink_id", "")
+            logger.info(
+                "GEO metadata progress gse_index=%s gse_total=%s gse_accession=%s",
+                index,
+                len(records),
+                gse_accession,
+            )
             try:
                 packages = self._gse_metadata_packages(
-                    gse_accession=record.get("datalink_id", "")
+                    gse_accession=gse_accession
                 )
             except Exception:
+                error_records += 1
                 metadata_records.append(self._metadata_error_record(record=record))
                 continue
 
             if not packages:
+                unavailable_records += 1
                 metadata_records.append(self._metadata_unavailable_record(record=record))
                 continue
 
+            packages_returned += len(packages)
             for package in packages:
                 package_gse = self._package_gse_accession(package=package)
+                if package_gse and package_gse != gse_accession:
+                    related_records += 1
                 metadata_records.append(
                     self._metadata_record(
                         record=record,
@@ -184,9 +267,20 @@ class GEOWrapper:
                     )
                 )
 
-        return self._deduplicate_gse_jsons(jsons=metadata_records)
+        result = self._deduplicate_gse_jsons(jsons=metadata_records)
+        logger.info(
+            "GEO metadata stats source_gse_records=%s metadata_packages=%s related_records=%s error_records=%s unavailable_records=%s output_records=%s",
+            len(records),
+            packages_returned,
+            related_records,
+            error_records,
+            unavailable_records,
+            len(result),
+        )
+        return result
 
     def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
+        logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
         return geo2json().convert(
             gse=gse_accession,
             related_series=True,
@@ -265,6 +359,9 @@ class GEOWrapper:
         record_index = {}
         publication_keys = {}
         original_datalink_keys = {}
+        duplicate_rows = 0
+        publication_links = 0
+        original_datalink_links = 0
 
         for record in jsons:
             gse_accession = str(record.get("datalink_id", "")).strip().upper()
@@ -277,6 +374,8 @@ class GEOWrapper:
                 publication_keys[gse_accession] = set()
                 original_datalink_keys[gse_accession] = set()
                 records.append({**record, "publications": [], "original_datalinks": []})
+            else:
+                duplicate_rows += 1
 
             target_record = records[record_index[gse_accession]]
 
@@ -288,6 +387,7 @@ class GEOWrapper:
                 if original_datalink_key not in original_datalink_keys[gse_accession]:
                     original_datalink_keys[gse_accession].add(original_datalink_key)
                     target_record["original_datalinks"].append(original_datalink)
+                    original_datalink_links += 1
 
             for publication in record.get("publications", []):
                 publication_key = self._publication_key(publication=publication)
@@ -295,6 +395,7 @@ class GEOWrapper:
                 if publication_key not in publication_keys[gse_accession]:
                     publication_keys[gse_accession].add(publication_key)
                     target_record["publications"].append(publication)
+                    publication_links += 1
 
             if (
                 target_record.get("metadata_status") != "available"
@@ -310,6 +411,14 @@ class GEOWrapper:
                 if "source_datalink_id" in record:
                     target_record["source_datalink_id"] = record["source_datalink_id"]
 
+        logger.info(
+            "GEO GSE dedupe stats input_rows=%s output_rows=%s duplicate_rows_collapsed=%s publication_links=%s original_datalink_links=%s",
+            len(jsons),
+            len(records),
+            duplicate_rows,
+            publication_links,
+            original_datalink_links,
+        )
         return records
 
     def _original_datalink_key(self, original_datalink: dict) -> tuple:

@@ -24,19 +24,19 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 307-326
+  lines: 313-332
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, quiet stdout
+  keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 327-333
+  lines: 333-339
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 334-352
+  lines: 340-358
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, smoke check, mocked network, publication text, section parsing, GEO wrapper
 
@@ -50,18 +50,18 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 114-245
+  lines: 114-249
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, accession records, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, accession records, progress logs, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 246-258
+  lines: 250-262
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay
 
 - id: geo-wrapper
   title: GEO Wrapper
-  lines: 259-306
+  lines: 263-312
   anchor: geo-wrapper
-  keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email
+  keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs
