@@ -85,7 +85,7 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to allowed GEO records, optionally writes the filtered result list to `out`, and returns the filtered result.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to allowed GEO records, normalizes GEO accessions to GSE records, optionally writes the normalized result list to `out`, and returns the normalized result.
 - `filter_jsons()`: placeholder, returns `None`.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
@@ -100,7 +100,10 @@ Filtering behavior:
 
 - `_filter_jsons(jsons)` is an internal filter used by `collect_jsons()`.
 - Allowed records have `datalink_id_scheme` equal to `GEO`, case-insensitive, or a `datalink_id` starting with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
-- Raw non-GEO datalinks are not preserved by `collect_jsons()` in this step.
+- `_collect_gse_jsons(jsons)` is an internal normalization step used after filtering.
+- GSE normalization uses `GEOWrapper.get_gse()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
+- Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, and records original datalink evidence in `original_datalinks`.
+- Raw non-GEO datalinks are not preserved by `collect_jsons()`.
 
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
@@ -155,6 +158,21 @@ datalink_id_scheme
 datalink_url
 datalink_category
 publications
+```
+
+`Atlas.collect_jsons()` then normalizes these records to GSE accessions. Final atlas records add:
+
+```text
+original_datalinks
+```
+
+Each `original_datalinks` item keeps the original evidence that resolved to the final GSE:
+
+```text
+datalink_id
+datalink_id_scheme
+datalink_url
+datalink_category
 ```
 
 Each `publications` item keeps the publication/query provenance that pointed to the accession:
@@ -222,7 +240,7 @@ These request tuning values are stored together in an internal settings dictiona
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
 
-`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities. It is not wired into `Atlas.collect_jsons()` yet.
+`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities. `Atlas.collect_jsons()` uses it after GEO filtering to produce GSE-level output.
 
 Current public method:
 
@@ -270,7 +288,7 @@ Logging options are global and must appear before the subcommand. Default loggin
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout. Use `--out` as the JSON result channel and logging as the stats channel.
 
-`filter-jsons` and `harmonize-jsons` remain placeholders. `collect-jsons` is implemented through Europe PMC publication search, publication text enrichment, datalink collection, accession deduplication, and GEO filtering.
+`filter-jsons` and `harmonize-jsons` remain placeholders. `collect-jsons` is implemented through Europe PMC publication search, publication text enrichment, datalink collection, accession deduplication, GEO filtering, and GEO-to-GSE normalization.
 
 <a id="archive-reference"></a>
 ## Archive Reference

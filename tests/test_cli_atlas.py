@@ -63,7 +63,7 @@ def test_collect_jsons_writes_outfile(
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_fibrosis",\n    "datalink_id_scheme": "GEO",\n    "publications": []\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_FIBROSIS",\n    "datalink_id_scheme": "GEO",\n    "publications": [],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE_fibrosis",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "",\n        "datalink_category": ""\n      }\n    ]\n  }\n]'
 
 
 def test_verbose_enables_info_logging(
