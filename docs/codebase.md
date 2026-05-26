@@ -61,7 +61,7 @@ tests/test_geo_wrapper.py
 - Version metadata is `0.1.0`.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
-- Runtime dependencies contain `requests>=2.31`.
+- Runtime dependencies contain `requests>=2.31` and `meta-standards-converter` from `jaychowcl/meta_standards_converter`.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The package uses a `src/` layout with setuptools package discovery.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
@@ -168,6 +168,11 @@ publications
 
 ```text
 original_datalinks
+metadata_repository
+metadata_source
+metadata_status
+accession_metadata
+source_datalink_id
 ```
 
 Each `original_datalinks` item keeps the original evidence that resolved to the final GSE:
@@ -247,11 +252,11 @@ These request tuning values are stored together in an internal settings dictiona
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
 
-`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities. `Atlas.collect_jsons()` routes GEO records to it through `_collect_accession_metadata()`.
+`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities and collects parsed GEO MINiML JSON through `meta_standards_converter`. `Atlas.collect_jsons()` routes GEO records to it through `_collect_accession_metadata()`.
 
 Current public methods:
 
-- `collect_accession_metadata(jsons: list[dict]) -> list[dict]`: normalizes GEO records to GSE-level accession records, preserves `original_datalinks` and `publications`, and drops GPL or unresolved records.
+- `collect_accession_metadata(jsons: list[dict]) -> list[dict]`: normalizes GEO records to GSE-level accession records, preserves `original_datalinks` and `publications`, drops GPL or unresolved records, and attaches parsed GEO MINiML JSON metadata.
 - `get_gse(accession: str) -> str | None`: returns a normalized `GSE...` accession or `None`.
 
 Resolution behavior:
@@ -261,7 +266,20 @@ Resolution behavior:
 - `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
 - Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
 - If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
-- GEO MINiML JSON metadata collection is not implemented yet; `collect_accession_metadata()` is the intended location for that later integration.
+- GEO MINiML JSON metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=True, out=None)`.
+- Related GEO super/subseries packages returned by `geo2json` become separate records and inherit the source record's `publications` and `original_datalinks`.
+
+GEO metadata records add:
+
+```text
+metadata_repository
+metadata_source
+metadata_status
+accession_metadata
+source_datalink_id
+```
+
+`metadata_repository` is `geo`, `metadata_source` is `geo2json`, and `metadata_status` is `available` when metadata collection succeeds. If `geo2json` raises for a GSE, the normalized GSE record is retained with `metadata_status="error"` and `accession_metadata=null`. `source_datalink_id` is only present on related-series records where the package accession differs from the source GSE.
 
 The ESearch request uses:
 

@@ -1,5 +1,6 @@
 import time
 
+from meta_standards_converter.converters.geo2json import geo2json
 import requests
 
 
@@ -35,7 +36,9 @@ class GEOWrapper:
 
             records.append(self._gse_record(record=record, gse_accession=gse_accession))
 
-        return self._deduplicate_gse_jsons(jsons=records)
+        return self._collect_gse_metadata_records(
+            records=self._deduplicate_gse_jsons(jsons=records)
+        )
 
     def get_gse(self, accession: str) -> str | None:
         accession = self._normalize_accession(accession=accession)
@@ -154,6 +157,94 @@ class GEOWrapper:
 
     def _normalize_accession(self, accession: str) -> str:
         return str(accession or "").strip().upper()
+
+    def _collect_gse_metadata_records(self, records: list[dict]) -> list[dict]:
+        metadata_records = []
+
+        for record in records:
+            try:
+                packages = self._gse_metadata_packages(
+                    gse_accession=record.get("datalink_id", "")
+                )
+            except Exception:
+                metadata_records.append(self._metadata_error_record(record=record))
+                continue
+
+            if not packages:
+                metadata_records.append(self._metadata_unavailable_record(record=record))
+                continue
+
+            for package in packages:
+                package_gse = self._package_gse_accession(package=package)
+                metadata_records.append(
+                    self._metadata_record(
+                        record=record,
+                        package=package,
+                        package_gse=package_gse or record.get("datalink_id", ""),
+                    )
+                )
+
+        return self._deduplicate_gse_jsons(jsons=metadata_records)
+
+    def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
+        return geo2json().convert(
+            gse=gse_accession,
+            related_series=True,
+            remove_empty=True,
+            enrich=True,
+            out=None,
+        )
+
+    def _package_gse_accession(self, package: dict) -> str:
+        series = package.get("series") or {}
+        accessions = series.get("accession") or []
+
+        if not isinstance(accessions, list):
+            accessions = [accessions]
+
+        for accession in accessions:
+            if isinstance(accession, dict):
+                accession = accession.get("value", "")
+
+            value = self._normalize_accession(accession=accession)
+
+            if value.startswith("GSE"):
+                return value
+
+        return ""
+
+    def _metadata_record(self, record: dict, package: dict, package_gse: str) -> dict:
+        metadata_record = {
+            **record,
+            "datalink_id": package_gse,
+            "metadata_repository": "geo",
+            "metadata_source": "geo2json",
+            "metadata_status": "available",
+            "accession_metadata": package,
+        }
+
+        if package_gse != record.get("datalink_id", ""):
+            metadata_record["source_datalink_id"] = record.get("datalink_id", "")
+
+        return metadata_record
+
+    def _metadata_error_record(self, record: dict) -> dict:
+        return {
+            **record,
+            "metadata_repository": "geo",
+            "metadata_source": "geo2json",
+            "metadata_status": "error",
+            "accession_metadata": None,
+        }
+
+    def _metadata_unavailable_record(self, record: dict) -> dict:
+        return {
+            **record,
+            "metadata_repository": "geo",
+            "metadata_source": "geo2json",
+            "metadata_status": "unavailable",
+            "accession_metadata": None,
+        }
 
     def _gse_record(self, record: dict, gse_accession: str) -> dict:
         return {

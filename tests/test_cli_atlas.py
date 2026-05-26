@@ -23,11 +23,43 @@ class FakeEuropePMCWrapper:
         return publications
 
 
+class FakeGEOWrapper:
+    def collect_accession_metadata(self, jsons: list[dict]) -> list[dict]:
+        return [
+            {
+                **record,
+                "datalink_id": str(record.get("datalink_id", "")).upper(),
+                "original_datalinks": [
+                    {
+                        "datalink_id": record.get("datalink_id", ""),
+                        "datalink_id_scheme": record.get("datalink_id_scheme", ""),
+                        "datalink_url": record.get("datalink_url", ""),
+                        "datalink_category": record.get("datalink_category", ""),
+                    }
+                ],
+                "metadata_repository": "geo",
+                "metadata_source": "geo2json",
+                "metadata_status": "available",
+                "accession_metadata": {
+                    "series": {
+                        "accession": [
+                            {
+                                "value": str(record.get("datalink_id", "")).upper(),
+                            }
+                        ]
+                    }
+                },
+            }
+            for record in jsons
+        ]
+
+
 def test_collect_jsons_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
     assert main(["collect-jsons", "--query", "fibrosis", "--query", "transcriptomics"]) == 0
 
@@ -45,6 +77,7 @@ def test_collect_jsons_accepts_file(
     query_file = tmp_path / "queries.txt"
     query_file.write_text("fibrosis\\ntranscriptomics\\n", encoding="utf-8")
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
     assert main(["collect-jsons", "--file", str(query_file)]) == 0
 
@@ -60,13 +93,14 @@ def test_collect_jsons_writes_outfile(
 ) -> None:
     outfile = tmp_path / "atlas.json"
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
     assert main(["collect-jsons", "--query", "fibrosis", "--out", str(outfile)]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_FIBROSIS",\n    "datalink_id_scheme": "GEO",\n    "publications": [],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE_fibrosis",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "",\n        "datalink_category": ""\n      }\n    ]\n  }\n]'
+    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_FIBROSIS",\n    "datalink_id_scheme": "GEO",\n    "publications": [],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE_fibrosis",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "",\n        "datalink_category": ""\n      }\n    ],\n    "metadata_repository": "geo",\n    "metadata_source": "geo2json",\n    "metadata_status": "available",\n    "accession_metadata": {\n      "series": {\n        "accession": [\n          {\n            "value": "GSE_FIBROSIS"\n          }\n        ]\n      }\n    }\n  }\n]'
 
 
 def test_verbose_enables_info_logging(
@@ -74,6 +108,7 @@ def test_verbose_enables_info_logging(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
     assert main(["--verbose", "collect-jsons", "--query", "fibrosis"]) == 0
 
@@ -91,6 +126,7 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
 ) -> None:
     log_file = tmp_path / "atlas.log"
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
     assert (
         main(

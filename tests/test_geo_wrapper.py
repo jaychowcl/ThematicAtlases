@@ -25,20 +25,39 @@ class FakeResponse:
 
 class FakeGEOWrapper(GEOWrapper):
     accessions: list[str] = []
+    metadata_calls: list[str] = []
     accessions_to_gse: dict[str, str | None] = {
         "GSE1": "GSE1",
         "GSM1": "GSE1",
         "GDS1": "GSE1",
         "GPL1": None,
     }
+    metadata_packages: dict[str, list[dict]] = {
+        "GSE1": [
+            {
+                "series": {
+                    "accession": [
+                        {
+                            "value": "GSE1",
+                        }
+                    ]
+                }
+            }
+        ],
+    }
 
     def get_gse(self, accession: str) -> str | None:
         self.__class__.accessions.append(accession)
         return self.accessions_to_gse.get(accession)
 
+    def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
+        self.__class__.metadata_calls.append(gse_accession)
+        return self.metadata_packages.get(gse_accession, [])
+
 
 def test_collect_accession_metadata_keeps_gse_and_publications() -> None:
     FakeGEOWrapper.accessions = []
+    FakeGEOWrapper.metadata_calls = []
     records = [
         {
             "datalink_id": "GSE1",
@@ -64,13 +83,27 @@ def test_collect_accession_metadata_keeps_gse_and_publications() -> None:
                     "datalink_category": "GEO",
                 }
             ],
+            "metadata_repository": "geo",
+            "metadata_source": "geo2json",
+            "metadata_status": "available",
+            "accession_metadata": {
+                "series": {
+                    "accession": [
+                        {
+                            "value": "GSE1",
+                        }
+                    ]
+                }
+            },
         }
     ]
     assert FakeGEOWrapper.accessions == ["GSE1"]
+    assert FakeGEOWrapper.metadata_calls == ["GSE1"]
 
 
 def test_collect_accession_metadata_resolves_gsm_and_preserves_original_metadata() -> None:
     FakeGEOWrapper.accessions = []
+    FakeGEOWrapper.metadata_calls = []
     records = [
         {
             "datalink_id": "GSM1",
@@ -93,6 +126,17 @@ def test_collect_accession_metadata_resolves_gsm_and_preserves_original_metadata
         }
     ]
     assert result[0]["publications"] == [{"source": "MED", "epmc_id": "1"}]
+    assert result[0]["metadata_status"] == "available"
+    assert result[0]["accession_metadata"] == {
+        "series": {
+            "accession": [
+                {
+                    "value": "GSE1",
+                }
+            ]
+        }
+    }
+    assert FakeGEOWrapper.metadata_calls == ["GSE1"]
 
 
 def test_collect_accession_metadata_resolves_gds() -> None:
@@ -193,6 +237,209 @@ def test_collect_accession_metadata_collapses_same_gse_and_merges_metadata() -> 
             "pmcid": "PMC2",
             "doi": "10.1/two",
         },
+    ]
+    assert result[0]["metadata_status"] == "available"
+
+
+def test_collect_accession_metadata_includes_related_gse_records() -> None:
+    class LocalGEOWrapper(FakeGEOWrapper):
+        metadata_packages = {
+            "GSE1": [
+                {
+                    "series": {
+                        "accession": [
+                            {
+                                "value": "GSE1",
+                            }
+                        ]
+                    }
+                },
+                {
+                    "series": {
+                        "accession": [
+                            {
+                                "value": "GSE2",
+                            }
+                        ]
+                    }
+                },
+            ]
+        }
+
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        }
+    ]
+
+    result = LocalGEOWrapper().collect_accession_metadata(jsons=records)
+
+    assert [record["datalink_id"] for record in result] == ["GSE1", "GSE2"]
+    assert result[1]["source_datalink_id"] == "GSE1"
+    assert result[1]["publications"] == [{"source": "MED", "epmc_id": "1"}]
+    assert result[1]["original_datalinks"] == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+        }
+    ]
+
+
+def test_collect_accession_metadata_merges_duplicate_related_gse_provenance() -> None:
+    class LocalGEOWrapper(FakeGEOWrapper):
+        accessions_to_gse = {
+            "GSE1": "GSE1",
+            "GSE3": "GSE3",
+        }
+        metadata_packages = {
+            "GSE1": [
+                {
+                    "series": {
+                        "accession": [
+                            {
+                                "value": "GSE2",
+                            }
+                        ]
+                    }
+                }
+            ],
+            "GSE3": [
+                {
+                    "series": {
+                        "accession": [
+                            {
+                                "value": "GSE2",
+                            }
+                        ]
+                    }
+                }
+            ],
+        }
+
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        },
+        {
+            "datalink_id": "GSE3",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE3",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "3"}],
+        },
+    ]
+
+    result = LocalGEOWrapper().collect_accession_metadata(jsons=records)
+
+    assert len(result) == 1
+    assert result[0]["datalink_id"] == "GSE2"
+    assert result[0]["publications"] == [
+        {"source": "MED", "epmc_id": "1"},
+        {"source": "MED", "epmc_id": "3"},
+    ]
+    assert result[0]["original_datalinks"] == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+        },
+        {
+            "datalink_id": "GSE3",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE3",
+            "datalink_category": "GEO",
+        },
+    ]
+
+
+def test_collect_accession_metadata_keeps_record_when_metadata_collection_fails() -> None:
+    class LocalGEOWrapper(FakeGEOWrapper):
+        def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
+            raise RuntimeError("boom")
+
+    result = LocalGEOWrapper().collect_accession_metadata(
+        jsons=[
+            {
+                "datalink_id": "GSE1",
+                "datalink_id_scheme": "GEO",
+                "publications": [],
+            }
+        ]
+    )
+
+    assert result[0]["datalink_id"] == "GSE1"
+    assert result[0]["metadata_repository"] == "geo"
+    assert result[0]["metadata_source"] == "geo2json"
+    assert result[0]["metadata_status"] == "error"
+    assert result[0]["accession_metadata"] is None
+
+
+def test_package_gse_accession_extracts_series_accession() -> None:
+    assert (
+        GEOWrapper()._package_gse_accession(
+            package={
+                "series": {
+                    "accession": [
+                        {
+                            "value": "gse123",
+                        }
+                    ]
+                }
+            }
+        )
+        == "GSE123"
+    )
+
+
+def test_package_gse_accession_extracts_string_series_accession() -> None:
+    assert (
+        GEOWrapper()._package_gse_accession(
+            package={
+                "series": {
+                    "accession": "gse456",
+                }
+            }
+        )
+        == "GSE456"
+    )
+
+
+def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
+    calls = []
+
+    class FakeGeo2JsonConverter:
+        def convert(self, **kwargs):
+            calls.append(kwargs)
+            return [{"series": {"accession": [{"value": "GSE1"}]}}]
+
+    monkeypatch.setattr(
+        geo_module,
+        "geo2json",
+        lambda: FakeGeo2JsonConverter(),
+    )
+
+    assert GEOWrapper()._gse_metadata_packages(gse_accession="GSE1") == [
+        {"series": {"accession": [{"value": "GSE1"}]}}
+    ]
+    assert calls == [
+        {
+            "gse": "GSE1",
+            "related_series": True,
+            "remove_empty": True,
+            "enrich": True,
+            "out": None,
+        }
     ]
 
 
