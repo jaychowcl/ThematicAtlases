@@ -26,7 +26,7 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
   title: CLI Atlas
   lines: 313-332
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, progress logs, stats logs, debug logs, quiet stdout
+  keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stdout logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference

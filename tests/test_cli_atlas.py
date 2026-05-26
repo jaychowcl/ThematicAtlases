@@ -114,9 +114,9 @@ def test_verbose_enables_info_logging(
 
     output = capsys.readouterr()
 
-    assert output.out == ""
-    assert "INFO:ThematicAtlases.test:fake info" in output.err
-    assert "DEBUG:ThematicAtlases.test:fake debug" not in output.err
+    assert "INFO:ThematicAtlases.test:fake info" in output.out
+    assert "DEBUG:ThematicAtlases.test:fake debug" not in output.out
+    assert output.err == ""
 
 
 def test_verbose_log_file_writes_logs_and_keeps_stdout_json(

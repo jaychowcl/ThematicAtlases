@@ -322,11 +322,11 @@ Commands:
 - `filter-jsons`
 - `harmonize-jsons`
 
-Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stderr. With `--log-file`, logs are written to that UTF-8 file only.
+Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
 `--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw collected accession list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
 
-Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout. Use `--out` as the JSON result channel and logging as the stats channel.
+Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
 The CLI `filter-jsons` command still has no file input options, so it calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=...)` is implemented as the publication text mapping stage.
 

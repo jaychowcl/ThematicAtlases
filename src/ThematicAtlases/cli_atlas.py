@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 
 from ThematicAtlases.atlas import Atlas
 
@@ -53,6 +54,8 @@ def _configure_logging(verbosity: int, log_file: str | None) -> None:
     if log_file is not None:
         logging_kwargs["filename"] = log_file
         logging_kwargs["encoding"] = "utf-8"
+    else:
+        logging_kwargs["stream"] = sys.stdout
 
     logging.basicConfig(**logging_kwargs)
 
