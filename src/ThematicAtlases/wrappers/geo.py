@@ -296,6 +296,20 @@ class GEOWrapper:
                     publication_keys[gse_accession].add(publication_key)
                     target_record["publications"].append(publication)
 
+            if (
+                target_record.get("metadata_status") != "available"
+                and record.get("metadata_status") == "available"
+            ):
+                target_record["metadata_repository"] = record.get(
+                    "metadata_repository", ""
+                )
+                target_record["metadata_source"] = record.get("metadata_source", "")
+                target_record["metadata_status"] = record.get("metadata_status", "")
+                target_record["accession_metadata"] = record.get("accession_metadata")
+
+                if "source_datalink_id" in record:
+                    target_record["source_datalink_id"] = record["source_datalink_id"]
+
         return records
 
     def _original_datalink_key(self, original_datalink: dict) -> tuple:

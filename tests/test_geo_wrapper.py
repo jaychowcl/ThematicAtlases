@@ -363,6 +363,50 @@ def test_collect_accession_metadata_merges_duplicate_related_gse_provenance() ->
     ]
 
 
+def test_deduplicate_gse_jsons_keeps_first_available_metadata() -> None:
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "metadata_repository": "geo",
+            "metadata_source": "geo2json",
+            "metadata_status": "error",
+            "accession_metadata": None,
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+            "original_datalinks": [{"datalink_id": "GSE1"}],
+        },
+        {
+            "datalink_id": "GSE1",
+            "metadata_repository": "geo",
+            "metadata_source": "geo2json",
+            "metadata_status": "available",
+            "accession_metadata": {
+                "series": {
+                    "accession": "GSE1",
+                }
+            },
+            "publications": [{"source": "MED", "epmc_id": "2"}],
+            "original_datalinks": [{"datalink_id": "GSM1"}],
+        },
+    ]
+
+    result = GEOWrapper()._deduplicate_gse_jsons(jsons=records)
+
+    assert result[0]["metadata_status"] == "available"
+    assert result[0]["accession_metadata"] == {
+        "series": {
+            "accession": "GSE1",
+        }
+    }
+    assert result[0]["publications"] == [
+        {"source": "MED", "epmc_id": "1"},
+        {"source": "MED", "epmc_id": "2"},
+    ]
+    assert result[0]["original_datalinks"] == [
+        {"datalink_id": "GSE1"},
+        {"datalink_id": "GSM1"},
+    ]
+
+
 def test_collect_accession_metadata_keeps_record_when_metadata_collection_fails() -> None:
     class LocalGEOWrapper(FakeGEOWrapper):
         def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:

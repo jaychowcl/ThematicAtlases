@@ -105,7 +105,8 @@ Filtering behavior:
 - `_metadata_repository(record)` currently returns `geo` for handled GEO records and `None` for unhandled records.
 - `_metadata_handler(repository)` currently routes `geo` records to `GEOWrapper`.
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
-- Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, and records original datalink evidence in `original_datalinks`.
+- Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
+- Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
 - `_collect_publication_texts(jsons)` runs after GSE normalization. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and merges enriched text fields back into each final accession record.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
 
@@ -252,11 +253,11 @@ These request tuning values are stored together in an internal settings dictiona
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
 
-`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities and collects parsed GEO MINiML JSON through `meta_standards_converter`. `Atlas.collect_jsons()` routes GEO records to it through `_collect_accession_metadata()`.
+`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities and appends parsed GEO MINiML JSON through `meta_standards_converter`. `Atlas.collect_jsons()` routes GEO records to it through `_collect_accession_metadata()`.
 
 Current public methods:
 
-- `collect_accession_metadata(jsons: list[dict]) -> list[dict]`: normalizes GEO records to GSE-level accession records, preserves `original_datalinks` and `publications`, drops GPL or unresolved records, and attaches parsed GEO MINiML JSON metadata.
+- `collect_accession_metadata(jsons: list[dict]) -> list[dict]`: normalizes GEO records to GSE-level accession records, preserves `original_datalinks` and `publications`, drops GPL or unresolved records, and appends parsed GEO MINiML JSON metadata under each final record's `accession_metadata`.
 - `get_gse(accession: str) -> str | None`: returns a normalized `GSE...` accession or `None`.
 
 Resolution behavior:
@@ -266,8 +267,8 @@ Resolution behavior:
 - `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
 - Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
 - If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
-- GEO MINiML JSON metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=True, out=None)`.
-- Related GEO super/subseries packages returned by `geo2json` become separate records and inherit the source record's `publications` and `original_datalinks`.
+- GEO MINiML JSON metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=True, out=None)` and is appended directly to each output record as `accession_metadata`.
+- Related GEO super/subseries packages returned by `geo2json` become separate records, inherit the source record's `publications` and `original_datalinks`, and receive their own `accession_metadata` package.
 
 GEO metadata records add:
 
@@ -279,7 +280,7 @@ accession_metadata
 source_datalink_id
 ```
 
-`metadata_repository` is `geo`, `metadata_source` is `geo2json`, and `metadata_status` is `available` when metadata collection succeeds. If `geo2json` raises for a GSE, the normalized GSE record is retained with `metadata_status="error"` and `accession_metadata=null`. `source_datalink_id` is only present on related-series records where the package accession differs from the source GSE.
+`metadata_repository` is `geo`, `metadata_source` is `geo2json`, and `metadata_status` is `available` when metadata collection succeeds. If `geo2json` raises for a GSE, the normalized GSE record is retained with `metadata_status="error"` and `accession_metadata=null`. When duplicate records collapse to the same GSE, the first available `accession_metadata` package is kept. `source_datalink_id` is only present on related-series records where the package accession differs from the source GSE.
 
 The ESearch request uses:
 
