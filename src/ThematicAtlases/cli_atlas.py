@@ -1,5 +1,3 @@
-"""Command-line interface for the Atlas placeholder workflow."""
-
 from __future__ import annotations
 
 import argparse

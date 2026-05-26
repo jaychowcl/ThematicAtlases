@@ -22,7 +22,10 @@ Live package files:
 src/ThematicAtlases/
 ├── __init__.py
 ├── atlas.py
-└── cli_atlas.py
+├── cli_atlas.py
+└── wrappers/
+    ├── __init__.py
+    └── epmc.py
 ```
 
 Root project files:
@@ -43,6 +46,7 @@ docs/dev.md
 docs/memory.md
 docs/burndown.md
 tests/test_cli_atlas.py
+tests/test_atlas.py
 ```
 
 There is currently no live config or data directory.
@@ -63,13 +67,7 @@ There is currently no live config or data directory.
 <a id="public-api"></a>
 ## Public API
 
-`src/ThematicAtlases/__init__.py` currently contains only the package docstring:
-
-```python
-"""Public package interface for ThematicAtlases."""
-```
-
-It does not currently export `Atlas`, `ThematicAtlas`, `__version__`, or any other symbol.
+`src/ThematicAtlases/__init__.py` is currently empty. It does not export `Atlas`, `ThematicAtlas`, `__version__`, or any other symbol.
 
 The only class currently present in live package code is `Atlas` in `src/ThematicAtlases/atlas.py`. Import callers must use:
 
@@ -85,11 +83,22 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons()`: placeholder, returns `None`.
+- `collect_jsons()`: calls `EuropePMCWrapper.collect_accessions()` and returns its result.
 - `filter_jsons(filter_criteria: dict)`: placeholder, returns `None`.
 - `harmonize_jsons(harmonization_criteria: dict)`: placeholder, returns `None`.
 
-All methods currently use `pass`; there are no side effects, validation, data collection, filtering, or harmonization behaviors implemented yet.
+Filtering and harmonization currently use `pass`; there are no side effects, validation, filtering, or harmonization behaviors implemented yet.
+
+<a id="epmc-wrapper"></a>
+### EuropePMC Wrapper
+
+`ThematicAtlases.wrappers.epmc.EuropePMCWrapper` is a scaffold for future EuropePMC accession collection.
+
+Current behavior:
+
+- `collect_accessions() -> list[dict]` returns `[]`.
+- No network calls are made.
+- No archived wrapper code is imported.
 
 <a id="cli-atlas"></a>
 ## CLI Atlas
@@ -105,7 +114,7 @@ Commands:
 Each command instantiates `Atlas(metadata={})`, calls the matching placeholder method, and prints compact JSON:
 
 ```json
-{"command":"collect-jsons","status":"placeholder","result":null}
+{"command":"collect-jsons","status":"placeholder","result":[]}
 ```
 
 <a id="archive-reference"></a>
@@ -118,12 +127,12 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests currently cover the CLI placeholder behavior in `tests/test_cli_atlas.py`.
+Live tests currently cover the CLI placeholder behavior and the `Atlas.collect_jsons()` wrapper call.
 
 Useful checks for the current skeleton:
 
 ```bash
-python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py
+python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py
 python3 -m pytest
 ```
 

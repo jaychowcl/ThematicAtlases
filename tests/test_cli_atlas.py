@@ -11,7 +11,7 @@ def test_collect_jsons_emits_placeholder_response(capsys: pytest.CaptureFixture[
     assert json.loads(capsys.readouterr().out) == {
         "command": "collect-jsons",
         "status": "placeholder",
-        "result": None,
+        "result": [],
     }
 
 

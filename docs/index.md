@@ -6,37 +6,37 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: project-purpose-and-layout
   title: Project Purpose And Layout
-  lines: 14-49
+  lines: 14-53
   anchor: project-purpose-and-layout
   keywords: purpose, layout, src, docs, tests, package files
 
 - id: runtime-and-packaging
   title: Runtime And Packaging
-  lines: 50-62
+  lines: 54-66
   anchor: runtime-and-packaging
   keywords: pyproject, setuptools, version, dependencies, pytest, console script
 
 - id: public-api
   title: Public API
-  lines: 63-79
+  lines: 67-77
   anchor: public-api
   keywords: import, __init__, exports, Atlas
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 94-112
+  lines: 103-119
   anchor: cli-atlas
   keywords: cli_atlas, argparse, no args, collect-jsons, filter-jsons, harmonize-jsons
 
 - id: archive-reference
   title: Archive Reference
-  lines: 113-119
+  lines: 120-126
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 120-138
+  lines: 127-145
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, smoke check
 
@@ -44,6 +44,12 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: atlas-stub
   title: Atlas Stub
-  lines: 80-93
+  lines: 78-91
   anchor: atlas-stub
   keywords: Atlas, collect_jsons, filter_jsons, harmonize_jsons, placeholder
+
+- id: epmc-wrapper
+  title: EuropePMC Wrapper
+  lines: 92-102
+  anchor: epmc-wrapper
+  keywords: EuropePMCWrapper, collect_accessions, wrapper, scaffold
