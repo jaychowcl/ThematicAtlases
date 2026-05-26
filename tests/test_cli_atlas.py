@@ -162,7 +162,7 @@ def test_double_verbose_enables_debug_logging(tmp_path) -> None:
     )
 
 
-def test_filter_jsons_does_not_emit_stdout(capsys: pytest.CaptureFixture[str]) -> None:
+def test_filter_command_does_not_emit_stdout(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["filter-jsons"]) == 0
 
     output = capsys.readouterr()

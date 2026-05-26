@@ -98,7 +98,7 @@ Query loading behavior:
 
 Filtering behavior:
 
-- `_filter_jsons(jsons)` is an internal filter used by `collect_jsons()` to keep accessions handled by the live workflow.
+- `_filter_accessions(accessions)` is an internal filter used by `collect_jsons()` to keep accessions handled by the live workflow.
 - `_is_handled_accession(record)` currently uses the GEO rules: records are handled when `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
 - Future platform support should extend `_is_handled_accession(record)` with additional platform checks.
 - `_collect_accession_metadata(jsons)` is the metadata repository routing step used after filtering.

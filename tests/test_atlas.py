@@ -150,18 +150,18 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
     assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "datalink_url": "https://example.org/GSE1",\n    "datalink_category": "GEO",\n    "publications": [\n      {\n        "source": "MED",\n        "epmc_id": "1",\n        "text": "Text 1",\n        "text_source": "abstractText",\n        "full_text_status": "missing_pmcid"\n      }\n    ],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE1",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "https://example.org/GSE1",\n        "datalink_category": "GEO"\n      }\n    ]\n  }\n]'
 
 
-def test_filter_jsons_keeps_handled_geo_scheme() -> None:
+def test_filter_accessions_keeps_handled_geo_scheme() -> None:
     records = [
         {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"},
         {"datalink_id": "ERR2", "datalink_id_scheme": "ENA"},
     ]
 
-    assert Atlas(metadata={})._filter_jsons(records) == [
+    assert Atlas(metadata={})._filter_accessions(records) == [
         {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"}
     ]
 
 
-def test_filter_jsons_keeps_handled_geo_prefixes() -> None:
+def test_filter_accessions_keeps_handled_geo_prefixes() -> None:
     records = [
         {"datalink_id": "GSE1", "datalink_id_scheme": ""},
         {"datalink_id": "GSM1", "datalink_id_scheme": "URL"},
@@ -169,10 +169,10 @@ def test_filter_jsons_keeps_handled_geo_prefixes() -> None:
         {"datalink_id": "GDS1", "datalink_id_scheme": "BioProject"},
     ]
 
-    assert Atlas(metadata={})._filter_jsons(records) == records
+    assert Atlas(metadata={})._filter_accessions(records) == records
 
 
-def test_filter_jsons_drops_unhandled_records() -> None:
+def test_filter_accessions_drops_unhandled_records() -> None:
     records = [
         {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
         {"datalink_id": "PRJ1", "datalink_id_scheme": "BioProject"},
@@ -181,16 +181,16 @@ def test_filter_jsons_drops_unhandled_records() -> None:
         {"datalink_id": "ABC1", "datalink_id_scheme": ""},
     ]
 
-    assert Atlas(metadata={})._filter_jsons(records) == []
+    assert Atlas(metadata={})._filter_accessions(records) == []
 
 
-def test_filter_jsons_is_case_insensitive() -> None:
+def test_filter_accessions_is_case_insensitive() -> None:
     records = [
         {"datalink_id": "gse1", "datalink_id_scheme": ""},
         {"datalink_id": "ERR1", "datalink_id_scheme": "geo"},
     ]
 
-    assert Atlas(metadata={})._filter_jsons(records) == records
+    assert Atlas(metadata={})._filter_accessions(records) == records
 
 
 def test_is_handled_accession_uses_current_geo_rules() -> None:

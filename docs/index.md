@@ -46,7 +46,7 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
   title: Atlas Workflow
   lines: 80-112
   anchor: atlas-workflow
-  keywords: Atlas, collect_jsons, query, file, out, empty queries, _filter_jsons, _is_handled_accession, _collect_accession_metadata, _metadata_repository, _metadata_handler, _collect_publication_texts, handled accessions, GEO, GSE normalization, publication text, original_datalinks, filter_jsons, harmonize_jsons
+  keywords: Atlas, collect_jsons, query, file, out, empty queries, _filter_accessions, _is_handled_accession, _collect_accession_metadata, _metadata_repository, _metadata_handler, _collect_publication_texts, handled accessions, GEO, GSE normalization, publication text, original_datalinks, filter_jsons, harmonize_jsons
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper

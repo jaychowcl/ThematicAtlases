@@ -18,10 +18,10 @@ class Atlas():
                 if line.strip() and not line.strip().startswith("#")
             ]
 
-    def _filter_jsons(self, jsons: list[dict]) -> list[dict]:
+    def _filter_accessions(self, accessions: list[dict]) -> list[dict]:
         return [
             record
-            for record in jsons
+            for record in accessions
             if self._is_handled_accession(record=record)
         ]
 
@@ -121,7 +121,7 @@ class Atlas():
         if file is not None:
             queries.extend(self._load_queries(file))
 
-        result = self._filter_jsons(
+        result = self._filter_accessions(
             EuropePMCWrapper().collect_accessions(queries=queries)
         )
         result = self._collect_accession_metadata(jsons=result)
