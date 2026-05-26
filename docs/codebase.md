@@ -138,6 +138,8 @@ firstPublicationDate
 
 This is a temporary return shape for the first implementation slice. Dataset datalink and accession extraction are not implemented yet.
 
+Each query logs one INFO-level search stats message with the query, total hits from `hitCount` when present, collected hits, fetched pages, page limit, whether the page limit stopped pagination, and final cursor. Library code defines the logger but does not configure global logging.
+
 <a id="rate-handling"></a>
 ### Rate Handling
 
@@ -164,7 +166,7 @@ Commands:
 
 `--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope. The local VS Code launch config passes `--file .dev/queries.txt --out .dev/atlas.json`.
 
-Each command instantiates `Atlas(metadata={})`, calls the matching method, and prints compact JSON:
+Each command instantiates `Atlas(metadata={})`, calls the matching method, configures INFO logs to stderr, and prints compact JSON to stdout:
 
 ```json
 {"command":"collect-jsons","status":"placeholder","result":[...]}

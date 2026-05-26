@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 import requests
 
@@ -194,3 +196,79 @@ def test_collect_publications_honors_retry_after(monkeypatch) -> None:
     EuropePMCWrapper(max_retries=1).collect_publications(queries=["q"])
 
     assert sleeps == [3.0]
+
+
+def test_collect_publications_logs_search_stats(monkeypatch, caplog) -> None:
+    responses = [
+        FakeResponse(
+            {
+                "hitCount": 3,
+                "resultList": {"result": [{"id": "1"}, {"id": "2"}]},
+                "nextCursorMark": "page-2",
+            }
+        ),
+        FakeResponse(
+            {
+                "hitCount": 3,
+                "resultList": {"result": [{"id": "3"}]},
+                "nextCursorMark": None,
+            }
+        ),
+    ]
+
+    def fake_get(url, params, timeout):
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    result = EuropePMCWrapper(page_limit=5).collect_publications(queries=["q"])
+
+    assert [row["epmc_id"] for row in result] == ["1", "2", "3"]
+    assert "total_hits=3" in caplog.text
+    assert "collected_hits=3" in caplog.text
+    assert "pages_fetched=2" in caplog.text
+    assert "page_limit_reached=False" in caplog.text
+
+
+def test_collect_publications_logs_page_limit_reached(monkeypatch, caplog) -> None:
+    def fake_get(url, params, timeout):
+        return FakeResponse(
+            {
+                "hitCount": 2,
+                "resultList": {"result": [{"id": "1"}]},
+                "nextCursorMark": "page-2",
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    EuropePMCWrapper(page_limit=1).collect_publications(queries=["q"])
+
+    assert "total_hits=2" in caplog.text
+    assert "collected_hits=1" in caplog.text
+    assert "pages_fetched=1" in caplog.text
+    assert "page_limit_reached=True" in caplog.text
+
+
+def test_collect_publications_logs_empty_page_as_fetched(monkeypatch, caplog) -> None:
+    def fake_get(url, params, timeout):
+        return FakeResponse(
+            {
+                "hitCount": 0,
+                "resultList": {"result": []},
+                "nextCursorMark": None,
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    result = EuropePMCWrapper().collect_publications(queries=["q"])
+
+    assert result == []
+    assert "total_hits=0" in caplog.text
+    assert "collected_hits=0" in caplog.text
+    assert "pages_fetched=1" in caplog.text

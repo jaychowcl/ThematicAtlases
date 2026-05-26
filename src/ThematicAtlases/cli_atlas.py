@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from typing import Any
 
 from ThematicAtlases.atlas import Atlas
@@ -45,6 +46,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s:%(name)s:%(message)s",
+    )
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 

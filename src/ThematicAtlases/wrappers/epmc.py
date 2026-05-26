@@ -1,6 +1,9 @@
+import logging
 import time
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class EuropePMCWrapper:
@@ -31,10 +34,18 @@ class EuropePMCWrapper:
         for query in queries:
             cursor = "*"
             page = 0
+            total_hits = None
+            collected_hits = 0
+            page_limit_reached = False
 
             while cursor is not None and page < self._request_settings["page_limit"]:
                 response_data = self._search(query=query, cursor=cursor)
                 hits = response_data.get("resultList", {}).get("result", [])
+
+                if total_hits is None:
+                    total_hits = response_data.get("hitCount")
+
+                page += 1
 
                 if not hits:
                     break
@@ -42,16 +53,29 @@ class EuropePMCWrapper:
                 for hit in hits:
                     publications.append(self._publication_from_hit(query=query, hit=hit))
 
+                collected_hits += len(hits)
                 next_cursor = response_data.get("nextCursorMark")
-                page += 1
 
                 if next_cursor == cursor:
                     break
 
                 cursor = next_cursor
 
-                if cursor is not None and page < self._request_settings["page_limit"]:
+                if cursor is not None and page >= self._request_settings["page_limit"]:
+                    page_limit_reached = True
+                elif cursor is not None:
                     time.sleep(self._request_settings["request_delay"])
+
+            logger.info(
+                "EuropePMC search stats query=%r total_hits=%s collected_hits=%s pages_fetched=%s page_limit=%s page_limit_reached=%s final_cursor=%r",
+                query,
+                total_hits,
+                collected_hits,
+                page,
+                self._request_settings["page_limit"],
+                page_limit_reached,
+                cursor,
+            )
 
         return publications
 
