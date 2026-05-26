@@ -1,20 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-from typing import Any
 
 from ThematicAtlases.atlas import Atlas
-
-
-def _emit(command: str, result: Any) -> None:
-    payload = {
-        "command": command,
-        "status": "placeholder",
-        "result": result,
-    }
-    print(json.dumps(payload, separators=(",", ":")))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -77,19 +66,18 @@ def main(argv: list[str] | None = None) -> int:
     atlas = Atlas(metadata={})
 
     if args.command == "collect-jsons":
-        result = atlas.collect_jsons(
+        atlas.collect_jsons(
             query=args.query,
             file=args.file,
             out=args.out,
         )
     elif args.command == "filter-jsons":
-        result = atlas.filter_jsons()
+        atlas.filter_jsons()
     elif args.command == "harmonize-jsons":
-        result = atlas.harmonize_jsons()
+        atlas.harmonize_jsons()
     else:
         parser.error(f"unknown command: {args.command}")
 
-    _emit(args.command, result)
     return 0
 
 

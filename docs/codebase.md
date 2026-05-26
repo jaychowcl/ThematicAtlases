@@ -194,11 +194,7 @@ Logging options are global and must appear before the subcommand. Default loggin
 
 `--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
 
-Each command instantiates `Atlas(metadata={})`, calls the matching method, configures logging from CLI options, and prints compact JSON to stdout:
-
-```json
-{"command":"collect-jsons","status":"placeholder","result":[...]}
-```
+Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout. Use `--out` as the JSON result channel and logging as the stats channel.
 
 The status remains `placeholder` because filtering, harmonization, and true accession extraction are still incomplete.
 

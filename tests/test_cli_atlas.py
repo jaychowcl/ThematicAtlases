@@ -1,4 +1,3 @@
-import json
 import logging
 
 import pytest
@@ -14,7 +13,7 @@ class FakeEuropePMCWrapper:
         return [{"epmc_id": query} for query in queries]
 
 
-def test_collect_jsons_emits_placeholder_response(
+def test_collect_jsons_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
 ) -> None:
@@ -24,11 +23,7 @@ def test_collect_jsons_emits_placeholder_response(
 
     output = capsys.readouterr()
 
-    assert json.loads(output.out) == {
-        "command": "collect-jsons",
-        "status": "placeholder",
-        "result": [{"epmc_id": "fibrosis"}, {"epmc_id": "transcriptomics"}],
-    }
+    assert output.out == ""
     assert output.err == ""
 
 
@@ -43,11 +38,9 @@ def test_collect_jsons_accepts_file(
 
     assert main(["collect-jsons", "--file", str(query_file)]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {
-        "command": "collect-jsons",
-        "status": "placeholder",
-        "result": [{"epmc_id": "fibrosis"}, {"epmc_id": "transcriptomics"}],
-    }
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
 
 
 def test_collect_jsons_writes_outfile(
@@ -60,11 +53,9 @@ def test_collect_jsons_writes_outfile(
 
     assert main(["collect-jsons", "--query", "fibrosis", "--out", str(outfile)]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {
-        "command": "collect-jsons",
-        "status": "placeholder",
-        "result": [{"epmc_id": "fibrosis"}],
-    }
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
     assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "epmc_id": "fibrosis"\n  }\n]'
 
 
@@ -78,11 +69,7 @@ def test_verbose_enables_info_logging(
 
     output = capsys.readouterr()
 
-    assert json.loads(output.out) == {
-        "command": "collect-jsons",
-        "status": "placeholder",
-        "result": [{"epmc_id": "fibrosis"}],
-    }
+    assert output.out == ""
     assert "INFO:ThematicAtlases.test:fake info" in output.err
     assert "DEBUG:ThematicAtlases.test:fake debug" not in output.err
 
@@ -111,11 +98,7 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
 
     output = capsys.readouterr()
 
-    assert json.loads(output.out) == {
-        "command": "collect-jsons",
-        "status": "placeholder",
-        "result": [{"epmc_id": "fibrosis"}],
-    }
+    assert output.out == ""
     assert output.err == ""
     log_text = log_file.read_text(encoding="utf-8")
     assert "INFO:ThematicAtlases.test:fake info" in log_text
@@ -133,26 +116,22 @@ def test_double_verbose_enables_debug_logging(tmp_path) -> None:
     )
 
 
-def test_filter_jsons_emits_placeholder_response(capsys: pytest.CaptureFixture[str]) -> None:
+def test_filter_jsons_does_not_emit_stdout(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["filter-jsons"]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {
-        "command": "filter-jsons",
-        "status": "placeholder",
-        "result": None,
-    }
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
 
 
-def test_harmonize_jsons_emits_placeholder_response(
+def test_harmonize_jsons_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main(["harmonize-jsons"]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {
-        "command": "harmonize-jsons",
-        "status": "placeholder",
-        "result": None,
-    }
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
 
 
 def test_unknown_command_exits_with_argparse_error() -> None:
