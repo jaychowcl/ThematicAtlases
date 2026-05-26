@@ -111,6 +111,7 @@ Current public methods:
 - `collect_publications(queries: list[str]) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
 - `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
 - `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows and returns flattened dataset datalinks.
+- `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
 
 The wrapper uses `requests.get()` against:
 
@@ -177,7 +178,15 @@ Publication text enrichment uses:
 https://www.ebi.ac.uk/europepmc/webservices/rest/{id}/fullTextXML
 ```
 
-The full-text ID is the publication `pmcid` when present, or `epmc_id` when it is PMC-style. Successful fullTextXML responses are parsed into plain text and stored as `text` with `text_source="fullTextXML"` and `full_text_status="available"`. If full text is unavailable, non-open-access, missing a PMC identifier, or fails with an unrecoverable error, the publication remains in provenance and `text` falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` or `none`, and `full_text_status` is `unavailable`, `missing_pmcid`, or `error`. Publisher pages and `fullTextUrls` are not fetched.
+The full-text ID is the publication `pmcid` when present, or `epmc_id` when it is PMC-style. Successful fullTextXML responses are parsed into section-delimited plain text and stored as `text` with `text_source="fullTextXML"` and `full_text_status="available"`. Section delimiters use this exact sentinel, which downstream parsers may split on:
+
+```text
+<<<THEMATIC_ATLASES_SECTION:title=Methods>>>
+```
+
+`publication_text_sections(text)` converts delimited text back into ordered dictionaries such as `{"title": "Methods", "text": "..."}`. For plain fallback text without sentinels, it returns one `Text` section when text is non-empty.
+
+If full text is unavailable, non-open-access, missing a PMC identifier, or fails with an unrecoverable error, the publication remains in provenance and `text` falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` or `none`, `full_text_status` is `unavailable`, `missing_pmcid`, or `error`, and the fallback text is not delimiter-wrapped. Publisher pages and `fullTextUrls` are not fetched.
 
 The datalink request uses:
 
@@ -238,7 +247,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment, datalink flattening, and accession deduplication. Wrapper and CLI tests mock network access.
+Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, and accession deduplication. Wrapper and CLI tests mock network access.
 
 Useful checks:
 

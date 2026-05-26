@@ -24,21 +24,21 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 211-230
+  lines: 220-239
   anchor: cli-atlas
   keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 231-236
+  lines: 240-245
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 238-256
+  lines: 247-265
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, smoke check, mocked network, publication text
+  keywords: tests, py_compile, pytest, smoke check, mocked network, publication text, section parsing
 
 ## API Sections
 
@@ -50,12 +50,12 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 103-197
+  lines: 103-206
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, collect_datalinks, fullTextXML, abstract fallback, deduplicate, publications, Europe PMC, datalinks, accession records, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, Europe PMC, datalinks, accession records, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 198-209
+  lines: 207-218
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay

@@ -6,6 +6,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Downstream parsers depend on this exact sentinel format in publication text.
+SECTION_DELIMITER_TEMPLATE = "<<<THEMATIC_ATLASES_SECTION:title={title}>>>"
+
 DATASET_DATALINK_CATEGORIES = {
     "GEO",
     "BioProject",
@@ -103,6 +106,34 @@ class EuropePMCWrapper:
             )
 
         return publications
+
+    def publication_text_sections(self, text: str) -> list[dict]:
+        normalized_text = self._normalize_text(text)
+
+        if not normalized_text:
+            return []
+
+        delimiter_prefix = "<<<THEMATIC_ATLASES_SECTION:title="
+        delimiter_suffix = ">>>"
+
+        if delimiter_prefix not in normalized_text:
+            return [{"title": "Text", "text": normalized_text}]
+
+        sections = []
+        chunks = normalized_text.split(delimiter_prefix)
+
+        for chunk in chunks:
+            if delimiter_suffix not in chunk:
+                continue
+
+            title, section_text = chunk.split(delimiter_suffix, 1)
+            title = self._section_title(title=title, fallback="Text")
+            section_text = self._normalize_text(section_text)
+
+            if section_text:
+                sections.append({"title": title, "text": section_text})
+
+        return sections
 
     def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
         enriched_publications = []
@@ -459,12 +490,49 @@ class EuropePMCWrapper:
 
     def _plain_text_from_xml(self, full_text_xml: str) -> str:
         root = ET.fromstring(full_text_xml)
-        text_parts = [
-            text.strip()
-            for text in root.itertext()
-            if text and text.strip()
+        sections = []
+        front = root.find(".//front")
+
+        if front is not None:
+            article_title = front.find(".//article-title")
+            abstract = front.find(".//abstract")
+            sections.extend(
+                [
+                    self._xml_section(element=article_title, title="Title"),
+                    self._xml_section(element=abstract, title="Abstract"),
+                ]
+            )
+
+        for section in root.findall(".//body//sec"):
+            title_element = section.find("title")
+            title = self._section_title(
+                title=self._text_from_xml_element(element=title_element),
+                fallback=section.tag,
+            )
+            sections.append(
+                self._xml_section(
+                    element=section,
+                    title=title,
+                    excluded_children={title_element},
+                )
+            )
+
+        sections = [
+            section
+            for section in sections
+            if section is not None and section["text"]
         ]
-        return " ".join(" ".join(text_parts).split())
+
+        if not sections:
+            fallback_text = self._text_from_xml_element(element=root)
+            sections = [{"title": "Text", "text": fallback_text}] if fallback_text else []
+
+        return "\n\n".join(
+            [
+                f"{SECTION_DELIMITER_TEMPLATE.format(title=section['title'])}\n{section['text']}"
+                for section in sections
+            ]
+        )
 
     def _publication_with_fallback_text(
         self,
@@ -478,3 +546,61 @@ class EuropePMCWrapper:
             "text_source": "abstractText" if abstract_text else "none",
             "full_text_status": full_text_status,
         }
+
+    def _xml_section(
+        self,
+        element: ET.Element | None,
+        title: str,
+        excluded_children: set[ET.Element | None] | None = None,
+    ) -> dict | None:
+        if element is None:
+            return None
+
+        text = self._text_from_xml_element(
+            element=element,
+            excluded_children=excluded_children,
+        )
+
+        return {
+            "title": self._section_title(title=title, fallback=element.tag),
+            "text": text,
+        }
+
+    def _text_from_xml_element(
+        self,
+        element: ET.Element | None,
+        excluded_children: set[ET.Element | None] | None = None,
+    ) -> str:
+        if element is None:
+            return ""
+
+        excluded_children = excluded_children or set()
+        text_parts = []
+
+        if element.text:
+            text_parts.append(element.text)
+
+        for child in element:
+            if child not in excluded_children:
+                text_parts.append(
+                    self._text_from_xml_element(
+                        element=child,
+                        excluded_children=excluded_children,
+                    )
+                )
+
+            if child.tail:
+                text_parts.append(child.tail)
+
+        return self._normalize_text(" ".join(text_parts))
+
+    def _section_title(self, title: str, fallback: str) -> str:
+        title = self._normalize_text(
+            str(title or fallback)
+            .replace("<<<", "")
+            .replace(">>>", "")
+        )
+        return title or fallback
+
+    def _normalize_text(self, text: str) -> str:
+        return " ".join(str(text or "").split())

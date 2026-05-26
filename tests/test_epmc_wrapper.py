@@ -341,7 +341,9 @@ def test_collect_publication_texts_fetches_full_text_xml_by_pmcid(monkeypatch) -
             12,
         )
     ]
-    assert result[0]["text"] == "Methods Body text."
+    assert result[0]["text"] == (
+        "<<<THEMATIC_ATLASES_SECTION:title=Methods>>>\nBody text."
+    )
     assert result[0]["text_source"] == "fullTextXML"
     assert result[0]["full_text_status"] == "available"
 
@@ -436,7 +438,9 @@ def test_collect_publication_texts_retries_transient_failures(monkeypatch) -> No
     )
 
     assert len(calls) == 2
-    assert result[0]["text"] == "Recovered text."
+    assert result[0]["text"] == (
+        "<<<THEMATIC_ATLASES_SECTION:title=Text>>>\nRecovered text."
+    )
     assert result[0]["text_source"] == "fullTextXML"
 
 
@@ -462,6 +466,81 @@ def test_collect_publication_texts_uses_pmc_epmc_id_without_pmcid(monkeypatch) -
     assert calls == [
         "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML"
     ]
+
+
+def test_plain_text_from_xml_preserves_title_abstract_and_sections() -> None:
+    full_text_xml = """
+    <article>
+      <front>
+        <article-meta>
+          <title-group><article-title>Article title</article-title></title-group>
+          <abstract><p>Abstract text.</p></abstract>
+        </article-meta>
+      </front>
+      <body>
+        <sec><title>Background</title><p>Background text.</p></sec>
+        <sec><title>Methods</title><p>Methods text.</p></sec>
+      </body>
+    </article>
+    """
+
+    assert EuropePMCWrapper()._plain_text_from_xml(full_text_xml) == (
+        "<<<THEMATIC_ATLASES_SECTION:title=Title>>>\nArticle title\n\n"
+        "<<<THEMATIC_ATLASES_SECTION:title=Abstract>>>\nAbstract text.\n\n"
+        "<<<THEMATIC_ATLASES_SECTION:title=Background>>>\nBackground text.\n\n"
+        "<<<THEMATIC_ATLASES_SECTION:title=Methods>>>\nMethods text."
+    )
+
+
+def test_plain_text_from_xml_uses_tag_fallback_and_skips_empty_sections() -> None:
+    full_text_xml = """
+    <article>
+      <body>
+        <sec><p>Untitled section text.</p></sec>
+        <sec><title>Empty</title></sec>
+      </body>
+    </article>
+    """
+
+    assert EuropePMCWrapper()._plain_text_from_xml(full_text_xml) == (
+        "<<<THEMATIC_ATLASES_SECTION:title=sec>>>\nUntitled section text."
+    )
+
+
+def test_plain_text_from_xml_sanitizes_delimiter_breaking_titles() -> None:
+    full_text_xml = """
+    <article>
+      <body>
+        <sec><title>Bad &lt;&lt;&lt;Title&gt;&gt;&gt;</title><p>Text.</p></sec>
+      </body>
+    </article>
+    """
+
+    assert EuropePMCWrapper()._plain_text_from_xml(full_text_xml) == (
+        "<<<THEMATIC_ATLASES_SECTION:title=Bad Title>>>\nText."
+    )
+
+
+def test_publication_text_sections_parses_delimited_text() -> None:
+    text = (
+        "<<<THEMATIC_ATLASES_SECTION:title=Abstract>>>\nAbstract text.\n\n"
+        "<<<THEMATIC_ATLASES_SECTION:title=Methods>>>\nMethods text."
+    )
+
+    assert EuropePMCWrapper().publication_text_sections(text=text) == [
+        {"title": "Abstract", "text": "Abstract text."},
+        {"title": "Methods", "text": "Methods text."},
+    ]
+
+
+def test_publication_text_sections_returns_text_section_for_plain_text() -> None:
+    assert EuropePMCWrapper().publication_text_sections(text=" Plain fallback text. ") == [
+        {"title": "Text", "text": "Plain fallback text."}
+    ]
+
+
+def test_publication_text_sections_returns_empty_for_empty_text() -> None:
+    assert EuropePMCWrapper().publication_text_sections(text="  ") == []
 
 
 def test_collect_datalinks_returns_empty_without_publications(monkeypatch) -> None:
