@@ -27,15 +27,12 @@ def test_collect_jsons_combines_query_and_file_lines(monkeypatch, tmp_path) -> N
     assert FakeEuropePMCWrapper.queries == ["a", "b", "c", "d"]
 
 
-def test_collect_jsons_uses_default_query_file(monkeypatch, tmp_path) -> None:
-    query_file = tmp_path / "queries.txt"
-    query_file.write_text("# old\nfibrosis\n\ntranscriptomics\n", encoding="utf-8")
+def test_collect_jsons_passes_empty_queries_without_inputs(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
-    monkeypatch.setattr(atlas_module, "DEFAULT_QUERY_FILE", str(query_file))
 
     Atlas(metadata={}).collect_jsons()
 
-    assert FakeEuropePMCWrapper.queries == ["fibrosis", "transcriptomics"]
+    assert FakeEuropePMCWrapper.queries == []
 
 
 def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:

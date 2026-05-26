@@ -37,7 +37,7 @@ LICENSE
 .gitignore
 ```
 
-Development docs, query input, and tests:
+Development docs, local debug query input, and tests:
 
 ```text
 .dev/queries.txt
@@ -92,7 +92,7 @@ Query loading behavior:
 - Repeated CLI `--query` values are preserved in order.
 - `file` values are read as UTF-8 text.
 - Query files ignore blank lines and lines starting with `#`.
-- If neither `query` nor `file` is provided, `.dev/queries.txt` is used.
+- If neither `query` nor `file` is provided, the wrapper receives an empty query list.
 
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
@@ -162,7 +162,7 @@ Commands:
 - `filter-jsons`
 - `harmonize-jsons`
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope. The local VS Code launch config passes `--file .dev/queries.txt --out .dev/atlas.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and prints compact JSON:
 

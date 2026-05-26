@@ -8,7 +8,7 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
   title: Project Purpose And Layout
   lines: 14-53
   anchor: project-purpose-and-layout
-  keywords: purpose, layout, src, docs, tests, package files, queries
+  keywords: purpose, layout, src, docs, tests, package files, debug queries
 
 - id: runtime-and-packaging
   title: Runtime And Packaging
@@ -46,7 +46,7 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
   title: Atlas Workflow
   lines: 78-96
   anchor: atlas-workflow
-  keywords: Atlas, collect_jsons, query, file, out, default queries, filter_jsons, harmonize_jsons
+  keywords: Atlas, collect_jsons, query, file, out, empty queries, filter_jsons, harmonize_jsons
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper

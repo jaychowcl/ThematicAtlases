@@ -2,8 +2,6 @@ import json
 
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
-DEFAULT_QUERY_FILE = ".dev/queries.txt"
-
 
 class Atlas():
     def __init__(self, metadata: dict):
@@ -25,12 +23,8 @@ class Atlas():
     ) -> list[dict]:
         queries = list(query or [])
 
-        query_file = file
-        if not queries and query_file is None:
-            query_file = DEFAULT_QUERY_FILE
-
-        if query_file is not None:
-            queries.extend(self._load_queries(query_file))
+        if file is not None:
+            queries.extend(self._load_queries(file))
 
         result = EuropePMCWrapper().collect_accessions(queries=queries)
 
