@@ -39,6 +39,12 @@ class EuropePMCWrapper:
             page_limit_reached = False
 
             while cursor is not None and page < self._request_settings["page_limit"]:
+                logger.debug(
+                    "EuropePMC search request query=%r cursor=%r page=%s",
+                    query,
+                    cursor,
+                    page + 1,
+                )
                 response_data = self._search(query=query, cursor=cursor)
                 hits = response_data.get("resultList", {}).get("result", [])
 
@@ -100,7 +106,14 @@ class EuropePMCWrapper:
                 response.status_code in self._retry_statuses
                 and attempt < self._request_settings["max_retries"]
             ):
-                time.sleep(self._retry_delay(response=response, attempt=attempt))
+                retry_delay = self._retry_delay(response=response, attempt=attempt)
+                logger.debug(
+                    "EuropePMC retry status=%s attempt=%s delay=%s",
+                    response.status_code,
+                    attempt + 1,
+                    retry_delay,
+                )
+                time.sleep(retry_delay)
                 continue
 
             response.raise_for_status()

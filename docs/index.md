@@ -24,19 +24,19 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 156-176
+  lines: 156-178
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, collect-jsons, stderr logging, stdout json
+  keywords: cli_atlas, argparse, query, file, out, collect-jsons, verbose, log-file, stderr logging, stdout json
 
 - id: archive-reference
   title: Archive Reference
-  lines: 177-183
+  lines: 179-185
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 184-202
+  lines: 186-204
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, smoke check, mocked network
 

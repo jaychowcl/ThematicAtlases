@@ -160,13 +160,16 @@ These request tuning values are stored together in an internal settings dictiona
 
 Commands:
 
+- `[-v | --verbose] [--log-file LOG_FILE]`
 - `collect-jsons [--query QUERY] [--file FILE] [--out OUT]`
 - `filter-jsons`
 - `harmonize-jsons`
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope. The local VS Code launch config passes `--file .dev/queries.txt --out .dev/atlas.json`.
+Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables `INFO`, and `-vv` enables `DEBUG`. Without `--log-file`, logs go to stderr. With `--log-file`, logs are written to that UTF-8 file only.
 
-Each command instantiates `Atlas(metadata={})`, calls the matching method, configures INFO logs to stderr, and prints compact JSON to stdout:
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw final result list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
+
+Each command instantiates `Atlas(metadata={})`, calls the matching method, configures logging from CLI options, and prints compact JSON to stdout:
 
 ```json
 {"command":"collect-jsons","status":"placeholder","result":[...]}

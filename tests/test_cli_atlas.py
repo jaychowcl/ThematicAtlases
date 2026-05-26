@@ -1,13 +1,16 @@
 import json
+import logging
 
 import pytest
 
-from ThematicAtlases.cli_atlas import main
+from ThematicAtlases.cli_atlas import _configure_logging, main
 from ThematicAtlases import atlas as atlas_module
 
 
 class FakeEuropePMCWrapper:
     def collect_accessions(self, queries: list[str]) -> list[dict]:
+        logging.getLogger("ThematicAtlases.test").info("fake info")
+        logging.getLogger("ThematicAtlases.test").debug("fake debug")
         return [{"epmc_id": query} for query in queries]
 
 
@@ -19,11 +22,14 @@ def test_collect_jsons_emits_placeholder_response(
 
     assert main(["collect-jsons", "--query", "fibrosis", "--query", "transcriptomics"]) == 0
 
-    assert json.loads(capsys.readouterr().out) == {
+    output = capsys.readouterr()
+
+    assert json.loads(output.out) == {
         "command": "collect-jsons",
         "status": "placeholder",
         "result": [{"epmc_id": "fibrosis"}, {"epmc_id": "transcriptomics"}],
     }
+    assert output.err == ""
 
 
 def test_collect_jsons_accepts_file(
@@ -60,6 +66,71 @@ def test_collect_jsons_writes_outfile(
         "result": [{"epmc_id": "fibrosis"}],
     }
     assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "epmc_id": "fibrosis"\n  }\n]'
+
+
+def test_verbose_enables_info_logging(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+
+    assert main(["--verbose", "collect-jsons", "--query", "fibrosis"]) == 0
+
+    output = capsys.readouterr()
+
+    assert json.loads(output.out) == {
+        "command": "collect-jsons",
+        "status": "placeholder",
+        "result": [{"epmc_id": "fibrosis"}],
+    }
+    assert "INFO:ThematicAtlases.test:fake info" in output.err
+    assert "DEBUG:ThematicAtlases.test:fake debug" not in output.err
+
+
+def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+    tmp_path,
+) -> None:
+    log_file = tmp_path / "atlas.log"
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+
+    assert (
+        main(
+            [
+                "--verbose",
+                "--log-file",
+                str(log_file),
+                "collect-jsons",
+                "--query",
+                "fibrosis",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+
+    assert json.loads(output.out) == {
+        "command": "collect-jsons",
+        "status": "placeholder",
+        "result": [{"epmc_id": "fibrosis"}],
+    }
+    assert output.err == ""
+    log_text = log_file.read_text(encoding="utf-8")
+    assert "INFO:ThematicAtlases.test:fake info" in log_text
+    assert "DEBUG:ThematicAtlases.test:fake debug" not in log_text
+
+
+def test_double_verbose_enables_debug_logging(tmp_path) -> None:
+    log_file = tmp_path / "atlas.log"
+
+    _configure_logging(verbosity=2, log_file=str(log_file))
+    logging.getLogger("ThematicAtlases.test").debug("debug enabled")
+
+    assert "DEBUG:ThematicAtlases.test:debug enabled" in log_file.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_filter_jsons_emits_placeholder_response(capsys: pytest.CaptureFixture[str]) -> None:
