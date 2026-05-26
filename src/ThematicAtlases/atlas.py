@@ -3,11 +3,11 @@ class Atlas():
     def __init__(self, metadata: dict):
         pass
 
-    def collect_jsons(self):
+    def collect_jsons(self) -> list[dict]:
         pass
 
-    def filter_jsons(self, filter_criteria: dict):
+    def filter_jsons(self,) -> list[dict]:
         pass
 
-    def harmonize_jsons(self, harmonization_criteria: dict):
+    def harmonize_jsons(self, ) -> list[dict]:
         pass

@@ -6,9 +6,10 @@ The current implemented path is intentionally minimal:
 
 ```text
 import ThematicAtlases
+python3 -m ThematicAtlases.cli_atlas collect-jsons
 ```
 
-`src/ThematicAtlases/atlas.py` contains an `Atlas` class stub for the next development pass, but there is no implemented atlas workflow yet.
+`src/ThematicAtlases/atlas.py` contains an `Atlas` class stub for the next development pass, and `src/ThematicAtlases/cli_atlas.py` exposes placeholder CLI commands around that stub.
 
 <a id="project-purpose-and-layout"></a>
 ## Project Purpose And Layout
@@ -20,7 +21,8 @@ Live package files:
 ```text
 src/ThematicAtlases/
 ├── __init__.py
-└── atlas.py
+├── atlas.py
+└── cli_atlas.py
 ```
 
 Root project files:
@@ -32,7 +34,7 @@ LICENSE
 .gitignore
 ```
 
-Development docs:
+Development docs and tests:
 
 ```text
 docs/codebase.md
@@ -40,9 +42,10 @@ docs/index.md
 docs/dev.md
 docs/memory.md
 docs/burndown.md
+tests/test_cli_atlas.py
 ```
 
-There is currently no live `tests/` directory and no live config or data directory.
+There is currently no live config or data directory.
 
 <a id="runtime-and-packaging"></a>
 ## Runtime And Packaging
@@ -55,6 +58,7 @@ There is currently no live `tests/` directory and no live config or data directo
 - Runtime dependencies are currently empty.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The package uses a `src/` layout with setuptools package discovery.
+- The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
 
 <a id="public-api"></a>
 ## Public API
@@ -87,6 +91,23 @@ Current methods:
 
 All methods currently use `pass`; there are no side effects, validation, data collection, filtering, or harmonization behaviors implemented yet.
 
+<a id="cli-atlas"></a>
+## CLI Atlas
+
+`ThematicAtlases.cli_atlas` provides a standard-library `argparse` CLI with `main(argv: list[str] | None = None) -> int`.
+
+Commands:
+
+- `collect-jsons`
+- `filter-jsons`
+- `harmonize-jsons`
+
+Each command instantiates `Atlas(metadata={})`, calls the matching placeholder method, and prints compact JSON:
+
+```json
+{"command":"collect-jsons","status":"placeholder","result":null}
+```
+
 <a id="archive-reference"></a>
 ## Archive Reference
 
@@ -97,12 +118,19 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-There are no live tests at the repository root right now.
+Live tests currently cover the CLI placeholder behavior in `tests/test_cli_atlas.py`.
 
 Useful checks for the current skeleton:
 
 ```bash
-python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py
+python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py
+python3 -m pytest
+```
+
+If `pytest` is unavailable in the active environment, use a direct smoke check:
+
+```bash
+PYTHONPATH=src python3 -m ThematicAtlases.cli_atlas collect-jsons
 ```
 
 Future behavior work should add tests near the new implementation before treating the package as stable.

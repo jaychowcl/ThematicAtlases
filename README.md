@@ -10,3 +10,9 @@ The previous implementation has been archived under `old/` for reference. New de
 python3 -m pip install -e ".[dev]"
 python3 -m pytest
 ```
+
+## CLI
+
+```bash
+python3 -m ThematicAtlases.cli_atlas collect-jsons
+```

@@ -15,6 +15,9 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+[project.scripts]
+thematic-atlas = "ThematicAtlases.cli_atlas:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
