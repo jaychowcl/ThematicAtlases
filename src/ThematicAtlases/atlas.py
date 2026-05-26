@@ -209,6 +209,42 @@ class Atlas():
 
         return publication
 
+    def create_atlas(
+        self,
+        query: list[str] | None = None,
+        file: str | None = None,
+        out: str | None = None,
+    ) -> dict:
+        logger.info("Atlas create_atlas progress stage=collect-jsons")
+        accessions = self.collect_jsons(query=query, file=file, out=None)
+        logger.info(
+            "Atlas create_atlas progress stage=collect-jsons-complete accessions=%s",
+            len(accessions),
+        )
+        logger.info("Atlas create_atlas progress stage=filter-jsons")
+        result = self.filter_jsons(jsons=accessions)
+        final_accessions = result.get("accessions", [])
+        publication_texts = result.get("publication_texts", {})
+        logger.info(
+            "Atlas create_atlas progress stage=filter-jsons-complete accessions=%s publication_texts=%s",
+            len(final_accessions),
+            len(publication_texts),
+        )
+
+        if out is not None:
+            logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
+            with open(out, "w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=2)
+
+        logger.info(
+            "Atlas create_atlas stats collected_accessions=%s final_accessions=%s publication_texts=%s output_path=%s",
+            len(accessions),
+            len(final_accessions),
+            len(publication_texts),
+            out,
+        )
+        return result
+
     def collect_jsons(
         self,
         query: list[str] | None = None,

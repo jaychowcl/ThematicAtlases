@@ -24,6 +24,14 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--file", default=None)
     collect.add_argument("--out", default=None)
 
+    create = subparsers.add_parser(
+        "create-atlas",
+        help="Run the atlas collection and filtering workflow.",
+    )
+    create.add_argument("--query", action="append", default=None)
+    create.add_argument("--file", default=None)
+    create.add_argument("--out", default=None)
+
     subparsers.add_parser(
         "filter-jsons",
         help="Call the placeholder JSON filtering workflow.",
@@ -70,6 +78,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "collect-jsons":
         atlas.collect_jsons(
+            query=args.query,
+            file=args.file,
+            out=args.out,
+        )
+    elif args.command == "create-atlas":
+        atlas.create_atlas(
             query=args.query,
             file=args.file,
             out=args.out,

@@ -149,6 +149,67 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
     assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE1",\n    "datalink_id_scheme": "GEO",\n    "datalink_url": "https://example.org/GSE1",\n    "datalink_category": "GEO",\n    "publications": [\n      {\n        "source": "MED",\n        "epmc_id": "1"\n      }\n    ],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE1",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "https://example.org/GSE1",\n        "datalink_category": "GEO"\n      }\n    ]\n  }\n]'
 
 
+def test_create_atlas_collects_then_filters_and_returns_final_object() -> None:
+    class RecordingAtlas(Atlas):
+        calls: list[tuple[str, object]] = []
+
+        def collect_jsons(self, query=None, file=None, out=None):
+            self.calls.append(
+                (
+                    "collect",
+                    {
+                        "query": query,
+                        "file": file,
+                        "out": out,
+                    },
+                )
+            )
+            return [{"datalink_id": "GSE1", "publications": []}]
+
+        def filter_jsons(self, jsons=None):
+            self.calls.append(("filter", jsons))
+            return {
+                "accessions": list(jsons or []),
+                "publication_texts": {},
+            }
+
+    atlas = RecordingAtlas(metadata={})
+
+    assert atlas.create_atlas(query=["a"], file="queries.txt") == {
+        "accessions": [{"datalink_id": "GSE1", "publications": []}],
+        "publication_texts": {},
+    }
+    assert atlas.calls == [
+        (
+            "collect",
+            {
+                "query": ["a"],
+                "file": "queries.txt",
+                "out": None,
+            },
+        ),
+        ("filter", [{"datalink_id": "GSE1", "publications": []}]),
+    ]
+
+
+def test_create_atlas_writes_final_filtered_object(tmp_path) -> None:
+    class RecordingAtlas(Atlas):
+        def collect_jsons(self, query=None, file=None, out=None):
+            return [{"datalink_id": "GSE1"}]
+
+        def filter_jsons(self, jsons=None):
+            return {
+                "accessions": [{"datalink_id": "GSE1", "publication_text_ref": "1"}],
+                "publication_texts": {"1": {"text": "full text"}},
+            }
+
+    outfile = tmp_path / "atlas.json"
+
+    RecordingAtlas(metadata={}).create_atlas(query=["a"], out=str(outfile))
+
+    assert outfile.read_text(encoding="utf-8") == '{\n  "accessions": [\n    {\n      "datalink_id": "GSE1",\n      "publication_text_ref": "1"\n    }\n  ],\n  "publication_texts": {\n    "1": {\n      "text": "full text"\n    }\n  }\n}'
+
+
 def test_filter_accessions_keeps_handled_geo_scheme() -> None:
     records = [
         {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"},
@@ -529,6 +590,20 @@ def test_collect_jsons_logs_progress_and_stats(monkeypatch, caplog) -> None:
     assert "query_count=2" in caplog.text
     assert "raw_accessions=2" in caplog.text
     assert "metadata_records=1" in caplog.text
+
+
+def test_create_atlas_logs_progress_and_stats(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+    caplog.set_level(logging.INFO, logger=atlas_module.__name__)
+
+    Atlas(metadata={}).create_atlas(query=["a"])
+
+    assert "Atlas create_atlas progress stage=collect-jsons" in caplog.text
+    assert "Atlas create_atlas progress stage=filter-jsons" in caplog.text
+    assert "collected_accessions=1" in caplog.text
+    assert "final_accessions=1" in caplog.text
+    assert "publication_texts=1" in caplog.text
 
 
 def test_filter_accessions_logs_stats(caplog) -> None:

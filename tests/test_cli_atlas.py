@@ -103,6 +103,39 @@ def test_collect_jsons_writes_outfile(
     assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_FIBROSIS",\n    "datalink_id_scheme": "GEO",\n    "publications": [],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE_fibrosis",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "",\n        "datalink_category": ""\n      }\n    ],\n    "metadata_repository": "geo",\n    "metadata_source": "geo2json",\n    "metadata_status": "available",\n    "accession_metadata": {\n      "series": {\n        "accession": [\n          {\n            "value": "GSE_FIBROSIS"\n          }\n        ]\n      }\n    }\n  }\n]'
 
 
+def test_create_atlas_does_not_emit_stdout(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert main(["create-atlas", "--query", "fibrosis"]) == 0
+
+    output = capsys.readouterr()
+
+    assert output.out == ""
+    assert output.err == ""
+
+
+def test_create_atlas_writes_final_filtered_object(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+    monkeypatch,
+) -> None:
+    outfile = tmp_path / "atlas.json"
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert main(["create-atlas", "--query", "fibrosis", "--out", str(outfile)]) == 0
+
+    output = capsys.readouterr()
+
+    assert output.out == ""
+    assert output.err == ""
+    assert outfile.read_text(encoding="utf-8") == '{\n  "accessions": [\n    {\n      "datalink_id": "GSE_FIBROSIS",\n      "datalink_id_scheme": "GEO",\n      "publications": [],\n      "original_datalinks": [\n        {\n          "datalink_id": "GSE_fibrosis",\n          "datalink_id_scheme": "GEO",\n          "datalink_url": "",\n          "datalink_category": ""\n        }\n      ],\n      "metadata_repository": "geo",\n      "metadata_source": "geo2json",\n      "metadata_status": "available",\n      "accession_metadata": {\n        "series": {\n          "accession": [\n            {\n              "value": "GSE_FIBROSIS"\n            }\n          ]\n        }\n      }\n    }\n  ],\n  "publication_texts": {}\n}'
+
+
 def test_verbose_enables_info_logging(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
@@ -116,6 +149,22 @@ def test_verbose_enables_info_logging(
 
     assert "INFO:ThematicAtlases.test:fake info" in output.out
     assert "DEBUG:ThematicAtlases.test:fake debug" not in output.out
+    assert output.err == ""
+
+
+def test_verbose_create_atlas_emits_info_logging_to_stdout(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert main(["--verbose", "create-atlas", "--query", "fibrosis"]) == 0
+
+    output = capsys.readouterr()
+
+    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in output.out
+    assert "INFO:ThematicAtlases.test:fake info" in output.out
     assert output.err == ""
 
 
@@ -149,6 +198,38 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
     log_text = log_file.read_text(encoding="utf-8")
     assert "INFO:ThematicAtlases.test:fake info" in log_text
     assert "DEBUG:ThematicAtlases.test:fake debug" not in log_text
+
+
+def test_verbose_create_atlas_log_file_writes_logs_only_to_file(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+    tmp_path,
+) -> None:
+    log_file = tmp_path / "atlas.log"
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert (
+        main(
+            [
+                "--verbose",
+                "--log-file",
+                str(log_file),
+                "create-atlas",
+                "--query",
+                "fibrosis",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+
+    assert output.out == ""
+    assert output.err == ""
+    log_text = log_file.read_text(encoding="utf-8")
+    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in log_text
+    assert "INFO:ThematicAtlases.test:fake info" in log_text
 
 
 def test_double_verbose_enables_debug_logging(tmp_path) -> None:

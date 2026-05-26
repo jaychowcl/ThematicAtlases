@@ -5,11 +5,11 @@ This document describes the current live package at the repository root. The pre
 The current implemented path collects Europe PMC dataset datalinks from keyword-driven publication searches:
 
 ```text
-python3 -m ThematicAtlases.cli_atlas collect-jsons
-python3 -m ThematicAtlases.cli_atlas collect-jsons --query fibrosis --out atlas.json
+python3 -m ThematicAtlases.cli_atlas create-atlas
+python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json
 ```
 
-`collect-jsons` is the first real workflow slice. It currently returns GEO-filtered, deduplicated accession records with publication provenance and accession metadata. `filter_jsons()` is the publication text mapping stage for those collected records.
+`create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
 
 <a id="project-purpose-and-layout"></a>
 ## Project Purpose And Layout
@@ -85,7 +85,8 @@ from ThematicAtlases.atlas import Atlas
 Current methods:
 
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, optionally writes the collected accession list to `out`, and returns that list.
+- `create_atlas(query=None, file=None, out=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)`, optionally writes the final atlas object to `out`, and returns that object.
+- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, optionally writes the intermediate collected accession list to `out`, and returns that list.
 - `filter_jsons(jsons=None)`: accepts collected accession records, gathers unique publication text, adds lightweight publication text references under nested publication metadata, and returns a top-level filtered JSON object.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
@@ -202,7 +203,7 @@ publication_text_ref
 
 Duplicate accessions are grouped by stripped uppercase `datalink_id`. Accession-level fields keep the first encountered values when duplicate rows conflict. Repeated publication entries under the same accession are collapsed by `source`, `epmc_id`, `pmid`, `pmcid`, and `doi`.
 
-`filter_jsons()` returns a top-level object with collected accession records and a shared publication text map:
+`create_atlas()` returns and writes the current final atlas object. Internally it calls `filter_jsons()`, which returns a top-level object with collected accession records and a shared publication text map:
 
 ```text
 accessions
@@ -318,13 +319,14 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
+- `create-atlas [--query QUERY] [--file FILE] [--out OUT]`
 - `collect-jsons [--query QUERY] [--file FILE] [--out OUT]`
 - `filter-jsons`
 - `harmonize-jsons`
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--out` writes the raw collected accession list, not the CLI envelope. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 

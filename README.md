@@ -14,5 +14,5 @@ python3 -m pytest
 ## CLI
 
 ```bash
-python3 -m ThematicAtlases.cli_atlas collect-jsons
+python3 -m ThematicAtlases.cli_atlas create-atlas
 ```
