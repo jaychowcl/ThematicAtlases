@@ -48,22 +48,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load_filter_jsons(file: str | None) -> list[dict] | None:
-    if file is None:
-        return None
-
-    with open(file, encoding="utf-8") as handle:
-        data = json.load(handle)
-
-    if isinstance(data, list):
-        return data
-
-    if isinstance(data, dict):
-        return list(data.get("accessions", []))
-
-    return []
-
-
 def _configure_logging(verbosity: int, log_file: str | None) -> None:
     level = logging.WARNING
 
@@ -108,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
         )
     elif args.command == "filter-jsons":
-        result = atlas.filter_jsons(jsons=_load_filter_jsons(file=args.file))
+        result = atlas.filter_jsons(file=args.file)
 
         if args.out is not None:
             with open(args.out, "w", encoding="utf-8") as handle:

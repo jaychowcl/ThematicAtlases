@@ -20,6 +20,10 @@ class Atlas():
                 if line.strip() and not line.strip().startswith("#")
             ]
 
+    def _load_json(self, file: str) -> dict | list:
+        with open(file, encoding="utf-8") as handle:
+            return json.load(handle)
+
     def _filter_accessions(self, accessions: list[dict]) -> list[dict]:
         filtered_accessions = [
             record
@@ -100,6 +104,11 @@ class Atlas():
         )
 
     def _publication_text_ref(self, publication: dict) -> str:
+        publication_text_ref = str(publication.get("publication_text_ref", "")).strip()
+
+        if publication_text_ref:
+            return publication_text_ref
+
         for key in ("pmid", "pmcid", "doi"):
             value = str(publication.get(key, "")).strip()
 
@@ -114,12 +123,40 @@ class Atlas():
 
         return ""
 
-    def _collect_publication_texts(self, jsons: list[dict]) -> dict:
+    def _atlas_parts(
+        self,
+        jsons: dict | list[dict] | None = None,
+    ) -> tuple[list[dict], dict]:
+        if jsons is None:
+            return [], {}
+
+        if isinstance(jsons, list):
+            return list(jsons), {}
+
+        if isinstance(jsons, dict):
+            return (
+                list(jsons.get("accessions", [])),
+                dict(jsons.get("publication_texts", {})),
+            )
+
+        return [], {}
+
+    def _collect_publication_texts(
+        self,
+        jsons: list[dict],
+        publication_texts: dict | None = None,
+    ) -> dict:
+        publication_texts = dict(publication_texts or {})
         publications = []
         publication_index = {}
 
         for record in jsons:
             for publication in record.get("publications", []):
+                publication_ref = self._publication_text_ref(publication=publication)
+
+                if publication_ref in publication_texts:
+                    continue
+
                 publication_key = self._publication_key(publication=publication)
 
                 if publication_key not in publication_index:
@@ -128,10 +165,11 @@ class Atlas():
 
         if not publications:
             logger.info(
-                "Atlas publication text stats input_accessions=%s unique_publications=0 publication_texts=0",
+                "Atlas publication text stats input_accessions=%s unique_publications=0 publication_texts=%s",
                 len(jsons),
+                len(publication_texts),
             )
-            return {}
+            return publication_texts
 
         logger.info(
             "Atlas publication text progress unique_publications=%s",
@@ -141,15 +179,24 @@ class Atlas():
             publications=publications
         )
 
-        publication_texts = {
-            publication_ref: {
-                "text": publication.get("text", ""),
-                "text_source": publication.get("text_source", "none"),
-                "full_text_status": publication.get("full_text_status", "unavailable"),
+        publication_texts.update(
+            {
+                publication_ref: {
+                    "text": publication.get("text", ""),
+                    "text_source": publication.get("text_source", "none"),
+                    "full_text_status": publication.get(
+                        "full_text_status",
+                        "unavailable",
+                    ),
+                }
+                for publication in enriched_publications
+                if (
+                    publication_ref := self._publication_text_ref(
+                        publication=publication
+                    )
+                )
             }
-            for publication in enriched_publications
-            if (publication_ref := self._publication_text_ref(publication=publication))
-        }
+        )
         logger.info(
             "Atlas publication text stats input_accessions=%s unique_publications=%s publication_texts=%s",
             len(jsons),
@@ -287,10 +334,25 @@ class Atlas():
         )
         return result
 
-    def filter_jsons(self, jsons: list[dict] | None = None) -> dict:
-        jsons = list(jsons or [])
+    def filter_jsons(
+        self,
+        jsons: dict | list[dict] | None = None,
+        file: str | None = None,
+    ) -> dict:
+        jsons, publication_texts = self._atlas_parts(jsons=jsons)
+
+        if file is not None:
+            file_jsons, file_publication_texts = self._atlas_parts(
+                jsons=self._load_json(file=file)
+            )
+            jsons.extend(file_jsons)
+            publication_texts.update(file_publication_texts)
+
         logger.info("Atlas filter_jsons progress stage=collect-publication-texts")
-        publication_texts = self._collect_publication_texts(jsons=jsons)
+        publication_texts = self._collect_publication_texts(
+            jsons=jsons,
+            publication_texts=publication_texts,
+        )
         logger.info("Atlas filter_jsons progress stage=attach-publication-text-refs")
         accessions = self._accessions_with_publication_text_refs(
             jsons=jsons,

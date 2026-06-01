@@ -87,7 +87,7 @@ Current methods:
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
 - `create_atlas(query=None, file=None, out=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)`, optionally writes the final atlas object to `out`, and returns that object.
 - `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, optionally writes the intermediate collected accession list to `out`, and returns that list.
-- `filter_jsons(jsons=None)`: accepts collected accession records, gathers unique publication text, adds lightweight publication text references under nested publication metadata, and returns a top-level filtered JSON object.
+- `filter_jsons(jsons=None, file=None)`: accepts collected accession records or an atlas-shaped object, optionally appends records from a JSON file, gathers missing publication text while reusing existing `publication_texts`, adds lightweight publication text references under nested publication metadata, and returns a top-level filtered JSON object.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
 Query loading behavior:
@@ -108,7 +108,7 @@ Filtering behavior:
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
-- `_collect_publication_texts(jsons)` is used by `filter_jsons()`. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and returns a shared `publication_texts` map keyed by PMID, then PMCID, DOI, or `source:epmc_id`.
+- `_collect_publication_texts(jsons, publication_texts=None)` is used by `filter_jsons()`. It extracts unique surviving nested publications that do not already have entries in the shared text map, calls `EuropePMCWrapper.collect_publication_texts(publications=...)` for missing text only, and returns a shared `publication_texts` map keyed by existing `publication_text_ref`, PMID, PMCID, DOI, or `source:epmc_id`.
 - `_accessions_with_publication_text_refs(jsons, publication_texts)` adds `publication_text_ref` to nested publication metadata when text is available. Full text is not duplicated inside accession records.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
 
@@ -326,11 +326,11 @@ Commands:
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions`, and `--out` writes the filtered atlas object. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
-When `filter-jsons` has no `--file`, it still calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=...)` is implemented as the publication text mapping stage.
+When `filter-jsons` has no `--file`, it still calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=..., file=...)` is implemented as the publication text mapping stage; when both arguments are provided, file accessions are appended after in-memory accessions.
 
 <a id="archive-reference"></a>
 ## Archive Reference

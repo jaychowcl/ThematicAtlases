@@ -1,3 +1,4 @@
+import json
 import logging
 
 from ThematicAtlases import atlas as atlas_module
@@ -506,6 +507,195 @@ def test_filter_jsons_empty_input_returns_empty_shape(monkeypatch) -> None:
         "publication_texts": {},
     }
     assert FakeEuropePMCWrapper.publications is None
+
+
+def test_filter_jsons_reuses_existing_publication_texts_from_file(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class FailingEuropePMCWrapper:
+        def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+            raise AssertionError("existing publication text should be reused")
+
+    input_file = tmp_path / "atlas.json"
+    input_file.write_text(
+        json.dumps(
+            {
+                "accessions": [
+                    {
+                        "datalink_id": "GSE1",
+                        "publications": [
+                            {
+                                "source": "MED",
+                                "epmc_id": "1",
+                                "pmid": "1",
+                                "publication_text_ref": "1",
+                            }
+                        ],
+                    }
+                ],
+                "publication_texts": {
+                    "1": {
+                        "text": "Existing full text",
+                        "text_source": "fullTextXML",
+                        "full_text_status": "available",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FailingEuropePMCWrapper)
+
+    assert Atlas(metadata={}).filter_jsons(file=str(input_file)) == {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "1",
+                        "pmid": "1",
+                        "publication_text_ref": "1",
+                    }
+                ],
+            }
+        ],
+        "publication_texts": {
+            "1": {
+                "text": "Existing full text",
+                "text_source": "fullTextXML",
+                "full_text_status": "available",
+            }
+        },
+    }
+
+
+def test_filter_jsons_appends_file_accessions_to_jsons(tmp_path) -> None:
+    input_file = tmp_path / "collected.json"
+    input_file.write_text(
+        json.dumps(
+            [
+                {
+                    "datalink_id": "GSE2",
+                    "publications": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert Atlas(metadata={}).filter_jsons(
+        jsons=[
+            {
+                "datalink_id": "GSE1",
+                "publications": [],
+            }
+        ],
+        file=str(input_file),
+    ) == {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [],
+            },
+            {
+                "datalink_id": "GSE2",
+                "publications": [],
+            },
+        ],
+        "publication_texts": {},
+    }
+
+
+def test_filter_jsons_fetches_only_missing_publication_texts(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class RecordingEuropePMCWrapper:
+        publications: list[dict] | None = None
+
+        def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+            self.__class__.publications = publications
+            return [
+                {
+                    **publication,
+                    "text": f"Fetched text {publication.get('pmid', '')}",
+                    "text_source": "abstractText",
+                    "full_text_status": "missing_pmcid",
+                }
+                for publication in publications
+            ]
+
+    input_file = tmp_path / "atlas.json"
+    input_file.write_text(
+        json.dumps(
+            {
+                "accessions": [
+                    {
+                        "datalink_id": "GSE1",
+                        "publications": [
+                            {
+                                "source": "MED",
+                                "epmc_id": "1",
+                                "pmid": "1",
+                            },
+                            {
+                                "source": "MED",
+                                "epmc_id": "2",
+                                "pmid": "2",
+                            },
+                        ],
+                    }
+                ],
+                "publication_texts": {
+                    "1": {
+                        "text": "Existing text 1",
+                        "text_source": "fullTextXML",
+                        "full_text_status": "available",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", RecordingEuropePMCWrapper)
+
+    result = Atlas(metadata={}).filter_jsons(file=str(input_file))
+
+    assert RecordingEuropePMCWrapper.publications == [
+        {
+            "source": "MED",
+            "epmc_id": "2",
+            "pmid": "2",
+        }
+    ]
+    assert result["accessions"][0]["publications"] == [
+        {
+            "source": "MED",
+            "epmc_id": "1",
+            "pmid": "1",
+            "publication_text_ref": "1",
+        },
+        {
+            "source": "MED",
+            "epmc_id": "2",
+            "pmid": "2",
+            "publication_text_ref": "2",
+        },
+    ]
+    assert result["publication_texts"] == {
+        "1": {
+            "text": "Existing text 1",
+            "text_source": "fullTextXML",
+            "full_text_status": "available",
+        },
+        "2": {
+            "text": "Fetched text 2",
+            "text_source": "abstractText",
+            "full_text_status": "missing_pmcid",
+        },
+    }
 
 
 def test_filter_jsons_enriches_only_surviving_publications(monkeypatch) -> None:
