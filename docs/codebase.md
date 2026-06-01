@@ -321,16 +321,16 @@ Commands:
 - `[-v | --verbose] [--log-file LOG_FILE]`
 - `create-atlas [--query QUERY] [--file FILE] [--out OUT]`
 - `collect-jsons [--query QUERY] [--file FILE] [--out OUT]`
-- `filter-jsons`
+- `filter-jsons [--file FILE] [--out OUT]`
 - `harmonize-jsons`
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions`, and `--out` writes the filtered atlas object. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
-The CLI `filter-jsons` command still has no file input options, so it calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=...)` is implemented as the publication text mapping stage.
+When `filter-jsons` has no `--file`, it still calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=...)` is implemented as the publication text mapping stage.
 
 <a id="archive-reference"></a>
 ## Archive Reference

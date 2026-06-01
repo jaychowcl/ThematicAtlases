@@ -1,4 +1,5 @@
 import logging
+import json
 
 import pytest
 
@@ -249,6 +250,99 @@ def test_filter_command_does_not_emit_stdout(capsys: pytest.CaptureFixture[str])
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
+
+
+def test_filter_jsons_accepts_list_file(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    input_file = tmp_path / "collected.json"
+    output_file = tmp_path / "filtered.json"
+    input_file.write_text(
+        json.dumps(
+            [
+                {
+                    "datalink_id": "GSE1",
+                    "publications": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "filter-jsons",
+                "--file",
+                str(input_file),
+                "--out",
+                str(output_file),
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert json.loads(output_file.read_text(encoding="utf-8")) == {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [],
+            }
+        ],
+        "publication_texts": {},
+    }
+
+
+def test_filter_jsons_accepts_atlas_object_file(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    input_file = tmp_path / "atlas.json"
+    output_file = tmp_path / "filtered.json"
+    input_file.write_text(
+        json.dumps(
+            {
+                "accessions": [
+                    {
+                        "datalink_id": "GSE1",
+                        "publications": [],
+                    }
+                ],
+                "publication_texts": {"old": {"text": "ignored"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "filter-jsons",
+                "--file",
+                str(input_file),
+                "--out",
+                str(output_file),
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert json.loads(output_file.read_text(encoding="utf-8")) == {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [],
+            }
+        ],
+        "publication_texts": {},
+    }
 
 
 def test_harmonize_jsons_does_not_emit_stdout(
