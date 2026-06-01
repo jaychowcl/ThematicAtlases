@@ -6,21 +6,21 @@ Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/
 
 - id: project-purpose-and-layout
   title: Project Purpose And Layout
-  lines: 14-55
+  lines: 14-58
   anchor: project-purpose-and-layout
-  keywords: purpose, layout, src, docs, tests, package files, debug queries
+  keywords: purpose, layout, src, docs, tests, package files, debug queries, curator, ThematicReviewer, thematic_reviewer
 
 - id: runtime-and-packaging
   title: Runtime And Packaging
-  lines: 56-68
+  lines: 60-71
   anchor: runtime-and-packaging
   keywords: pyproject, setuptools, version, requests, meta_standards_converter, dependencies, pytest, console script
 
 - id: public-api
   title: Public API
-  lines: 69-79
+  lines: 73-88
   anchor: public-api
-  keywords: import, __init__, exports, Atlas
+  keywords: import, __init__, exports, Atlas, curator, ThematicReviewer, thematic_reviewer
 
 - id: cli-atlas
   title: CLI Atlas

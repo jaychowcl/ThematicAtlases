@@ -23,6 +23,9 @@ src/ThematicAtlases/
 ├── __init__.py
 ├── atlas.py
 ├── cli_atlas.py
+├── curator/
+│   ├── __init__.py
+│   └── thematic_reviewer.py
 └── wrappers/
     ├── __init__.py
     ├── epmc.py
@@ -51,6 +54,7 @@ tests/test_atlas.py
 tests/test_cli_atlas.py
 tests/test_epmc_wrapper.py
 tests/test_geo_wrapper.py
+tests/test_thematic_reviewer.py
 ```
 
 <a id="runtime-and-packaging"></a>
@@ -75,6 +79,12 @@ The live atlas class is `Atlas` in `src/ThematicAtlases/atlas.py`. Import caller
 
 ```python
 from ThematicAtlases.atlas import Atlas
+```
+
+`ThematicAtlases.curator` exports the empty template class `ThematicReviewer`:
+
+```python
+from ThematicAtlases.curator import ThematicReviewer
 ```
 
 <a id="atlas-workflow"></a>
