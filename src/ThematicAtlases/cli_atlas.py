@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 
@@ -32,10 +33,12 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
 
-    subparsers.add_parser(
+    filter_parser = subparsers.add_parser(
         "filter-jsons",
         help="Call the placeholder JSON filtering workflow.",
     )
+    filter_parser.add_argument("--file", default=None)
+    filter_parser.add_argument("--out", default=None)
 
     subparsers.add_parser(
         "harmonize-jsons",
@@ -89,7 +92,11 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
         )
     elif args.command == "filter-jsons":
-        atlas.filter_jsons()
+        result = atlas.filter_jsons(file=args.file)
+
+        if args.out is not None:
+            with open(args.out, "w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=2)
     elif args.command == "harmonize-jsons":
         atlas.harmonize_jsons()
     else:

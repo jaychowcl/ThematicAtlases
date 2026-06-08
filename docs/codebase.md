@@ -61,7 +61,7 @@ tests/test_geo_wrapper.py
 - Version metadata is `0.1.0`.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
-- Runtime dependencies contain `requests>=2.31` and `meta-standards-converter` from `jaychowcl/meta_standards_converter`.
+- Runtime dependencies contain `agentic-curator` from `jaychowcl/agentic_curator`, `requests>=2.31`, and `meta-standards-converter` from `jaychowcl/meta_standards_converter`.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The package uses a `src/` layout with setuptools package discovery.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
@@ -77,6 +77,14 @@ The live atlas class is `Atlas` in `src/ThematicAtlases/atlas.py`. Import caller
 from ThematicAtlases.atlas import Atlas
 ```
 
+The thematic reviewer/curator code has moved to the separate `agentic-curator` package. Import callers must use:
+
+```python
+from agentic_curator import ThematicReviewer
+```
+
+`ThematicAtlases` depends on `agentic-curator` but does not expose `ThematicAtlases.curator` or a curator CLI. The atlas workflow currently does not call `ThematicReviewer`; thematic review remains a separate package-level concern.
+
 <a id="atlas-workflow"></a>
 ### Atlas Workflow
 
@@ -87,7 +95,7 @@ Current methods:
 - `__init__(metadata: dict)`: accepts metadata but does not store it yet.
 - `create_atlas(query=None, file=None, out=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)`, optionally writes the final atlas object to `out`, and returns that object.
 - `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, optionally writes the intermediate collected accession list to `out`, and returns that list.
-- `filter_jsons(jsons=None)`: accepts collected accession records, gathers unique publication text, adds lightweight publication text references under nested publication metadata, and returns a top-level filtered JSON object.
+- `filter_jsons(jsons=None, file=None)`: accepts collected accession records or an atlas-shaped object, optionally appends records from a JSON file, gathers missing publication text while reusing existing `publication_texts`, adds lightweight publication text references under nested publication metadata, and returns a top-level filtered JSON object.
 - `harmonize_jsons()`: placeholder, returns `None`.
 
 Query loading behavior:
@@ -108,7 +116,7 @@ Filtering behavior:
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
-- `_collect_publication_texts(jsons)` is used by `filter_jsons()`. It extracts unique surviving nested publications, calls `EuropePMCWrapper.collect_publication_texts(publications=...)`, and returns a shared `publication_texts` map keyed by PMID, then PMCID, DOI, or `source:epmc_id`.
+- `_collect_publication_texts(jsons, publication_texts=None)` is used by `filter_jsons()`. It extracts unique surviving nested publications that do not already have entries in the shared text map, calls `EuropePMCWrapper.collect_publication_texts(publications=...)` for missing text only, and returns a shared `publication_texts` map keyed by existing `publication_text_ref`, PMID, PMCID, DOI, or `source:epmc_id`.
 - `_accessions_with_publication_text_refs(jsons, publication_texts)` adds `publication_text_ref` to nested publication metadata when text is available. Full text is not duplicated inside accession records.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
 
@@ -321,16 +329,16 @@ Commands:
 - `[-v | --verbose] [--log-file LOG_FILE]`
 - `create-atlas [--query QUERY] [--file FILE] [--out OUT]`
 - `collect-jsons [--query QUERY] [--file FILE] [--out OUT]`
-- `filter-jsons`
+- `filter-jsons [--file FILE] [--out OUT]`
 - `harmonize-jsons`
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. The local VS Code launch config passes `--verbose --log-file .dev/atlas.log collect-jsons --file .dev/queries.txt --out .dev/atlas.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
-The CLI `filter-jsons` command still has no file input options, so it calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=...)` is implemented as the publication text mapping stage.
+When `filter-jsons` has no `--file`, it still calls `Atlas.filter_jsons()` with no records and exits quietly. The Python API `filter_jsons(jsons=..., file=...)` is implemented as the publication text mapping stage; when both arguments are provided, file accessions are appended after in-memory accessions.
 
 <a id="archive-reference"></a>
 ## Archive Reference
@@ -342,7 +350,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, GEO filtering, CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper and CLI tests mock network access.
+Live tests cover atlas query loading, GEO filtering, atlas CLI behavior, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper and CLI tests mock network access.
 
 Useful checks:
 

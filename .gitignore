@@ -7,6 +7,9 @@ oldd/*
 .dev/
 .dev/*
 
+.vscode/
+.vscode/*
+
 
 
 
