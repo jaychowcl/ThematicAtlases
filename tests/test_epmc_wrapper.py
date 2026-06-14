@@ -782,6 +782,91 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
     ]
 
 
+def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_fails(
+    monkeypatch,
+) -> None:
+    calls = []
+    xml = """
+    <responseWrapper xmlns:slx="http://www.scholix.org" xmlns:epmc="https://www.europepmc.org/data">
+      <dataLinkList>
+        <epmc:Category>
+          <epmc:Name>Functional Genomics Experiments</epmc:Name>
+          <epmc:Section>
+            <epmc:Linklist>
+              <slx:Link>
+                <slx:Source>
+                  <slx:Identifier>
+                    <slx:ID>123</slx:ID>
+                    <slx:IDScheme>MED</slx:IDScheme>
+                  </slx:Identifier>
+                </slx:Source>
+                <slx:Target>
+                  <slx:Identifier>
+                    <slx:ID>E-MTAB-1</slx:ID>
+                    <slx:IDScheme>ArrayExpress</slx:IDScheme>
+                    <slx:IDURL>https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-1</slx:IDURL>
+                  </slx:Identifier>
+                </slx:Target>
+              </slx:Link>
+            </epmc:Linklist>
+          </epmc:Section>
+        </epmc:Category>
+      </dataLinkList>
+    </responseWrapper>
+    """
+    responses = [
+        FakeResponse({}, status_code=500),
+        FakeResponse({}, text=xml),
+    ]
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper(max_retries=0, timeout=12).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "123"}]
+    )
+
+    assert calls == [
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
+            {"format": "json"},
+            12,
+        ),
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
+            None,
+            12,
+        ),
+    ]
+    assert result == [
+        {
+            "datalink_id": "E-MTAB-1",
+            "datalink_id_scheme": "ArrayExpress",
+            "datalink_url": "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-1",
+            "datalink_category": "Functional Genomics Experiments",
+            "publications": [
+                {
+                    "query": "q",
+                    "epmc_id": "123",
+                    "source": "MED",
+                    "pmid": "",
+                    "pmcid": "",
+                    "doi": "",
+                    "title": "",
+                    "abstractText": "",
+                    "text": "",
+                    "text_source": "",
+                    "full_text_status": "",
+                }
+            ],
+        }
+    ]
+
+
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
     def fake_get(url, params, timeout):
         return FakeResponse(

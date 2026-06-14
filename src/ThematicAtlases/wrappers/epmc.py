@@ -351,10 +351,88 @@ class EuropePMCWrapper:
                 time.sleep(retry_delay)
                 continue
 
+            if response.status_code >= 500:
+                logger.debug(
+                    "EuropePMC datalinks XML fallback status=%s source=%r epmc_id=%r",
+                    response.status_code,
+                    source,
+                    epmc_id,
+                )
+                return self._datalinks_from_xml(url=url)
+
             response.raise_for_status()
             return response.json()
 
         return {}
+
+    def _datalinks_from_xml(self, url: str) -> dict:
+        response = requests.get(
+            url,
+            timeout=self._request_settings["timeout"],
+        )
+        response.raise_for_status()
+        return self._datalinks_xml_to_json(response.text)
+
+    def _datalinks_xml_to_json(self, text: str) -> dict:
+        root = ET.fromstring(text)
+        categories = []
+
+        for category_element in root.findall(".//{*}Category"):
+            sections = []
+
+            for section_element in category_element.findall("{*}Section"):
+                links = []
+
+                for link_element in section_element.findall(".//{*}Link"):
+                    identifier_element = link_element.find(
+                        "{*}Target/{*}Identifier"
+                    )
+
+                    if identifier_element is None:
+                        continue
+
+                    links.append(
+                        {
+                            "Target": {
+                                "Identifier": {
+                                    "ID": self._xml_child_text(
+                                        element=identifier_element,
+                                        tag="ID",
+                                    ),
+                                    "IDScheme": self._xml_child_text(
+                                        element=identifier_element,
+                                        tag="IDScheme",
+                                    ),
+                                    "IDURL": self._xml_child_text(
+                                        element=identifier_element,
+                                        tag="IDURL",
+                                    ),
+                                }
+                            }
+                        }
+                    )
+
+                sections.append({"Linklist": {"Link": links}})
+
+            categories.append(
+                {
+                    "Name": self._xml_child_text(
+                        element=category_element,
+                        tag="Name",
+                    ),
+                    "Section": sections,
+                }
+            )
+
+        return {"dataLinkList": {"Category": categories}}
+
+    def _xml_child_text(self, element: ET.Element, tag: str) -> str:
+        child = element.find(f"{{*}}{tag}")
+
+        if child is None or child.text is None:
+            return ""
+
+        return child.text
 
     def _full_text_xml(self, epmc_id: str) -> str:
         url = self._full_text_xml_url.format(epmc_id=epmc_id)
