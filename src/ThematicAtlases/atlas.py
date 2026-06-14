@@ -1,21 +1,34 @@
 import json
 import logging
 
+from ThematicAtlases.review import (
+    ACCESSIONS,
+    PUBLICATIONS,
+    PUBLICATION_TEXTS,
+    PUBLICATION_TEXT_REF,
+    PublicationTextReviewer,
+)
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
 
 GEO_ACCESSION_PREFIXES = ("GSE", "GSM", "GPL", "GDS")
-REVIEW_FILTERS = {
-    "none",
-    "not_relevant",
-    "not_relevant_and_unsure",
-}
 logger = logging.getLogger(__name__)
 
 
 class Atlas():
-    def __init__(self, metadata: dict):
-        pass
+    def __init__(
+        self,
+        metadata: dict,
+        epmc_wrapper_factory=None,
+        metadata_handlers: dict | None = None,
+        publication_text_reviewer: PublicationTextReviewer | None = None,
+    ):
+        self.metadata = metadata
+        self._epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
+        self._metadata_handlers = metadata_handlers or {"geo": GEOWrapper}
+        self._publication_text_reviewer = (
+            publication_text_reviewer or PublicationTextReviewer()
+        )
 
     def _load_queries(self, file: str) -> list[str]:
         with open(file, encoding="utf-8") as handle:
@@ -94,8 +107,10 @@ class Atlas():
         return None
 
     def _metadata_handler(self, repository: str):
-        if repository == "geo":
-            return GEOWrapper()
+        handler_factory = self._metadata_handlers.get(repository)
+
+        if handler_factory is not None:
+            return handler_factory()
 
         raise ValueError(f"Unsupported metadata repository: {repository}")
 
@@ -140,8 +155,8 @@ class Atlas():
 
         if isinstance(jsons, dict):
             return (
-                list(jsons.get("accessions", [])),
-                dict(jsons.get("publication_texts", {})),
+                list(jsons.get(ACCESSIONS, [])),
+                dict(jsons.get(PUBLICATION_TEXTS, {})),
             )
 
         return [], {}
@@ -156,7 +171,7 @@ class Atlas():
         publication_index = {}
 
         for record in jsons:
-            for publication in record.get("publications", []):
+            for publication in record.get(PUBLICATIONS, []):
                 publication_ref = self._publication_text_ref(publication=publication)
 
                 if publication_ref in publication_texts:
@@ -180,7 +195,7 @@ class Atlas():
             "Atlas publication text progress unique_publications=%s",
             len(publications),
         )
-        enriched_publications = EuropePMCWrapper().collect_publication_texts(
+        enriched_publications = self._epmc_wrapper().collect_publication_texts(
             publications=publications
         )
 
@@ -218,12 +233,12 @@ class Atlas():
         accessions = [
             {
                 **record,
-                "publications": [
+                PUBLICATIONS: [
                     self._publication_with_text_ref(
                         publication=publication,
                         publication_texts=publication_texts,
                     )
-                    for publication in record.get("publications", [])
+                    for publication in record.get(PUBLICATIONS, [])
                 ],
             }
             for record in jsons
@@ -232,8 +247,8 @@ class Atlas():
             1
             for record in accessions
             if any(
-                "publication_text_ref" in publication
-                for publication in record.get("publications", [])
+                PUBLICATION_TEXT_REF in publication
+                for publication in record.get(PUBLICATIONS, [])
             )
         )
         logger.info(
@@ -257,196 +272,18 @@ class Atlas():
         }
 
         if publication_ref in publication_texts:
-            publication["publication_text_ref"] = publication_ref
+            publication[PUBLICATION_TEXT_REF] = publication_ref
 
         return publication
 
-    def _validate_review_options(self, theme: str | None, review_filter: str) -> None:
-        if review_filter not in REVIEW_FILTERS:
-            raise ValueError(
-                f"Unsupported review_filter: {review_filter!r}. "
-                f"Expected one of: {', '.join(sorted(REVIEW_FILTERS))}."
-            )
+    def _epmc_wrapper(self):
+        return self._epmc_wrapper_factory()
 
-        if theme is None and review_filter != "none":
-            raise ValueError("review_filter requires a theme.")
-
-    def _publication_review_contexts(self, accessions: list[dict]) -> dict:
-        contexts = {}
-
-        for record in accessions:
-            for publication in record.get("publications", []):
-                publication_ref = publication.get("publication_text_ref", "")
-
-                if not publication_ref or publication_ref in contexts:
-                    continue
-
-                contexts[publication_ref] = {
-                    "title": publication.get("title", ""),
-                    "metadata": record.get("accession_metadata"),
-                }
-
-        return contexts
-
-    def _review_publication_texts(
-        self,
-        publication_texts: dict,
-        contexts: dict,
-        theme: str | None,
-        reviewer=None,
-    ) -> dict:
-        if theme is None:
-            return publication_texts
-
-        reviewer = reviewer or self._thematic_reviewer()
-        reviewed_publication_texts = {}
-        reviewed_count = 0
-        reused_count = 0
-
-        for publication_ref, publication_text in publication_texts.items():
-            publication_text = dict(publication_text)
-            existing_review = publication_text.get("agentic_curator")
-
-            if (
-                isinstance(existing_review, dict)
-                and existing_review.get("theme") == theme
-            ):
-                reviewed_publication_texts[publication_ref] = publication_text
-                reused_count += 1
-                continue
-
-            context = contexts.get(publication_ref, {})
-            review = reviewer.review_relevancy(
-                publication_text=publication_text.get("text", ""),
-                theme=theme,
-                metadata=context.get("metadata"),
-                title=context.get("title"),
-            )
-            publication_text["agentic_curator"] = self._agentic_curator_review(
-                theme=theme,
-                review=review,
-            )
-            reviewed_publication_texts[publication_ref] = publication_text
-            reviewed_count += 1
-
-        logger.info(
-            "Atlas thematic review stats publication_texts=%s reviewed=%s reused=%s",
-            len(publication_texts),
-            reviewed_count,
-            reused_count,
-        )
-        return reviewed_publication_texts
-
-    def _thematic_reviewer(self):
-        from agentic_curator import ThematicReviewer
-
-        return ThematicReviewer()
-
-    def _agentic_curator_review(self, theme: str, review: dict) -> dict:
-        raw_evidences = review.get("evidences", "")
-        raw_judgement = review.get("judgement", "")
-        evidence_object = self._json_object(raw_evidences)
-        judgement_object = self._json_object(raw_judgement)
-
-        evidences = evidence_object.get("evidences", [])
-        if not isinstance(evidences, list):
-            evidences = []
-
+    def _atlas_object(self, accessions: list[dict], publication_texts: dict) -> dict:
         return {
-            "theme": theme,
-            "evidences": evidences,
-            "judgement": str(judgement_object.get("judgement", "")),
-            "reasoning": str(judgement_object.get("reasoning", "")),
-            "confidence": str(judgement_object.get("confidence", "")),
-            "raw_evidences": raw_evidences,
-            "raw_judgement": raw_judgement,
+            ACCESSIONS: accessions,
+            PUBLICATION_TEXTS: publication_texts,
         }
-
-    def _json_object(self, value) -> dict:
-        if isinstance(value, dict):
-            return value
-
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-            except json.JSONDecodeError:
-                return {}
-
-            if isinstance(parsed, dict):
-                return parsed
-
-        return {}
-
-    def _review_filtered_result(
-        self,
-        accessions: list[dict],
-        publication_texts: dict,
-        review_filter: str,
-    ) -> tuple[list[dict], dict]:
-        removed_judgements = self._removed_review_judgements(review_filter=review_filter)
-        filtered_accessions = []
-        used_refs = set()
-
-        for record in accessions:
-            publications = []
-
-            for publication in record.get("publications", []):
-                publication_ref = publication.get("publication_text_ref", "")
-
-                if not publication_ref:
-                    continue
-
-                publication_text = publication_texts.get(publication_ref)
-
-                if publication_text is None:
-                    continue
-
-                judgement = self._normalized_review_judgement(
-                    publication_text=publication_text
-                )
-
-                if judgement in removed_judgements:
-                    continue
-
-                publications.append(publication)
-                used_refs.add(publication_ref)
-
-            if publications:
-                filtered_accessions.append({**record, "publications": publications})
-
-        filtered_publication_texts = {
-            publication_ref: publication_texts[publication_ref]
-            for publication_ref in publication_texts
-            if publication_ref in used_refs
-        }
-        logger.info(
-            "Atlas thematic filter stats review_filter=%s input_accessions=%s output_accessions=%s input_publication_texts=%s output_publication_texts=%s",
-            review_filter,
-            len(accessions),
-            len(filtered_accessions),
-            len(publication_texts),
-            len(filtered_publication_texts),
-        )
-        return filtered_accessions, filtered_publication_texts
-
-    def _removed_review_judgements(self, review_filter: str) -> set[str]:
-        if review_filter == "not_relevant":
-            return {"not relevant"}
-
-        if review_filter == "not_relevant_and_unsure":
-            return {"not relevant", "unsure"}
-
-        return set()
-
-    def _normalized_review_judgement(self, publication_text: dict) -> str:
-        agentic_curator = publication_text.get("agentic_curator", {})
-
-        if not isinstance(agentic_curator, dict):
-            return ""
-
-        return " ".join(
-            str(agentic_curator.get("judgement", "")).lower().replace("_", " ").split()
-        )
 
     def create_atlas(
         self,
@@ -506,7 +343,7 @@ class Atlas():
 
         logger.info("Atlas collect_jsons stats query_count=%s", len(queries))
         logger.info("Atlas collect_jsons progress stage=collect-accessions")
-        accessions = EuropePMCWrapper().collect_accessions(queries=queries)
+        accessions = self._epmc_wrapper().collect_accessions(queries=queries)
         logger.info(
             "Atlas collect_jsons progress stage=collect-accessions-complete raw_accessions=%s",
             len(accessions),
@@ -542,59 +379,92 @@ class Atlas():
         review_filter: str = "none",
         reviewer=None,
     ) -> dict:
-        self._validate_review_options(theme=theme, review_filter=review_filter)
-        jsons, publication_texts = self._atlas_parts(jsons=jsons)
-
-        if file is not None:
-            file_jsons, file_publication_texts = self._atlas_parts(
-                jsons=self._load_json(file=file)
-            )
-            jsons.extend(file_jsons)
-            publication_texts.update(file_publication_texts)
+        self._publication_text_reviewer.validate_options(
+            theme=theme,
+            review_filter=review_filter,
+        )
+        accession_records, publication_texts = self._filter_inputs(
+            jsons=jsons,
+            file=file,
+        )
 
         logger.info("Atlas filter_jsons progress stage=collect-publication-texts")
         publication_texts = self._collect_publication_texts(
-            jsons=jsons,
+            jsons=accession_records,
             publication_texts=publication_texts,
         )
         logger.info("Atlas filter_jsons progress stage=attach-publication-text-refs")
         accessions = self._accessions_with_publication_text_refs(
-            jsons=jsons,
+            jsons=accession_records,
             publication_texts=publication_texts,
         )
         if theme is not None:
-            logger.info("Atlas filter_jsons progress stage=review-publication-texts")
-            publication_texts = self._review_publication_texts(
-                publication_texts=publication_texts,
-                contexts=self._publication_review_contexts(accessions=accessions),
-                theme=theme,
-                reviewer=reviewer,
-            )
-            logger.info("Atlas filter_jsons progress stage=filter-reviewed-publications")
-            accessions, publication_texts = self._review_filtered_result(
+            accessions, publication_texts = self._review_and_filter_publications(
                 accessions=accessions,
                 publication_texts=publication_texts,
+                theme=theme,
                 review_filter=review_filter,
+                reviewer=reviewer,
             )
         accessions_with_refs = sum(
             1
             for record in accessions
             if any(
-                "publication_text_ref" in publication
-                for publication in record.get("publications", [])
+                PUBLICATION_TEXT_REF in publication
+                for publication in record.get(PUBLICATIONS, [])
             )
         )
         logger.info(
             "Atlas filter_jsons stats input_accessions=%s publication_texts=%s accessions_with_text_refs=%s",
-            len(jsons),
+            len(accession_records),
             len(publication_texts),
             accessions_with_refs,
         )
 
-        return {
-            "accessions": accessions,
-            "publication_texts": publication_texts,
-        }
+        return self._atlas_object(
+            accessions=accessions,
+            publication_texts=publication_texts,
+        )
+
+    def _filter_inputs(
+        self,
+        jsons: dict | list[dict] | None,
+        file: str | None,
+    ) -> tuple[list[dict], dict]:
+        accession_records, publication_texts = self._atlas_parts(jsons=jsons)
+
+        if file is not None:
+            file_accessions, file_publication_texts = self._atlas_parts(
+                jsons=self._load_json(file=file)
+            )
+            accession_records.extend(file_accessions)
+            publication_texts.update(file_publication_texts)
+
+        return accession_records, publication_texts
+
+    def _review_and_filter_publications(
+        self,
+        accessions: list[dict],
+        publication_texts: dict,
+        theme: str,
+        review_filter: str,
+        reviewer=None,
+    ) -> tuple[list[dict], dict]:
+        logger.info("Atlas filter_jsons progress stage=review-publication-texts")
+        publication_texts = self._publication_text_reviewer.review_publication_texts(
+            publication_texts=publication_texts,
+            contexts=self._publication_text_reviewer.publication_review_contexts(
+                accessions=accessions
+            ),
+            theme=theme,
+            reviewer=reviewer,
+        )
+        logger.info("Atlas filter_jsons progress stage=filter-reviewed-publications")
+        return self._publication_text_reviewer.filtered_result(
+            accessions=accessions,
+            publication_texts=publication_texts,
+            review_filter=review_filter,
+        )
 
     def harmonize_jsons(self, ) -> list[dict]:
         pass
