@@ -23,6 +23,15 @@ src/ThematicAtlases/
 ├── __init__.py
 ├── atlas.py
 ├── cli_atlas.py
+├── collector/
+│   ├── __init__.py
+│   └── collector.py
+├── filterer/
+│   ├── __init__.py
+│   └── filterer.py
+├── harmonizer/
+│   ├── __init__.py
+│   └── harmonizer.py
 ├── review.py
 └── wrappers/
     ├── __init__.py
@@ -50,8 +59,11 @@ docs/memory.md
 docs/burndown.md
 tests/test_atlas.py
 tests/test_cli_atlas.py
+tests/test_collector.py
 tests/test_epmc_wrapper.py
+tests/test_filterer.py
 tests/test_geo_wrapper.py
+tests/test_harmonizer.py
 tests/test_review.py
 ```
 
@@ -90,15 +102,31 @@ from agentic_curator import ThematicReviewer
 <a id="atlas-workflow"></a>
 ### Atlas Workflow
 
-`class Atlas` is the workflow object currently used by the CLI. It stores lightweight dependency factories for Europe PMC collection, metadata handlers, and publication text review so tests and future repository integrations can inject alternatives without monkeypatching module globals.
+`class Atlas` is the workflow orchestrator currently used by the CLI. It keeps the public workflow surface in one root object while delegating implementation details to component packages: `ThematicAtlases.collector.AtlasCollector`, `ThematicAtlases.filterer.AtlasFilterer`, and `ThematicAtlases.harmonizer.AtlasHarmonizer`.
 
 Current methods:
 
-- `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, publication_text_reviewer=None)`: stores metadata and dependency factories. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior.
+- `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
 - `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", reviewer=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)` with optional thematic review arguments, optionally writes the final atlas object to `out`, and returns that object.
-- `collect_jsons(query=None, file=None, out=None)`: builds a query list, calls `EuropePMCWrapper.collect_accessions(queries=...)`, filters collected datalinks to currently handled accessions, routes them through metadata repository handlers, optionally writes the intermediate collected accession list to `out`, and returns that list.
-- `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", reviewer=None)`: accepts collected accession records or an atlas-shaped object, optionally appends records from a JSON file, gathers missing publication text while reusing existing `publication_texts`, adds lightweight publication text references under nested publication metadata, optionally reviews each unique publication text against `theme`, optionally filters by reviewer judgement, and returns a top-level filtered JSON object.
-- `harmonize_jsons()`: placeholder, returns `None`.
+- `collect_jsons(query=None, file=None, out=None)`: delegates to `AtlasCollector.collect_jsons(...)`.
+- `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", reviewer=None)`: delegates to `AtlasFilterer.filter_jsons(...)`.
+- `harmonize_jsons()`: delegates to `AtlasHarmonizer.harmonize_jsons()`, currently preserving placeholder behavior by returning `None`.
+
+`Atlas` intentionally does not expose the former private helper methods. Helper-level behavior belongs to the component classes below.
+
+<a id="collector"></a>
+### Collector
+
+`ThematicAtlases.collector.AtlasCollector` owns accession discovery and metadata collection.
+
+Current responsibilities:
+
+- Build query lists from repeated API/CLI query values and optional UTF-8 query files.
+- Ignore blank query-file lines and lines beginning with `#`.
+- Call `EuropePMCWrapper.collect_accessions(queries=...)`.
+- Keep records handled by the current GEO rules: `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
+- Route handled records to metadata repository handlers. The default registry routes `geo` to `GEOWrapper`.
+- Optionally write the intermediate collected accession list to `out`.
 
 Query loading behavior:
 
@@ -109,18 +137,37 @@ Query loading behavior:
 
 Filtering behavior:
 
-- `_filter_accessions(accessions)` is an internal filter used by `collect_jsons()` to keep accessions handled by the live workflow.
-- `_is_handled_accession(record)` currently uses the GEO rules: records are handled when `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
-- Future platform support should extend `_is_handled_accession(record)` with additional platform checks.
-- `_collect_accession_metadata(jsons)` is the metadata repository routing step used after filtering.
-- `_metadata_repository(record)` currently returns `geo` for handled GEO records and `None` for unhandled records.
-- `_metadata_handler(repository)` uses the instance metadata handler registry. The default registry routes `geo` records to `GEOWrapper`.
+- `filter_accessions(accessions)` keeps accessions handled by the live workflow.
+- `is_handled_accession(record)` contains the current GEO rule set.
+- Future platform support should extend `is_handled_accession(record)` and `metadata_repository(record)` with additional platform checks.
+- `collect_accession_metadata(jsons)` is the metadata repository routing step used after filtering.
+- `metadata_repository(record)` currently returns `geo` for handled GEO records and `None` for unhandled records.
+- `metadata_handler(repository)` uses the instance metadata handler registry.
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
-- `_collect_publication_texts(jsons, publication_texts=None)` is used by `filter_jsons()`. It extracts unique surviving nested publications that do not already have entries in the shared text map, calls `EuropePMCWrapper.collect_publication_texts(publications=...)` for missing text only, and returns a shared `publication_texts` map keyed by existing `publication_text_ref`, PMID, PMCID, DOI, or `source:epmc_id`.
-- `_accessions_with_publication_text_refs(jsons, publication_texts)` adds `publication_text_ref` to nested publication metadata when text is available. Full text is not duplicated inside accession records.
-- `filter_jsons()` is organized as a short pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object.
+
+<a id="filterer"></a>
+### Filterer
+
+`ThematicAtlases.filterer.AtlasFilterer` owns the publication text mapping and optional thematic review stage.
+
+Current responsibilities:
+
+- Accept collected accession records or an atlas-shaped object with `accessions` and optional `publication_texts`.
+- Optionally append records from a JSON file.
+- Reuse existing publication text entries and collect only missing texts.
+- Add `publication_text_ref` to nested publication metadata when text is available.
+- Strip `text`, `text_source`, and `full_text_status` from nested publication metadata so full text is stored only in the shared text map.
+- Optionally review each unique publication text against `theme`, then optionally filter by reviewer judgement.
+- Return the top-level atlas object with `accessions` and `publication_texts`.
+
+`collect_publication_texts(jsons, publication_texts=None)` extracts unique surviving nested publications that do not already have entries in the shared text map, calls `EuropePMCWrapper.collect_publication_texts(publications=...)` for missing text only, and returns a shared `publication_texts` map keyed by existing `publication_text_ref`, PMID, PMCID, DOI, or `source:epmc_id`.
+
+`accessions_with_publication_text_refs(jsons, publication_texts)` adds `publication_text_ref` to nested publication metadata when text is available. Full text is not duplicated inside accession records.
+
+`filter_jsons()` is organized as a short pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object.
+
 - `ThematicAtlases.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The first accession/publication context for a text ref supplies `title` and `accession_metadata` to the reviewer.
 - The review output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, parsed `evidences`, parsed final judge fields `judgement`, `reasoning`, and `confidence`, plus `raw_evidences` and `raw_judgement`. Parsed fields match the `agentic_curator` response schemas: evidence items use `evidence`, `judgement`, `confidence`, and `reason`; judge output uses `judgement`, `reasoning`, and `confidence`.
@@ -129,6 +176,11 @@ Filtering behavior:
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
 - `review_filter != "none"` without a `theme` raises `ValueError`.
 - Raw non-GEO datalinks are not preserved by `collect_jsons()`.
+
+<a id="harmonizer"></a>
+### Harmonizer
+
+`ThematicAtlases.harmonizer.AtlasHarmonizer` owns the harmonization extension point. `harmonize_jsons()` currently preserves the previous placeholder behavior by returning `None`.
 
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
@@ -175,7 +227,7 @@ fullTextUrls
 firstPublicationDate
 ```
 
-`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by `Atlas.filter_jsons()` after accession collection and metadata routing. `collect_accessions()` returns deduplicated accession records with:
+`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by `AtlasFilterer.filter_jsons()` after accession collection and metadata routing. `collect_accessions()` returns deduplicated accession records with:
 
 ```text
 datalink_id
@@ -185,7 +237,7 @@ datalink_category
 publications
 ```
 
-`Atlas.collect_jsons()` then normalizes these records to GSE accessions. Final atlas records add:
+`AtlasCollector.collect_jsons()` then normalizes these records to GSE accessions. Final atlas records add:
 
 ```text
 original_datalinks
@@ -254,9 +306,9 @@ https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks
 
 with `format=json`. The current dataset category filter keeps `GEO`, `BioProject`, `BioStudies`, `Nucleotide Sequences`, `BioStudies: supplemental material and supporting data`, and `Functional Genomics Experiments`.
 
-Atlas, EuropePMC, and GEO library modules define loggers but do not configure global logging. The CLI is responsible for logging configuration.
+Atlas, collector, filterer, EuropePMC, and GEO library modules define loggers but do not configure global logging. The CLI is responsible for logging configuration.
 
-Atlas emits INFO-level progress logs for collection stages, including query loading, Europe PMC accession collection, accession filtering, metadata collection, output writing, publication text collection, and publication text-reference attachment. Atlas also emits INFO-level stats for query count, raw accession count, filtered accession count, metadata output count, publication text map count, and accessions with publication text references.
+Atlas emits INFO-level progress logs for the `create_atlas()` orchestration stages. `AtlasCollector` emits INFO-level collection progress and stats, including query loading, Europe PMC accession collection, accession filtering, metadata collection, output writing, query count, raw accession count, filtered accession count, and metadata output count. `AtlasFilterer` emits INFO-level filtering progress and stats, including publication text collection, publication text-reference attachment, publication text map count, and accessions with publication text references.
 
 Each EuropePMC query logs one INFO-level search stats message with the query, total hits from `hitCount` when present, collected hits, fetched pages, page limit, whether the page limit stopped pagination, and final cursor.
 
@@ -282,7 +334,7 @@ These request tuning values are stored together in an internal settings dictiona
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
 
-`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities and appends parsed GEO MINiML JSON through `meta_standards_converter`. `Atlas.collect_jsons()` routes GEO records to it through `_collect_accession_metadata()`.
+`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities and appends parsed GEO MINiML JSON through `meta_standards_converter`. `AtlasCollector.collect_jsons()` routes GEO records to it through `collect_accession_metadata()`.
 
 Current public methods:
 
@@ -360,13 +412,13 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas query loading, GEO filtering, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, review, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, collector query loading, GEO filtering, filterer publication text mapping, harmonizer placeholder behavior, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, review, and CLI tests mock network/provider access.
 
 Useful checks:
 
 ```bash
-python3 -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/review.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
-python3 -m pytest
+.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/review.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
+.env/bin/python -m pytest
 ```
 
 If `pytest` is unavailable in the active environment, use a direct smoke check:

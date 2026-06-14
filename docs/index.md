@@ -1,67 +1,99 @@
 # codebase.md Index
 
-Ranges point into `docs/codebase.md`. Command template: `sed -n '<Lines>p' docs/codebase.md`. Refresh ranges after editing `docs/codebase.md`.
+Ranges point into `docs/codebase.md`. Read this file first, choose relevant section ids, then retrieve only those ranges.
+
+Agent retrieval template:
+
+```bash
+sed -n '<Lines>p' docs/codebase.md
+```
+
+Example:
+
+```bash
+sed -n '102,183p' docs/codebase.md
+```
+
+Refresh ranges after editing `docs/codebase.md`.
 
 ## Main Sections
 
 - id: project-purpose-and-layout
   title: Project Purpose And Layout
-  lines: 14-57
+  lines: 14-68
   anchor: project-purpose-and-layout
-  keywords: purpose, layout, src, docs, tests, package files, debug queries, atlas, review, wrappers
+  keywords: purpose, layout, src, docs, tests, package files, collector, filterer, harmonizer, wrappers
 
 - id: runtime-and-packaging
   title: Runtime And Packaging
-  lines: 58-69
+  lines: 70-81
   anchor: runtime-and-packaging
   keywords: pyproject, setuptools, version, agentic-curator, requests, meta_standards_converter, dependencies, pytest, console script, thematic-atlas
 
 - id: public-api
   title: Public API
-  lines: 71-89
+  lines: 83-100
   anchor: public-api
   keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, filter_jsons, no ThematicAtlases.curator, no curator CLI, separate package
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 332-351
+  lines: 384-403
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-jsons, filter-jsons, theme, theme-file, review-filter, not-relevant, unsure, reuse publication_texts, atlas_len1, .env, VS Code launch, verbose, log-file, stdout logging, progress logs, stats logs, debug logs, quiet stdout
+  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-jsons, filter-jsons, theme, theme-file, review-filter, not-relevant, unsure, reuse publication_texts, .env, VS Code launch, verbose, log-file, stdout logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 353-358
+  lines: 405-410
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 360-378
+  lines: 412-430
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, smoke check, mocked network, publication text, section parsing, thematic review, review.py, GEO wrapper, atlas CLI
+  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, atlas orchestration, collector, filterer, harmonizer, publication text, section parsing, thematic review, review.py, GEO wrapper, atlas CLI
 
 ## API Sections
 
 - id: atlas-workflow
   title: Atlas Workflow
-  lines: 90-131
+  lines: 102-115
   anchor: atlas-workflow
-  keywords: Atlas, dependency injection, epmc_wrapper_factory, metadata_handlers, publication_text_reviewer, PublicationTextReviewer, create_atlas, collect_jsons, query, file, out, empty queries, _filter_accessions, _is_handled_accession, _collect_accession_metadata, _metadata_repository, _metadata_handler, _collect_publication_texts, _accessions_with_publication_text_refs, _review_and_filter_publications, publication_text_ref, publication_texts, agentic_curator, ThematicReviewer, evidences, judgement, reasoning, confidence, raw_evidences, raw_judgement, review_filter, not_relevant, unsure, reuse publication_texts, handled accessions, GEO, GSE normalization, publication text, original_datalinks, filter_jsons, harmonize_jsons
+  keywords: Atlas, orchestrator, dependency injection, collector, filterer, harmonizer, epmc_wrapper_factory, metadata_handlers, publication_text_reviewer, create_atlas, collect_jsons, filter_jsons, harmonize_jsons
+
+- id: collector
+  title: Collector
+  lines: 117-149
+  anchor: collector
+  keywords: AtlasCollector, query loading, collect_jsons, EuropePMCWrapper, collect_accessions, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, GEO, GSE, GSM, GDS, GPL, original_datalinks, accession_metadata
+
+- id: filterer
+  title: Filterer
+  lines: 150-178
+  anchor: filterer
+  keywords: AtlasFilterer, filter_jsons, atlas_parts, publication_texts, publication_text_ref, collect_publication_texts, accessions_with_publication_text_refs, publication_with_text_ref, review_and_filter_publications, agentic_curator, review_filter, not_relevant, unsure
+
+- id: harmonizer
+  title: Harmonizer
+  lines: 180-183
+  anchor: harmonizer
+  keywords: AtlasHarmonizer, harmonize_jsons, placeholder, None
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 133-267
+  lines: 185-319
   anchor: epmc-wrapper
   keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, accession records, progress logs, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 269-280
+  lines: 321-332
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay
 
 - id: geo-wrapper
   title: GEO Wrapper
-  lines: 282-330
+  lines: 334-382
   anchor: geo-wrapper
   keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs
