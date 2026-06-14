@@ -4,8 +4,11 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 
 from ThematicAtlases.atlas import Atlas
+
+REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -32,6 +35,13 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--query", action="append", default=None)
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
+    create.add_argument("--theme", default=None)
+    create.add_argument("--theme-file", default=None)
+    create.add_argument(
+        "--review-filter",
+        choices=REVIEW_FILTER_CHOICES,
+        default="none",
+    )
 
     filter_parser = subparsers.add_parser(
         "filter-jsons",
@@ -39,6 +49,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     filter_parser.add_argument("--file", default=None)
     filter_parser.add_argument("--out", default=None)
+    filter_parser.add_argument("--theme", default=None)
+    filter_parser.add_argument("--theme-file", default=None)
+    filter_parser.add_argument(
+        "--review-filter",
+        choices=REVIEW_FILTER_CHOICES,
+        default="none",
+    )
 
     subparsers.add_parser(
         "harmonize-jsons",
@@ -71,6 +88,17 @@ def _configure_logging(verbosity: int, log_file: str | None) -> None:
     logging.basicConfig(**logging_kwargs)
 
 
+def _input_value(value: str | None, file: str | None) -> str | None:
+    if file is not None:
+        return Path(file).read_text(encoding="utf-8")
+
+    return value
+
+
+def _review_filter(value: str) -> str:
+    return value.replace("-", "_")
+
+
 def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
@@ -90,9 +118,15 @@ def main(argv: list[str] | None = None) -> int:
             query=args.query,
             file=args.file,
             out=args.out,
+            theme=_input_value(value=args.theme, file=args.theme_file),
+            review_filter=_review_filter(args.review_filter),
         )
     elif args.command == "filter-jsons":
-        result = atlas.filter_jsons(file=args.file)
+        result = atlas.filter_jsons(
+            file=args.file,
+            theme=_input_value(value=args.theme, file=args.theme_file),
+            review_filter=_review_filter(args.review_filter),
+        )
 
         if args.out is not None:
             with open(args.out, "w", encoding="utf-8") as handle:

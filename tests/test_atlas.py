@@ -68,6 +68,90 @@ class FakeGEOWrapper:
         return self.accessions_to_gse.get(accession)
 
 
+class _FailingReviewer:
+    def review_relevancy(self, **kwargs):
+        raise AssertionError("existing review should be reused")
+
+
+def _reviewed_atlas_object() -> dict:
+    return {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "1",
+                        "pmid": "1",
+                        "publication_text_ref": "1",
+                    },
+                    {
+                        "source": "MED",
+                        "epmc_id": "2",
+                        "pmid": "2",
+                        "publication_text_ref": "2",
+                    },
+                    {
+                        "source": "MED",
+                        "epmc_id": "3",
+                        "pmid": "3",
+                        "publication_text_ref": "3",
+                    },
+                ],
+            },
+            {
+                "datalink_id": "GSE2",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "2",
+                        "pmid": "2",
+                        "publication_text_ref": "2",
+                    }
+                ],
+            },
+        ],
+        "publication_texts": {
+            "1": {
+                "text": "Relevant text",
+                "agentic_curator": {
+                    "theme": "fibrosis",
+                    "evidences": [],
+                    "judgement": "relevant",
+                    "reasoning": "",
+                    "confidence": "",
+                    "raw_evidences": "",
+                    "raw_judgement": "",
+                },
+            },
+            "2": {
+                "text": "Not relevant text",
+                "agentic_curator": {
+                    "theme": "fibrosis",
+                    "evidences": [],
+                    "judgement": "not relevant",
+                    "reasoning": "",
+                    "confidence": "",
+                    "raw_evidences": "",
+                    "raw_judgement": "",
+                },
+            },
+            "3": {
+                "text": "Unsure text",
+                "agentic_curator": {
+                    "theme": "fibrosis",
+                    "evidences": [],
+                    "judgement": "unsure",
+                    "reasoning": "",
+                    "confidence": "",
+                    "raw_evidences": "",
+                    "raw_judgement": "",
+                },
+            },
+        },
+    }
+
+
 def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
@@ -167,7 +251,13 @@ def test_create_atlas_collects_then_filters_and_returns_final_object() -> None:
             )
             return [{"datalink_id": "GSE1", "publications": []}]
 
-        def filter_jsons(self, jsons=None):
+        def filter_jsons(
+            self,
+            jsons=None,
+            theme=None,
+            review_filter="none",
+            reviewer=None,
+        ):
             self.calls.append(("filter", jsons))
             return {
                 "accessions": list(jsons or []),
@@ -198,7 +288,13 @@ def test_create_atlas_writes_final_filtered_object(tmp_path) -> None:
         def collect_jsons(self, query=None, file=None, out=None):
             return [{"datalink_id": "GSE1"}]
 
-        def filter_jsons(self, jsons=None):
+        def filter_jsons(
+            self,
+            jsons=None,
+            theme=None,
+            review_filter="none",
+            reviewer=None,
+        ):
             return {
                 "accessions": [{"datalink_id": "GSE1", "publication_text_ref": "1"}],
                 "publication_texts": {"1": {"text": "full text"}},
@@ -457,6 +553,274 @@ def test_filter_jsons_returns_accessions_and_publication_texts(monkeypatch) -> N
             "doi": "10.1/one",
         }
     ]
+
+
+def test_filter_jsons_reviews_publication_texts_with_agentic_curator_namespace(
+    monkeypatch,
+) -> None:
+    class RecordingReviewer:
+        calls: list[dict] = []
+
+        def review_relevancy(
+            self,
+            publication_text=None,
+            theme=None,
+            metadata=None,
+            title=None,
+        ):
+            self.__class__.calls.append(
+                {
+                    "publication_text": publication_text,
+                    "theme": theme,
+                    "metadata": metadata,
+                    "title": title,
+                }
+            )
+            return {
+                "evidences": json.dumps(
+                    {
+                        "evidences": [
+                            {
+                                "evidence": "fibrotic tissue",
+                                "judgement": "relevant",
+                                "confidence": "direct",
+                                "reason": "Theme is directly named.",
+                            }
+                        ]
+                    }
+                ),
+                "judgement": json.dumps(
+                    {
+                        "judgement": "relevant",
+                        "reasoning": "Direct evidence is present.",
+                        "confidence": "theme directly mentioned",
+                    }
+                ),
+            }
+
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    records = [
+        {
+            "datalink_id": "GSE1",
+            "accession_metadata": {"series": {"title": "Series metadata"}},
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "title": "Fibrosis atlas publication",
+                }
+            ],
+        }
+    ]
+    RecordingReviewer.calls = []
+
+    result = Atlas(metadata={}).filter_jsons(
+        jsons=records,
+        theme="fibrosis",
+        reviewer=RecordingReviewer(),
+    )
+
+    assert RecordingReviewer.calls == [
+        {
+            "publication_text": "Text 1",
+            "theme": "fibrosis",
+            "metadata": {"series": {"title": "Series metadata"}},
+            "title": "Fibrosis atlas publication",
+        }
+    ]
+    assert result["publication_texts"]["1"]["agentic_curator"] == {
+        "theme": "fibrosis",
+        "evidences": [
+            {
+                "evidence": "fibrotic tissue",
+                "judgement": "relevant",
+                "confidence": "direct",
+                "reason": "Theme is directly named.",
+            }
+        ],
+        "judgement": "relevant",
+        "reasoning": "Direct evidence is present.",
+        "confidence": "theme directly mentioned",
+        "raw_evidences": json.dumps(
+            {
+                "evidences": [
+                    {
+                        "evidence": "fibrotic tissue",
+                        "judgement": "relevant",
+                        "confidence": "direct",
+                        "reason": "Theme is directly named.",
+                    }
+                ]
+            }
+        ),
+        "raw_judgement": json.dumps(
+            {
+                "judgement": "relevant",
+                "reasoning": "Direct evidence is present.",
+                "confidence": "theme directly mentioned",
+            }
+        ),
+    }
+
+
+def test_filter_jsons_reuses_existing_agentic_curator_review() -> None:
+    class FailingReviewer:
+        def review_relevancy(self, **kwargs):
+            raise AssertionError("matching review should be reused")
+
+    result = Atlas(metadata={}).filter_jsons(
+        jsons={
+            "accessions": [
+                {
+                    "datalink_id": "GSE1",
+                    "publications": [
+                        {
+                            "source": "MED",
+                            "epmc_id": "1",
+                            "pmid": "1",
+                            "publication_text_ref": "1",
+                        }
+                    ],
+                }
+            ],
+            "publication_texts": {
+                "1": {
+                    "text": "Existing full text",
+                    "agentic_curator": {
+                        "theme": "fibrosis",
+                        "evidences": [],
+                        "judgement": "relevant",
+                        "reasoning": "Already reviewed.",
+                        "confidence": "theme directly mentioned",
+                        "raw_evidences": '{"evidences": []}',
+                        "raw_judgement": '{"judgement": "relevant"}',
+                    },
+                }
+            },
+        },
+        theme="fibrosis",
+        reviewer=FailingReviewer(),
+    )
+
+    assert result["publication_texts"] == {
+        "1": {
+            "text": "Existing full text",
+            "agentic_curator": {
+                "theme": "fibrosis",
+                "evidences": [],
+                "judgement": "relevant",
+                "reasoning": "Already reviewed.",
+                "confidence": "theme directly mentioned",
+                "raw_evidences": '{"evidences": []}',
+                "raw_judgement": '{"judgement": "relevant"}',
+            },
+        }
+    }
+
+
+def test_filter_jsons_keeps_raw_agentic_curator_outputs_when_json_parse_fails(
+    monkeypatch,
+) -> None:
+    class RawTextReviewer:
+        def review_relevancy(self, **kwargs):
+            return {
+                "evidences": "not json evidence",
+                "judgement": "not json judgement",
+            }
+
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+
+    result = Atlas(metadata={}).filter_jsons(
+        jsons=[
+            {
+                "datalink_id": "GSE1",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "1",
+                        "pmid": "1",
+                    }
+                ],
+            }
+        ],
+        theme="fibrosis",
+        reviewer=RawTextReviewer(),
+    )
+
+    assert result["publication_texts"]["1"]["agentic_curator"] == {
+        "theme": "fibrosis",
+        "evidences": [],
+        "judgement": "",
+        "reasoning": "",
+        "confidence": "",
+        "raw_evidences": "not json evidence",
+        "raw_judgement": "not json judgement",
+    }
+
+
+def test_filter_jsons_review_filter_none_keeps_all_reviewed_publications() -> None:
+    result = Atlas(metadata={}).filter_jsons(
+        jsons=_reviewed_atlas_object(),
+        theme="fibrosis",
+        review_filter="none",
+        reviewer=_FailingReviewer(),
+    )
+
+    assert [publication["publication_text_ref"] for publication in result["accessions"][0]["publications"]] == [
+        "1",
+        "2",
+        "3",
+    ]
+    assert set(result["publication_texts"]) == {"1", "2", "3"}
+
+
+def test_filter_jsons_review_filter_drops_not_relevant_publications() -> None:
+    result = Atlas(metadata={}).filter_jsons(
+        jsons=_reviewed_atlas_object(),
+        theme="fibrosis",
+        review_filter="not_relevant",
+        reviewer=_FailingReviewer(),
+    )
+
+    assert [publication["publication_text_ref"] for publication in result["accessions"][0]["publications"]] == [
+        "1",
+        "3",
+    ]
+    assert set(result["publication_texts"]) == {"1", "3"}
+
+
+def test_filter_jsons_review_filter_drops_not_relevant_and_unsure_publications() -> None:
+    result = Atlas(metadata={}).filter_jsons(
+        jsons=_reviewed_atlas_object(),
+        theme="fibrosis",
+        review_filter="not_relevant_and_unsure",
+        reviewer=_FailingReviewer(),
+    )
+
+    assert result["accessions"] == [
+        {
+            "datalink_id": "GSE1",
+            "publications": [
+                {
+                    "source": "MED",
+                    "epmc_id": "1",
+                    "pmid": "1",
+                    "publication_text_ref": "1",
+                }
+            ],
+        }
+    ]
+    assert set(result["publication_texts"]) == {"1"}
+
+
+def test_filter_jsons_review_filter_requires_theme() -> None:
+    try:
+        Atlas(metadata={}).filter_jsons(review_filter="not_relevant")
+    except ValueError as error:
+        assert "requires a theme" in str(error)
+    else:
+        raise AssertionError("review_filter without theme should fail")
 
 
 def test_publication_text_ref_prefers_pmid_then_fallbacks() -> None:

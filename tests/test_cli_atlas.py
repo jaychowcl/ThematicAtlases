@@ -5,6 +5,7 @@ import pytest
 
 from ThematicAtlases.cli_atlas import _configure_logging, main
 from ThematicAtlases import atlas as atlas_module
+from ThematicAtlases import cli_atlas as cli_module
 
 
 class FakeEuropePMCWrapper:
@@ -417,6 +418,138 @@ def test_filter_jsons_reuses_existing_publication_texts(
             }
         },
     }
+
+
+def test_filter_jsons_passes_theme_file_and_review_filter_to_atlas(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+    tmp_path,
+) -> None:
+    class RecordingAtlas:
+        calls: list[dict] = []
+
+        def __init__(self, metadata: dict):
+            pass
+
+        def filter_jsons(
+            self,
+            file=None,
+            theme=None,
+            review_filter="none",
+            reviewer=None,
+        ):
+            self.__class__.calls.append(
+                {
+                    "file": file,
+                    "theme": theme,
+                    "review_filter": review_filter,
+                    "reviewer": reviewer,
+                }
+            )
+            return {"accessions": [], "publication_texts": {}}
+
+    theme_file = tmp_path / "theme.md"
+    output_file = tmp_path / "filtered.json"
+    theme_file.write_text("theme from file", encoding="utf-8")
+    RecordingAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
+
+    assert (
+        main(
+            [
+                "filter-jsons",
+                "--theme",
+                "theme from arg",
+                "--theme-file",
+                str(theme_file),
+                "--review-filter",
+                "not-relevant-and-unsure",
+                "--out",
+                str(output_file),
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert RecordingAtlas.calls == [
+        {
+            "file": None,
+            "theme": "theme from file",
+            "review_filter": "not_relevant_and_unsure",
+            "reviewer": None,
+        }
+    ]
+    assert json.loads(output_file.read_text(encoding="utf-8")) == {
+        "accessions": [],
+        "publication_texts": {},
+    }
+
+
+def test_create_atlas_passes_theme_and_review_filter_to_atlas(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    class RecordingAtlas:
+        calls: list[dict] = []
+
+        def __init__(self, metadata: dict):
+            pass
+
+        def create_atlas(
+            self,
+            query=None,
+            file=None,
+            out=None,
+            theme=None,
+            review_filter="none",
+            reviewer=None,
+        ):
+            self.__class__.calls.append(
+                {
+                    "query": query,
+                    "file": file,
+                    "out": out,
+                    "theme": theme,
+                    "review_filter": review_filter,
+                    "reviewer": reviewer,
+                }
+            )
+            return {"accessions": [], "publication_texts": {}}
+
+    RecordingAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
+
+    assert (
+        main(
+            [
+                "create-atlas",
+                "--query",
+                "fibrosis",
+                "--theme",
+                "fibrosis theme",
+                "--review-filter",
+                "not-relevant",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert RecordingAtlas.calls == [
+        {
+            "query": ["fibrosis"],
+            "file": None,
+            "out": None,
+            "theme": "fibrosis theme",
+            "review_filter": "not_relevant",
+            "reviewer": None,
+        }
+    ]
 
 
 def test_harmonize_jsons_does_not_emit_stdout(
