@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ThematicAtlases.review import PublicationTextReviewer
+from ThematicAtlases.filterer.review import PublicationTextReviewer
 
 
 class FakeReviewer:

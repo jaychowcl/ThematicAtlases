@@ -28,11 +28,11 @@ src/ThematicAtlases/
 │   └── collector.py
 ├── filterer/
 │   ├── __init__.py
-│   └── filterer.py
+│   ├── filterer.py
+│   └── review.py
 ├── harmonizer/
 │   ├── __init__.py
 │   └── harmonizer.py
-├── review.py
 └── wrappers/
     ├── __init__.py
     ├── epmc.py
@@ -168,7 +168,7 @@ Current responsibilities:
 
 `filter_jsons()` is organized as a short pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object.
 
-- `ThematicAtlases.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
+- `ThematicAtlases.filterer.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The first accession/publication context for a text ref supplies `title` and `accession_metadata` to the reviewer.
 - The review output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, parsed `evidences`, parsed final judge fields `judgement`, `reasoning`, and `confidence`, plus `raw_evidences` and `raw_judgement`. Parsed fields match the `agentic_curator` response schemas: evidence items use `evidence`, `judgement`, `confidence`, and `reason`; judge output uses `judgement`, `reasoning`, and `confidence`.
 - Existing `agentic_curator` reviews are reused when their stored `theme` matches the requested theme.
@@ -412,12 +412,12 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, collector query loading, GEO filtering, filterer publication text mapping, harmonizer placeholder behavior, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, review, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, collector query loading, GEO filtering, filterer publication text mapping and review behavior, harmonizer placeholder behavior, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, and CLI tests mock network/provider access.
 
 Useful checks:
 
 ```bash
-.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/review.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
+.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
 .env/bin/python -m pytest
 ```
 

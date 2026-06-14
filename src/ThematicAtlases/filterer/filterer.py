@@ -1,7 +1,7 @@
 import json
 import logging
 
-from ThematicAtlases.review import (
+from ThematicAtlases.filterer.review import (
     ACCESSIONS,
     PUBLICATIONS,
     PUBLICATION_TEXTS,

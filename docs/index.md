@@ -52,7 +52,7 @@ Refresh ranges after editing `docs/codebase.md`.
   title: Test And Verification Status
   lines: 412-430
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, atlas orchestration, collector, filterer, harmonizer, publication text, section parsing, thematic review, review.py, GEO wrapper, atlas CLI
+  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, atlas orchestration, collector, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
 ## API Sections
 
@@ -72,7 +72,7 @@ Refresh ranges after editing `docs/codebase.md`.
   title: Filterer
   lines: 150-178
   anchor: filterer
-  keywords: AtlasFilterer, filter_jsons, atlas_parts, publication_texts, publication_text_ref, collect_publication_texts, accessions_with_publication_text_refs, publication_with_text_ref, review_and_filter_publications, agentic_curator, review_filter, not_relevant, unsure
+  keywords: AtlasFilterer, filter_jsons, atlas_parts, publication_texts, publication_text_ref, collect_publication_texts, accessions_with_publication_text_refs, publication_with_text_ref, review_and_filter_publications, PublicationTextReviewer, filterer.review, agentic_curator, review_filter, not_relevant, unsure
 
 - id: harmonizer
   title: Harmonizer
