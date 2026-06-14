@@ -33,9 +33,14 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     expected = [{"datalink_id": "GSE1", "publications": []}]
     calls = []
 
-    def fake_collect_publications(self, queries: list[str]) -> list[dict]:
+    def fake_collect_publications(
+        self,
+        queries: list[str],
+        max_publications: int | None = None,
+    ) -> list[dict]:
         calls.append("publications")
         assert queries == ["fibrosis"]
+        assert max_publications is None
         return publications
 
     def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
@@ -169,6 +174,71 @@ def test_collect_publications_follows_cursor_pagination(monkeypatch) -> None:
 
     assert cursors == ["*", "page-2"]
     assert [row["epmc_id"] for row in result] == ["1", "2"]
+
+
+def test_collect_publications_limits_results_within_page(monkeypatch) -> None:
+    def fake_get(url, params, timeout):
+        return FakeResponse(
+            {
+                "hitCount": 3,
+                "resultList": {
+                    "result": [
+                        {"id": "1", "source": "MED"},
+                        {"id": "2", "source": "MED"},
+                        {"id": "3", "source": "MED"},
+                    ]
+                },
+                "nextCursorMark": "page-2",
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+
+    result = EuropePMCWrapper(page_limit=5).collect_publications(
+        queries=["q"],
+        max_publications=2,
+    )
+
+    assert [publication["epmc_id"] for publication in result] == ["1", "2"]
+
+
+def test_collect_publications_stops_pagination_at_max_publications(
+    monkeypatch,
+) -> None:
+    cursors = []
+
+    def fake_get(url, params, timeout):
+        cursors.append(params["cursorMark"])
+        return FakeResponse(
+            {
+                "hitCount": 4,
+                "resultList": {
+                    "result": [
+                        {"id": "1", "source": "MED"},
+                        {"id": "2", "source": "MED"},
+                    ]
+                },
+                "nextCursorMark": "page-2",
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+
+    result = EuropePMCWrapper(page_limit=5, page_size=2).collect_publications(
+        queries=["q"],
+        max_publications=2,
+    )
+
+    assert cursors == ["*"]
+    assert [publication["epmc_id"] for publication in result] == ["1", "2"]
+
+
+def test_collect_publications_rejects_invalid_max_publications() -> None:
+    with pytest.raises(ValueError, match="max_publications"):
+        EuropePMCWrapper().collect_publications(
+            queries=["q"],
+            max_publications=0,
+        )
 
 
 def test_collect_publications_retries_transient_failures(monkeypatch) -> None:

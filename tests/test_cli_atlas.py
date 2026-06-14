@@ -9,7 +9,11 @@ from ThematicAtlases import cli_atlas as cli_module
 
 
 class FakeEuropePMCWrapper:
-    def collect_accessions(self, queries: list[str]) -> list[dict]:
+    def collect_accessions(
+        self,
+        queries: list[str],
+        max_publications: int | None = None,
+    ) -> list[dict]:
         logging.getLogger("ThematicAtlases.test").info("fake info")
         logging.getLogger("ThematicAtlases.test").debug("fake debug")
         return [
@@ -504,6 +508,7 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
             file=None,
             out=None,
             metadata_repositories=None,
+            max_publications=None,
         ):
             self.__class__.calls.append(
                 {
@@ -511,6 +516,7 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
                     "file": file,
                     "out": out,
                     "metadata_repositories": metadata_repositories,
+                    "max_publications": max_publications,
                 }
             )
             return []
@@ -528,6 +534,8 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
                 "geo",
                 "--metadata-repository",
                 "arrayexpress",
+                "--max-publications",
+                "25",
             ]
         )
         == 0
@@ -542,8 +550,14 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
             "file": None,
             "out": None,
             "metadata_repositories": ["geo", "arrayexpress"],
+            "max_publications": 25,
         }
     ]
+
+
+def test_collect_jsons_rejects_non_positive_max_publications() -> None:
+    with pytest.raises(SystemExit):
+        main(["collect-jsons", "--query", "fibrosis", "--max-publications", "0"])
 
 
 def test_create_atlas_passes_theme_and_review_filter_to_atlas(
@@ -564,6 +578,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             theme=None,
             review_filter="none",
             metadata_repositories=None,
+            max_publications=None,
             reviewer=None,
         ):
             self.__class__.calls.append(
@@ -574,6 +589,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "theme": theme,
                     "review_filter": review_filter,
                     "metadata_repositories": metadata_repositories,
+                    "max_publications": max_publications,
                     "reviewer": reviewer,
                 }
             )
@@ -594,6 +610,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "not-relevant",
                 "--metadata-repository",
                 "arrayexpress",
+                "--max-publications",
+                "25",
             ]
         )
         == 0
@@ -610,6 +628,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "theme": "fibrosis theme",
             "review_filter": "not_relevant",
             "metadata_repositories": ["arrayexpress"],
+            "max_publications": 25,
             "reviewer": None,
         }
     ]

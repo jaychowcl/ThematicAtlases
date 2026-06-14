@@ -38,19 +38,19 @@ Refresh ranges after editing `docs/codebase.md`.
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 403-422
+  lines: 406-425
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-jsons, filter-jsons, metadata-repository, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, reuse publication_texts, .env, VS Code launch, verbose, log-file, stdout logging, progress logs, stats logs, debug logs, quiet stdout
+  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-jsons, filter-jsons, metadata-repository, max-publications, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, reuse publication_texts, .env, VS Code launch, verbose, log-file, stdout logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 424-429
+  lines: 427-432
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 431-449
+  lines: 434-452
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, .env, smoke check, mocked network, atlas orchestration, collector, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
@@ -60,46 +60,46 @@ Refresh ranges after editing `docs/codebase.md`.
   title: Atlas Workflow
   lines: 104-117
   anchor: atlas-workflow
-  keywords: Atlas, orchestrator, dependency injection, collector, filterer, harmonizer, epmc_wrapper_factory, metadata_handlers, metadata_repositories, publication_text_reviewer, create_atlas, collect_jsons, filter_jsons, harmonize_jsons
+  keywords: Atlas, orchestrator, dependency injection, collector, filterer, harmonizer, epmc_wrapper_factory, metadata_handlers, metadata_repositories, max_publications, publication_text_reviewer, create_atlas, collect_jsons, filter_jsons, harmonize_jsons
 
 - id: collector
   title: Collector
-  lines: 119-153
+  lines: 119-154
   anchor: collector
-  keywords: AtlasCollector, query loading, collect_jsons, EuropePMCWrapper, collect_accessions, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
+  keywords: AtlasCollector, query loading, collect_jsons, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
 
 - id: filterer
   title: Filterer
-  lines: 155-183
+  lines: 156-184
   anchor: filterer
   keywords: AtlasFilterer, filter_jsons, atlas_parts, publication_texts, publication_text_ref, collect_publication_texts, accessions_with_publication_text_refs, publication_with_text_ref, review_and_filter_publications, PublicationTextReviewer, filterer.review, agentic_curator, review_filter, not_relevant, unsure
 
 - id: harmonizer
   title: Harmonizer
-  lines: 185-188
+  lines: 186-189
   anchor: harmonizer
   keywords: AtlasHarmonizer, harmonize_jsons, placeholder, None
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 190-324
+  lines: 191-327
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, XML fallback, failed publications, Scholix, accession records, progress logs, stats logs, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, XML fallback, failed publications, Scholix, accession records, progress logs, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 326-337
+  lines: 329-340
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay
 
 - id: arrayexpress-wrapper
   title: ArrayExpress Wrapper
-  lines: 339-351
+  lines: 342-354
   anchor: arrayexpress-wrapper
   keywords: ArrayExpressWrapper, arrayexpress, placeholder, metadata_repository, metadata_source, metadata_status, accession_metadata, E-MTAB, E-GEOD, E-MEXP
 
 - id: geo-wrapper
   title: GEO Wrapper
-  lines: 353-401
+  lines: 356-404
   anchor: geo-wrapper
   keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs

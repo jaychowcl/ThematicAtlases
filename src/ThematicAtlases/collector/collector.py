@@ -34,6 +34,7 @@ class AtlasCollector:
         file: str | None = None,
         out: str | None = None,
         metadata_repositories: list[str] | None = None,
+        max_publications: int | None = None,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -46,7 +47,10 @@ class AtlasCollector:
 
         logger.info("Atlas collect_jsons stats query_count=%s", len(queries))
         logger.info("Atlas collect_jsons progress stage=collect-accessions")
-        accessions = self._epmc_wrapper().collect_accessions(queries=queries)
+        accessions = self._epmc_wrapper().collect_accessions(
+            queries=queries,
+            max_publications=max_publications,
+        )
         logger.info(
             "Atlas collect_jsons progress stage=collect-accessions-complete raw_accessions=%s",
             len(accessions),

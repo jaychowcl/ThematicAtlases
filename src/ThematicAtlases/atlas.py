@@ -52,6 +52,7 @@ class Atlas:
         theme: str | None = None,
         review_filter: str = "none",
         metadata_repositories: list[str] | None = None,
+        max_publications: int | None = None,
         reviewer=None,
     ) -> dict:
         logger.info("Atlas create_atlas progress stage=collect-jsons")
@@ -60,6 +61,7 @@ class Atlas:
             file=file,
             out=None,
             metadata_repositories=metadata_repositories,
+            max_publications=max_publications,
         )
         logger.info(
             "Atlas create_atlas progress stage=collect-jsons-complete accessions=%s",
@@ -100,12 +102,14 @@ class Atlas:
         file: str | None = None,
         out: str | None = None,
         metadata_repositories: list[str] | None = None,
+        max_publications: int | None = None,
     ) -> list[dict]:
         return self._collector.collect_jsons(
             query=query,
             file=file,
             out=out,
             metadata_repositories=metadata_repositories,
+            max_publications=max_publications,
         )
 
     def filter_jsons(

@@ -6,9 +6,15 @@ from ThematicAtlases.collector import collector as collector_module
 
 class FakeEuropePMCWrapper:
     queries: list[str] | None = None
+    max_publications: int | None = None
 
-    def collect_accessions(self, queries: list[str]) -> list[dict]:
+    def collect_accessions(
+        self,
+        queries: list[str],
+        max_publications: int | None = None,
+    ) -> list[dict]:
         self.__class__.queries = queries
+        self.__class__.max_publications = max_publications
         return [
             {
                 "datalink_id": "GSE1",
@@ -102,6 +108,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
         }
     ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
+    assert FakeEuropePMCWrapper.max_publications is None
     assert FakeGEOWrapper.accessions == ["GSE1"]
     assert FakeGEOWrapper.jsons == [
         {
@@ -112,6 +119,17 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
             "publications": [{"source": "MED", "epmc_id": "1"}],
         }
     ]
+
+
+def test_collect_jsons_passes_max_publications_to_epmc_wrapper(monkeypatch) -> None:
+    monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
+    FakeEuropePMCWrapper.max_publications = None
+
+    AtlasCollector().collect_jsons(query=["a"], max_publications=25)
+
+    assert FakeEuropePMCWrapper.queries == ["a"]
+    assert FakeEuropePMCWrapper.max_publications == 25
 
 
 def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:

@@ -109,8 +109,8 @@ from agentic_curator import ThematicReviewer
 Current methods:
 
 - `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
-- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, reviewer=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)` with optional thematic review arguments, optionally writes the final atlas object to `out`, and returns that object.
-- `collect_jsons(query=None, file=None, out=None, metadata_repositories=None)`: delegates to `AtlasCollector.collect_jsons(...)`.
+- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)` with optional thematic review arguments, optionally writes the final atlas object to `out`, and returns that object.
+- `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None)`: delegates to `AtlasCollector.collect_jsons(...)`.
 - `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", reviewer=None)`: delegates to `AtlasFilterer.filter_jsons(...)`.
 - `harmonize_jsons()`: delegates to `AtlasHarmonizer.harmonize_jsons()`, currently preserving placeholder behavior by returning `None`.
 
@@ -125,7 +125,7 @@ Current responsibilities:
 
 - Build query lists from repeated API/CLI query values and optional UTF-8 query files.
 - Ignore blank query-file lines and lines beginning with `#`.
-- Call `EuropePMCWrapper.collect_accessions(queries=...)`.
+- Call `EuropePMCWrapper.collect_accessions(queries=..., max_publications=...)`.
 - Keep records handled by the selected metadata repositories. `metadata_repositories=None` means GEO-only.
 - Route handled records to metadata repository handlers. The default registry routes `geo` to `GEOWrapper` and `arrayexpress` to `ArrayExpressWrapper`.
 - Optionally write the intermediate collected accession list to `out`.
@@ -137,6 +137,7 @@ Query loading behavior:
 - `file` values are read as UTF-8 text.
 - Query files ignore blank lines and lines starting with `#`.
 - If neither `query` nor `file` is provided, the wrapper receives an empty query list.
+- `max_publications` optionally caps searched Europe PMC publications globally across all queries before datalink fetching begins.
 
 Repository filtering behavior:
 
@@ -194,8 +195,8 @@ Current responsibilities:
 
 Current public methods:
 
-- `collect_accessions(queries: list[str]) -> list[dict]`: searches publications, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records before publication text enrichment.
-- `collect_publications(queries: list[str]) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
+- `collect_accessions(queries: list[str], max_publications: int | None = None) -> list[dict]`: searches publications, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records before publication text enrichment.
+- `collect_publications(queries: list[str], max_publications: int | None = None) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
 - `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
 - `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records.
 - `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
@@ -214,6 +215,8 @@ Search parameters:
 - `pageSize=1000`
 - `cursorMark=*` initially, then the returned `nextCursorMark`.
 - `synonym=TRUE`
+
+`max_publications` is an optional positive integer cap applied after search hits are normalized and before datalink requests. The cap is global across all query strings, so later query strings are not searched once the cap is reached.
 
 Returned publication fields:
 
@@ -408,14 +411,14 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
-- `collect-jsons [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO]`
+- `create-atlas [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `collect-jsons [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N]`
 - `filter-jsons [--file FILE] [--out OUT] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-jsons`
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 

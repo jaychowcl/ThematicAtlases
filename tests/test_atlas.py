@@ -7,13 +7,21 @@ from ThematicAtlases.atlas import Atlas
 class RecordingCollector:
     calls: list[dict] = []
 
-    def collect_jsons(self, query=None, file=None, out=None, metadata_repositories=None):
+    def collect_jsons(
+        self,
+        query=None,
+        file=None,
+        out=None,
+        metadata_repositories=None,
+        max_publications=None,
+    ):
         self.__class__.calls.append(
             {
                 "query": query,
                 "file": file,
                 "out": out,
                 "metadata_repositories": metadata_repositories,
+                "max_publications": max_publications,
             }
         )
         return [{"datalink_id": "GSE1", "publications": []}]
@@ -68,6 +76,7 @@ def test_collect_jsons_delegates_to_collector() -> None:
             "file": "queries.txt",
             "out": "collected.json",
             "metadata_repositories": None,
+            "max_publications": None,
         }
     ]
 
@@ -86,6 +95,26 @@ def test_collect_jsons_passes_metadata_repositories_to_collector() -> None:
             "file": None,
             "out": None,
             "metadata_repositories": ["geo", "arrayexpress"],
+            "max_publications": None,
+        }
+    ]
+
+
+def test_collect_jsons_passes_max_publications_to_collector() -> None:
+    RecordingCollector.calls = []
+
+    Atlas(metadata={}, collector=RecordingCollector()).collect_jsons(
+        query=["a"],
+        max_publications=25,
+    )
+
+    assert RecordingCollector.calls == [
+        {
+            "query": ["a"],
+            "file": None,
+            "out": None,
+            "metadata_repositories": None,
+            "max_publications": 25,
         }
     ]
 
@@ -137,6 +166,7 @@ def test_create_atlas_collects_then_filters_and_returns_final_object() -> None:
         theme="fibrosis",
         review_filter="none",
         metadata_repositories=["arrayexpress"],
+        max_publications=25,
     ) == {
         "accessions": [{"datalink_id": "GSE1", "publications": []}],
         "publication_texts": {},
@@ -147,6 +177,7 @@ def test_create_atlas_collects_then_filters_and_returns_final_object() -> None:
             "file": "queries.txt",
             "out": None,
             "metadata_repositories": ["arrayexpress"],
+            "max_publications": 25,
         }
     ]
     assert RecordingFilterer.calls == [

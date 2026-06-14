@@ -44,14 +44,31 @@ class EuropePMCWrapper:
         )
         self._retry_statuses = {429, 500, 502, 503, 504}
 
-    def collect_accessions(self, queries: list[str]) -> list[dict]:
-        publications = self.collect_publications(queries=queries)
+    def collect_accessions(
+        self,
+        queries: list[str],
+        max_publications: int | None = None,
+    ) -> list[dict]:
+        publications = self.collect_publications(
+            queries=queries,
+            max_publications=max_publications,
+        )
         return self.collect_datalinks(publications=publications)
 
-    def collect_publications(self, queries: list[str]) -> list[dict]:
+    def collect_publications(
+        self,
+        queries: list[str],
+        max_publications: int | None = None,
+    ) -> list[dict]:
+        max_publications = self._normalized_max_publications(
+            max_publications=max_publications
+        )
         publications = []
 
         for query in queries:
+            if max_publications is not None and len(publications) >= max_publications:
+                break
+
             cursor = "*"
             page = 0
             total_hits = None
@@ -76,10 +93,21 @@ class EuropePMCWrapper:
                 if not hits:
                     break
 
-                for hit in hits:
+                remaining_publications = (
+                    None
+                    if max_publications is None
+                    else max_publications - len(publications)
+                )
+                page_hits = hits[:remaining_publications]
+
+                for hit in page_hits:
                     publications.append(self._publication_from_hit(query=query, hit=hit))
 
-                collected_hits += len(hits)
+                collected_hits += len(page_hits)
+
+                if max_publications is not None and len(publications) >= max_publications:
+                    break
+
                 next_cursor = response_data.get("nextCursorMark")
 
                 if next_cursor == cursor:
@@ -104,6 +132,18 @@ class EuropePMCWrapper:
             )
 
         return publications
+
+    def _normalized_max_publications(
+        self,
+        max_publications: int | None,
+    ) -> int | None:
+        if max_publications is None:
+            return None
+
+        if max_publications < 1:
+            raise ValueError("max_publications must be a positive integer")
+
+        return max_publications
 
     def publication_text_sections(self, text: str) -> list[dict]:
         normalized_text = self._normalize_text(text)

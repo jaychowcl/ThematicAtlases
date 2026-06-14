@@ -12,6 +12,15 @@ REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
 METADATA_REPOSITORY_CHOICES = ("geo", "arrayexpress")
 
 
+def _positive_int(value: str) -> int:
+    integer = int(value)
+
+    if integer < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+
+    return integer
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thematic-atlas",
@@ -28,6 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--query", action="append", default=None)
     collect.add_argument("--file", default=None)
     collect.add_argument("--out", default=None)
+    collect.add_argument("--max-publications", type=_positive_int, default=None)
     collect.add_argument(
         "--metadata-repository",
         action="append",
@@ -42,6 +52,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--query", action="append", default=None)
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
+    create.add_argument("--max-publications", type=_positive_int, default=None)
     create.add_argument(
         "--metadata-repository",
         action="append",
@@ -126,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
             file=args.file,
             out=args.out,
             metadata_repositories=args.metadata_repository,
+            max_publications=args.max_publications,
         )
     elif args.command == "create-atlas":
         atlas.create_atlas(
@@ -135,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             theme=_input_value(value=args.theme, file=args.theme_file),
             review_filter=_review_filter(args.review_filter),
             metadata_repositories=args.metadata_repository,
+            max_publications=args.max_publications,
         )
     elif args.command == "filter-jsons":
         result = atlas.filter_jsons(
