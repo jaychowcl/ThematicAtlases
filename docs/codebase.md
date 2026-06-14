@@ -175,7 +175,9 @@ Current responsibilities:
 `filter_jsons()` is organized as a short pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object.
 
 - `ThematicAtlases.filterer.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
-- When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The first accession/publication context for a text ref supplies `title` and `accession_metadata` to the reviewer.
+- When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly. The first accession/publication context for a text ref supplies `title` and `accession_metadata` to the reviewer.
+- Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
+- Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
 - The review output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, parsed `evidences`, parsed final judge fields `judgement`, `reasoning`, and `confidence`, plus `raw_evidences` and `raw_judgement`. Parsed fields match the `agentic_curator` response schemas: evidence items use `evidence`, `judgement`, `confidence`, and `reason`; judge output uses `judgement`, `reasoning`, and `confidence`.
 - Existing `agentic_curator` reviews are reused when their stored `theme` matches the requested theme.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
@@ -234,6 +236,8 @@ affiliation
 fullTextUrls
 firstPublicationDate
 ```
+
+`abstractText` comes directly from the Europe PMC `/search` response for each hit. Europe PMC may omit the field or return it empty; the wrapper normalizes missing values to `abstractText=""` in collected publication provenance. This is independent of datalink collection, so a datalink JSON timeout followed by successful XML fallback can still produce accession records whose publication has an empty `abstractText`.
 
 `collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by `AtlasFilterer.filter_jsons()` after accession collection and metadata routing. `collect_accessions()` returns deduplicated accession records with:
 
@@ -304,7 +308,7 @@ The full-text ID is the publication `pmcid` when present, or `epmc_id` when it i
 
 `publication_text_sections(text)` converts delimited text back into ordered dictionaries such as `{"title": "Methods", "text": "..."}`. For plain fallback text without sentinels, it returns one `Text` section when text is non-empty.
 
-If full text is unavailable, non-open-access, missing a PMC identifier, or fails with an unrecoverable error, the publication remains in provenance and the shared publication text map falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` or `none`, `full_text_status` is `unavailable`, `missing_pmcid`, or `error`, and the fallback text is not delimiter-wrapped. Publisher pages and `fullTextUrls` are not fetched.
+If full text is unavailable, non-open-access, missing a PMC identifier, empty, or fails with an unrecoverable error, the publication remains in provenance and the shared publication text map falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` when the abstract is non-empty, otherwise `none`; `full_text_status` is `unavailable`, `missing_pmcid`, or `error`; and fallback text is not delimiter-wrapped. Publisher pages and `fullTextUrls` are not fetched.
 
 The datalink request uses:
 
