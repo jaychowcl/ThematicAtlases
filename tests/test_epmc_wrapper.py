@@ -867,6 +867,64 @@ def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_fails(
     ]
 
 
+def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_times_out(
+    monkeypatch,
+) -> None:
+    calls = []
+    xml = """
+    <responseWrapper xmlns:slx="http://www.scholix.org" xmlns:epmc="https://www.europepmc.org/data">
+      <dataLinkList>
+        <epmc:Category>
+          <epmc:Name>GEO</epmc:Name>
+          <epmc:Section>
+            <epmc:Linklist>
+              <slx:Link>
+                <slx:Target>
+                  <slx:Identifier>
+                    <slx:ID>GSE1</slx:ID>
+                    <slx:IDScheme>GEO</slx:IDScheme>
+                    <slx:IDURL>https://example.org/GSE1</slx:IDURL>
+                  </slx:Identifier>
+                </slx:Target>
+              </slx:Link>
+            </epmc:Linklist>
+          </epmc:Section>
+        </epmc:Category>
+      </dataLinkList>
+    </responseWrapper>
+    """
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+
+        if params == {"format": "json"}:
+            raise requests.ReadTimeout("slow json")
+
+        return FakeResponse({}, text=xml)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+
+    result = EuropePMCWrapper(max_retries=0, timeout=12).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "123"}]
+    )
+
+    assert calls == [
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
+            {"format": "json"},
+            12,
+        ),
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
+            None,
+            12,
+        ),
+    ]
+    assert result[0]["datalink_id"] == "GSE1"
+    assert result[0]["datalink_id_scheme"] == "GEO"
+
+
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
     def fake_get(url, params, timeout):
         return FakeResponse(

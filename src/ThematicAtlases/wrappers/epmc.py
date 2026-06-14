@@ -331,11 +331,31 @@ class EuropePMCWrapper:
         url = self._datalinks_url.format(source=source, epmc_id=epmc_id)
 
         for attempt in range(self._request_settings["max_retries"] + 1):
-            response = requests.get(
-                url,
-                params=params,
-                timeout=self._request_settings["timeout"],
-            )
+            try:
+                response = requests.get(
+                    url,
+                    params=params,
+                    timeout=self._request_settings["timeout"],
+                )
+            except requests.RequestException as error:
+                if attempt < self._request_settings["max_retries"]:
+                    retry_delay = min(0.5 * (2 ** attempt), 8.0)
+                    logger.debug(
+                        "EuropePMC datalinks retry error=%r attempt=%s delay=%s",
+                        error,
+                        attempt + 1,
+                        retry_delay,
+                    )
+                    time.sleep(retry_delay)
+                    continue
+
+                logger.debug(
+                    "EuropePMC datalinks XML fallback error=%r source=%r epmc_id=%r",
+                    error,
+                    source,
+                    epmc_id,
+                )
+                return self._datalinks_from_xml(url=url)
 
             if (
                 response.status_code in self._retry_statuses
