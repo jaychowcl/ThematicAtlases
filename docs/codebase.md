@@ -34,6 +34,7 @@ src/ThematicAtlases/
 │   ├── __init__.py
 │   └── harmonizer.py
 └── wrappers/
+    ├── ae.py
     ├── __init__.py
     ├── epmc.py
     └── geo.py
@@ -58,6 +59,7 @@ docs/dev.md
 docs/memory.md
 docs/burndown.md
 tests/test_atlas.py
+tests/test_ae_wrapper.py
 tests/test_cli_atlas.py
 tests/test_collector.py
 tests/test_epmc_wrapper.py
@@ -106,9 +108,9 @@ from agentic_curator import ThematicReviewer
 
 Current methods:
 
-- `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
-- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", reviewer=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)` with optional thematic review arguments, optionally writes the final atlas object to `out`, and returns that object.
-- `collect_jsons(query=None, file=None, out=None)`: delegates to `AtlasCollector.collect_jsons(...)`.
+- `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
+- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, reviewer=None)`: runs `collect_jsons(..., out=None)`, passes the collected records into `filter_jsons(jsons=...)` with optional thematic review arguments, optionally writes the final atlas object to `out`, and returns that object.
+- `collect_jsons(query=None, file=None, out=None, metadata_repositories=None)`: delegates to `AtlasCollector.collect_jsons(...)`.
 - `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", reviewer=None)`: delegates to `AtlasFilterer.filter_jsons(...)`.
 - `harmonize_jsons()`: delegates to `AtlasHarmonizer.harmonize_jsons()`, currently preserving placeholder behavior by returning `None`.
 
@@ -124,9 +126,10 @@ Current responsibilities:
 - Build query lists from repeated API/CLI query values and optional UTF-8 query files.
 - Ignore blank query-file lines and lines beginning with `#`.
 - Call `EuropePMCWrapper.collect_accessions(queries=...)`.
-- Keep records handled by the current GEO rules: `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
-- Route handled records to metadata repository handlers. The default registry routes `geo` to `GEOWrapper`.
+- Keep records handled by the selected metadata repositories. `metadata_repositories=None` means GEO-only.
+- Route handled records to metadata repository handlers. The default registry routes `geo` to `GEOWrapper` and `arrayexpress` to `ArrayExpressWrapper`.
 - Optionally write the intermediate collected accession list to `out`.
+- Validate repository selections against `geo` and `arrayexpress`.
 
 Query loading behavior:
 
@@ -135,17 +138,19 @@ Query loading behavior:
 - Query files ignore blank lines and lines starting with `#`.
 - If neither `query` nor `file` is provided, the wrapper receives an empty query list.
 
-Filtering behavior:
+Repository filtering behavior:
 
-- `filter_accessions(accessions)` keeps accessions handled by the live workflow.
-- `is_handled_accession(record)` contains the current GEO rule set.
-- Future platform support should extend `is_handled_accession(record)` and `metadata_repository(record)` with additional platform checks.
-- `collect_accession_metadata(jsons)` is the metadata repository routing step used after filtering.
-- `metadata_repository(record)` currently returns `geo` for handled GEO records and `None` for unhandled records.
+- `filter_accessions(accessions, metadata_repositories=None)` keeps accessions handled by the selected repositories.
+- `is_handled_accession(record, metadata_repositories=None)` returns true when `metadata_repository(...)` finds a selected repository.
+- `collect_accession_metadata(jsons, metadata_repositories=None)` is the metadata repository routing step used after filtering.
+- `metadata_repository(record, metadata_repositories=None)` currently returns `geo`, `arrayexpress`, or `None`.
 - `metadata_handler(repository)` uses the instance metadata handler registry.
+- GEO rules: `datalink_id_scheme` equals `GEO`, case-insensitive, or `datalink_id` starts with `GSE`, `GSM`, `GPL`, or `GDS`, case-insensitive.
+- ArrayExpress rules: `datalink_id_scheme` equals `ArrayExpress`, case-insensitive, or `datalink_id` starts with `E-MTAB`, `E-GEOD`, or `E-MEXP`, case-insensitive.
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
+- ArrayExpress metadata is placeholder-only for now. `ArrayExpressWrapper` preserves the input record and adds `metadata_repository="arrayexpress"`, `metadata_source="placeholder"`, `metadata_status="placeholder"`, and `accession_metadata=null`.
 
 <a id="filterer"></a>
 ### Filterer
@@ -175,7 +180,7 @@ Current responsibilities:
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
 - `review_filter != "none"` without a `theme` raises `ValueError`.
-- Raw non-GEO datalinks are not preserved by `collect_jsons()`.
+- Raw unselected datalinks are not preserved by `collect_jsons()`.
 
 <a id="harmonizer"></a>
 ### Harmonizer
@@ -237,7 +242,7 @@ datalink_category
 publications
 ```
 
-`AtlasCollector.collect_jsons()` then normalizes these records to GSE accessions. Final atlas records add:
+`AtlasCollector.collect_jsons()` then routes selected records to metadata handlers. GEO records are normalized to GSE accessions. Final atlas records add:
 
 ```text
 original_datalinks
@@ -280,7 +285,7 @@ accessions
 publication_texts
 ```
 
-Each `publication_texts` entry contains `text`, `text_source`, and `full_text_status`. Publications attached only to non-GEO, GPL, or unresolved records are not sent through the fullTextXML enrichment stage.
+Each `publication_texts` entry contains `text`, `text_source`, and `full_text_status`. Publications attached only to unselected, GPL, or unresolved records are not sent through the fullTextXML enrichment stage.
 
 Publication text enrichment uses:
 
@@ -330,6 +335,20 @@ Each accession deduplication pass logs one INFO-level stats message with input d
 - `max_retries=3`
 
 These request tuning values are stored together in an internal settings dictionary. Transient response statuses `429`, `500`, `502`, `503`, and `504` are retried. `Retry-After` is honored when present; otherwise retry delay uses short exponential backoff. Pagination is sequential, with no parallel requests.
+
+<a id="arrayexpress-wrapper"></a>
+### ArrayExpress Wrapper
+
+`ThematicAtlases.wrappers.ae.ArrayExpressWrapper` is a placeholder metadata handler for selected ArrayExpress records. It does not call a live ArrayExpress API yet.
+
+`collect_accession_metadata(jsons: list[dict]) -> list[dict]` preserves each input record and appends:
+
+```text
+metadata_repository=arrayexpress
+metadata_source=placeholder
+metadata_status=placeholder
+accession_metadata=null
+```
 
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
@@ -389,14 +408,14 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--query QUERY] [--file FILE] [--out OUT] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
-- `collect-jsons [--query QUERY] [--file FILE] [--out OUT]`
+- `create-atlas [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `collect-jsons [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO]`
 - `filter-jsons [--file FILE] [--out OUT] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-jsons`
 
 Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
@@ -412,12 +431,12 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, collector query loading, GEO filtering, filterer publication text mapping and review behavior, harmonizer placeholder behavior, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, collector query loading, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, harmonizer placeholder behavior, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, and CLI tests mock network/provider access.
 
 Useful checks:
 
 ```bash
-.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
+.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/ae.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
 .env/bin/python -m pytest
 ```
 

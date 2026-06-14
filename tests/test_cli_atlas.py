@@ -488,6 +488,64 @@ def test_filter_jsons_passes_theme_file_and_review_filter_to_atlas(
     }
 
 
+def test_collect_jsons_passes_metadata_repositories_to_atlas(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    class RecordingAtlas:
+        calls: list[dict] = []
+
+        def __init__(self, metadata: dict):
+            pass
+
+        def collect_jsons(
+            self,
+            query=None,
+            file=None,
+            out=None,
+            metadata_repositories=None,
+        ):
+            self.__class__.calls.append(
+                {
+                    "query": query,
+                    "file": file,
+                    "out": out,
+                    "metadata_repositories": metadata_repositories,
+                }
+            )
+            return []
+
+    RecordingAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
+
+    assert (
+        main(
+            [
+                "collect-jsons",
+                "--query",
+                "fibrosis",
+                "--metadata-repository",
+                "geo",
+                "--metadata-repository",
+                "arrayexpress",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert RecordingAtlas.calls == [
+        {
+            "query": ["fibrosis"],
+            "file": None,
+            "out": None,
+            "metadata_repositories": ["geo", "arrayexpress"],
+        }
+    ]
+
+
 def test_create_atlas_passes_theme_and_review_filter_to_atlas(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
@@ -505,6 +563,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             out=None,
             theme=None,
             review_filter="none",
+            metadata_repositories=None,
             reviewer=None,
         ):
             self.__class__.calls.append(
@@ -514,6 +573,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "out": out,
                     "theme": theme,
                     "review_filter": review_filter,
+                    "metadata_repositories": metadata_repositories,
                     "reviewer": reviewer,
                 }
             )
@@ -532,6 +592,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "fibrosis theme",
                 "--review-filter",
                 "not-relevant",
+                "--metadata-repository",
+                "arrayexpress",
             ]
         )
         == 0
@@ -547,6 +609,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "out": None,
             "theme": "fibrosis theme",
             "review_filter": "not_relevant",
+            "metadata_repositories": ["arrayexpress"],
             "reviewer": None,
         }
     ]

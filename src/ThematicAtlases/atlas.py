@@ -5,6 +5,7 @@ from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
+from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
 
@@ -17,6 +18,7 @@ class Atlas:
         metadata: dict,
         epmc_wrapper_factory=None,
         metadata_handlers: dict | None = None,
+        metadata_repositories: list[str] | None = None,
         publication_text_reviewer: PublicationTextReviewer | None = None,
         collector: AtlasCollector | None = None,
         filterer: AtlasFilterer | None = None,
@@ -24,13 +26,17 @@ class Atlas:
     ):
         self.metadata = metadata
         epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
-        metadata_handlers = metadata_handlers or {"geo": GEOWrapper}
+        metadata_handlers = metadata_handlers or {
+            "arrayexpress": ArrayExpressWrapper,
+            "geo": GEOWrapper,
+        }
         publication_text_reviewer = (
             publication_text_reviewer or PublicationTextReviewer()
         )
         self._collector = collector or AtlasCollector(
             epmc_wrapper_factory=epmc_wrapper_factory,
             metadata_handlers=metadata_handlers,
+            metadata_repositories=metadata_repositories,
         )
         self._filterer = filterer or AtlasFilterer(
             epmc_wrapper_factory=epmc_wrapper_factory,
@@ -45,10 +51,16 @@ class Atlas:
         out: str | None = None,
         theme: str | None = None,
         review_filter: str = "none",
+        metadata_repositories: list[str] | None = None,
         reviewer=None,
     ) -> dict:
         logger.info("Atlas create_atlas progress stage=collect-jsons")
-        accessions = self.collect_jsons(query=query, file=file, out=None)
+        accessions = self.collect_jsons(
+            query=query,
+            file=file,
+            out=None,
+            metadata_repositories=metadata_repositories,
+        )
         logger.info(
             "Atlas create_atlas progress stage=collect-jsons-complete accessions=%s",
             len(accessions),
@@ -87,8 +99,14 @@ class Atlas:
         query: list[str] | None = None,
         file: str | None = None,
         out: str | None = None,
+        metadata_repositories: list[str] | None = None,
     ) -> list[dict]:
-        return self._collector.collect_jsons(query=query, file=file, out=out)
+        return self._collector.collect_jsons(
+            query=query,
+            file=file,
+            out=out,
+            metadata_repositories=metadata_repositories,
+        )
 
     def filter_jsons(
         self,

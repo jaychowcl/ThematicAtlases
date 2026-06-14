@@ -9,6 +9,7 @@ from pathlib import Path
 from ThematicAtlases.atlas import Atlas
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
+METADATA_REPOSITORY_CHOICES = ("geo", "arrayexpress")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -27,6 +28,12 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--query", action="append", default=None)
     collect.add_argument("--file", default=None)
     collect.add_argument("--out", default=None)
+    collect.add_argument(
+        "--metadata-repository",
+        action="append",
+        choices=METADATA_REPOSITORY_CHOICES,
+        default=None,
+    )
 
     create = subparsers.add_parser(
         "create-atlas",
@@ -35,6 +42,12 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--query", action="append", default=None)
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
+    create.add_argument(
+        "--metadata-repository",
+        action="append",
+        choices=METADATA_REPOSITORY_CHOICES,
+        default=None,
+    )
     create.add_argument("--theme", default=None)
     create.add_argument("--theme-file", default=None)
     create.add_argument(
@@ -112,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             query=args.query,
             file=args.file,
             out=args.out,
+            metadata_repositories=args.metadata_repository,
         )
     elif args.command == "create-atlas":
         atlas.create_atlas(
@@ -120,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
             theme=_input_value(value=args.theme, file=args.theme_file),
             review_filter=_review_filter(args.review_filter),
+            metadata_repositories=args.metadata_repository,
         )
     elif args.command == "filter-jsons":
         result = atlas.filter_jsons(

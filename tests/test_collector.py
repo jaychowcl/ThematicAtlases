@@ -17,6 +17,13 @@ class FakeEuropePMCWrapper:
                 "datalink_category": "GEO",
                 "publications": [{"source": "MED", "epmc_id": "1"}],
             },
+            {
+                "datalink_id": "E-MTAB-1",
+                "datalink_id_scheme": "ArrayExpress",
+                "datalink_url": "https://example.org/E-MTAB-1",
+                "datalink_category": "Functional Genomics Experiments",
+                "publications": [{"source": "MED", "epmc_id": "2"}],
+            },
             {"datalink_id": "ERR1", "datalink_id_scheme": "ENA", "publications": []},
         ]
 
@@ -54,6 +61,23 @@ class FakeGEOWrapper:
         return self.accessions_to_gse.get(accession)
 
 
+class FakeArrayExpressWrapper:
+    jsons: list[dict] | None = None
+
+    def collect_accession_metadata(self, jsons: list[dict]) -> list[dict]:
+        self.__class__.jsons = jsons
+        return [
+            {
+                **record,
+                "metadata_repository": "arrayexpress",
+                "metadata_source": "placeholder",
+                "metadata_status": "placeholder",
+                "accession_metadata": None,
+            }
+            for record in jsons
+        ]
+
+
 def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
@@ -79,6 +103,81 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
     assert FakeGEOWrapper.accessions == ["GSE1"]
+    assert FakeGEOWrapper.jsons == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        }
+    ]
+
+
+def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:
+    monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
+    monkeypatch.setattr(
+        collector_module,
+        "ArrayExpressWrapper",
+        FakeArrayExpressWrapper,
+    )
+    FakeGEOWrapper.accessions = []
+    FakeGEOWrapper.jsons = None
+    FakeArrayExpressWrapper.jsons = None
+
+    result = AtlasCollector(metadata_repositories=["geo", "arrayexpress"]).collect_jsons(
+        query=["a"]
+    )
+
+    assert [record["datalink_id"] for record in result] == ["GSE1", "E-MTAB-1"]
+    assert result[1]["metadata_repository"] == "arrayexpress"
+    assert FakeGEOWrapper.jsons == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        }
+    ]
+    assert FakeArrayExpressWrapper.jsons == [
+        {
+            "datalink_id": "E-MTAB-1",
+            "datalink_id_scheme": "ArrayExpress",
+            "datalink_url": "https://example.org/E-MTAB-1",
+            "datalink_category": "Functional Genomics Experiments",
+            "publications": [{"source": "MED", "epmc_id": "2"}],
+        }
+    ]
+
+
+def test_collect_jsons_can_keep_only_arrayexpress(monkeypatch) -> None:
+    monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(
+        collector_module,
+        "ArrayExpressWrapper",
+        FakeArrayExpressWrapper,
+    )
+    FakeArrayExpressWrapper.jsons = None
+
+    result = AtlasCollector(metadata_repositories=["arrayexpress"]).collect_jsons(
+        query=["a"]
+    )
+
+    assert result == [
+        {
+            "datalink_id": "E-MTAB-1",
+            "datalink_id_scheme": "ArrayExpress",
+            "datalink_url": "https://example.org/E-MTAB-1",
+            "datalink_category": "Functional Genomics Experiments",
+            "publications": [{"source": "MED", "epmc_id": "2"}],
+            "metadata_repository": "arrayexpress",
+            "metadata_source": "placeholder",
+            "metadata_status": "placeholder",
+            "accession_metadata": None,
+        }
+    ]
 
 
 def test_collect_jsons_combines_query_and_file_lines(monkeypatch, tmp_path) -> None:
@@ -145,6 +244,24 @@ def test_filter_accessions_drops_unhandled_records() -> None:
     assert AtlasCollector().filter_accessions(records) == []
 
 
+def test_filter_accessions_keeps_arrayexpress_when_selected() -> None:
+    records = [
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
+        {"datalink_id": "E-MTAB-1", "datalink_id_scheme": "ArrayExpress"},
+        {"datalink_id": "E-GEOD-1", "datalink_id_scheme": ""},
+        {"datalink_id": "E-MEXP-1", "datalink_id_scheme": ""},
+        {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
+    ]
+
+    assert AtlasCollector(metadata_repositories=["arrayexpress"]).filter_accessions(
+        records
+    ) == [
+        {"datalink_id": "E-MTAB-1", "datalink_id_scheme": "ArrayExpress"},
+        {"datalink_id": "E-GEOD-1", "datalink_id_scheme": ""},
+        {"datalink_id": "E-MEXP-1", "datalink_id_scheme": ""},
+    ]
+
+
 def test_filter_accessions_is_case_insensitive() -> None:
     records = [
         {"datalink_id": "gse1", "datalink_id_scheme": ""},
@@ -187,6 +304,29 @@ def test_metadata_repository_returns_none_for_unhandled_records() -> None:
     )
 
 
+def test_metadata_repository_detects_arrayexpress_records() -> None:
+    collector = AtlasCollector(metadata_repositories=["arrayexpress"])
+
+    assert (
+        collector.metadata_repository(
+            {
+                "datalink_id": "E-MTAB-1",
+                "datalink_id_scheme": "ArrayExpress",
+            }
+        )
+        == "arrayexpress"
+    )
+
+
+def test_metadata_repository_raises_for_unsupported_option() -> None:
+    try:
+        AtlasCollector(metadata_repositories=["unknown"])
+    except ValueError as error:
+        assert "Unsupported metadata repositories" in str(error)
+    else:
+        raise AssertionError("unsupported repository should fail")
+
+
 def test_collect_accession_metadata_routes_geo_records(monkeypatch) -> None:
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
     FakeGEOWrapper.accessions = []
@@ -225,7 +365,7 @@ def test_collect_jsons_logs_progress_and_stats(monkeypatch, caplog) -> None:
     assert "stage=query-loading" in caplog.text
     assert "stage=collect-accessions" in caplog.text
     assert "query_count=2" in caplog.text
-    assert "raw_accessions=2" in caplog.text
+    assert "raw_accessions=3" in caplog.text
     assert "metadata_records=1" in caplog.text
 
 
