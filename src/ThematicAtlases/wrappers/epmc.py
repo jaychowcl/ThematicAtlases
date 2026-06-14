@@ -198,6 +198,7 @@ class EuropePMCWrapper:
 
     def collect_datalinks(self, publications: list[dict]) -> list[dict]:
         datalinks = []
+        failed_publications = 0
         skipped_categories = 0
 
         for publication in publications:
@@ -212,7 +213,18 @@ class EuropePMCWrapper:
                 source,
                 epmc_id,
             )
-            response_data = self._datalinks(source=source, epmc_id=epmc_id)
+            try:
+                response_data = self._datalinks(source=source, epmc_id=epmc_id)
+            except requests.RequestException as error:
+                failed_publications += 1
+                logger.warning(
+                    "EuropePMC datalinks skipped publication source=%r epmc_id=%r error=%r",
+                    source,
+                    epmc_id,
+                    error,
+                )
+                continue
+
             categories = response_data.get("dataLinkList", {}).get("Category", [])
 
             for category in categories:
@@ -232,10 +244,11 @@ class EuropePMCWrapper:
             time.sleep(self._request_settings["request_delay"])
 
         logger.info(
-            "EuropePMC datalink stats publications_checked=%s datalinks_collected=%s skipped_categories=%s",
+            "EuropePMC datalink stats publications_checked=%s datalinks_collected=%s skipped_categories=%s failed_publications=%s",
             len(publications),
             len(datalinks),
             skipped_categories,
+            failed_publications,
         )
 
         return self._deduplicate_accessions(datalinks=datalinks)

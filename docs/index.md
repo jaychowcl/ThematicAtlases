@@ -84,7 +84,7 @@ Refresh ranges after editing `docs/codebase.md`.
   title: EuropePMC Wrapper
   lines: 190-324
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, XML fallback, Scholix, accession records, progress logs, stats logs, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, datalinks, XML fallback, failed publications, Scholix, accession records, progress logs, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling

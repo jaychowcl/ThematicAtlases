@@ -925,6 +925,102 @@ def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_times_out(
     assert result[0]["datalink_id_scheme"] == "GEO"
 
 
+def test_collect_datalinks_skips_failed_publication_and_continues(
+    monkeypatch,
+    caplog,
+) -> None:
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+
+        if "/MED/failed/datalinks" in url:
+            raise requests.ReadTimeout("dead datalink endpoint")
+
+        return FakeResponse(
+            {
+                "dataLinkList": {
+                    "Category": [
+                        {
+                            "Name": "Functional Genomics Experiments",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "E-MTAB-1",
+                                                        "IDScheme": "ArrayExpress",
+                                                        "IDURL": "https://example.org/E-MTAB-1",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    result = EuropePMCWrapper(max_retries=0, timeout=12).collect_datalinks(
+        publications=[
+            {"query": "q", "source": "MED", "epmc_id": "failed"},
+            {"query": "q", "source": "MED", "epmc_id": "ok"},
+        ]
+    )
+
+    assert result == [
+        {
+            "datalink_id": "E-MTAB-1",
+            "datalink_id_scheme": "ArrayExpress",
+            "datalink_url": "https://example.org/E-MTAB-1",
+            "datalink_category": "Functional Genomics Experiments",
+            "publications": [
+                {
+                    "query": "q",
+                    "epmc_id": "ok",
+                    "source": "MED",
+                    "pmid": "",
+                    "pmcid": "",
+                    "doi": "",
+                    "title": "",
+                    "abstractText": "",
+                    "text": "",
+                    "text_source": "",
+                    "full_text_status": "",
+                }
+            ],
+        }
+    ]
+    assert calls == [
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/failed/datalinks",
+            {"format": "json"},
+            12,
+        ),
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/failed/datalinks",
+            None,
+            12,
+        ),
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/ok/datalinks",
+            {"format": "json"},
+            12,
+        ),
+    ]
+    assert "EuropePMC datalinks skipped publication source='MED' epmc_id='failed'" in caplog.text
+    assert "failed_publications=1" in caplog.text
+
+
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
     def fake_get(url, params, timeout):
         return FakeResponse(
@@ -968,6 +1064,7 @@ def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
     assert "publications_checked=1" in caplog.text
     assert "datalinks_collected=1" in caplog.text
     assert "skipped_categories=1" in caplog.text
+    assert "failed_publications=0" in caplog.text
 
 
 def test_deduplicate_accessions_collapses_duplicate_ids() -> None:

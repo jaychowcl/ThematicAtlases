@@ -309,7 +309,7 @@ The datalink request uses:
 https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks
 ```
 
-with `format=json` first. If Europe PMC returns a server error or the JSON datalinks request times out, the wrapper retries the same URL without `format=json`, parses the XML Scholix response, and normalizes it to the same internal datalink shape. The current dataset category filter keeps `GEO`, `BioProject`, `BioStudies`, `Nucleotide Sequences`, `BioStudies: supplemental material and supporting data`, and `Functional Genomics Experiments`.
+with `format=json` first. If Europe PMC returns a server error or the JSON datalinks request times out, the wrapper retries the same URL without `format=json`, parses the XML Scholix response, and normalizes it to the same internal datalink shape. If JSON and XML datalink retrieval both fail for one publication, that publication is skipped, logged, and counted while collection continues for the remaining publications. The current dataset category filter keeps `GEO`, `BioProject`, `BioStudies`, `Nucleotide Sequences`, `BioStudies: supplemental material and supporting data`, and `Functional Genomics Experiments`.
 
 Atlas, collector, filterer, EuropePMC, and GEO library modules define loggers but do not configure global logging. The CLI is responsible for logging configuration.
 
@@ -319,7 +319,7 @@ Each EuropePMC query logs one INFO-level search stats message with the query, to
 
 Each publication text enrichment pass logs one INFO-level stats message with publications checked, full text available, abstract fallbacks, and missing text.
 
-Each datalink collection pass logs one INFO-level stats message with publications checked, datalinks collected, and skipped categories.
+Each datalink collection pass logs one INFO-level stats message with publications checked, datalinks collected, skipped categories, and failed publications.
 
 Each accession deduplication pass logs one INFO-level stats message with input datalink rows, output accessions, duplicate rows collapsed, and skipped rows.
 
