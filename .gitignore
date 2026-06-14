@@ -10,6 +10,15 @@ oldd/*
 .vscode/
 .vscode/*
 
+.agents/
+.agents/*
+
+.codex/
+.codex/*
+
+.env/
+.env/*
+
 
 
 
