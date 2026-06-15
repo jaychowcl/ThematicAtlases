@@ -2,7 +2,7 @@
 
 Tools for collecting, filtering, and organizing biomedical dataset accessions into thematic atlases.
 
-## Longer description
+## Description
 
 ThematicAtlases builds atlas-ready JSON from publication-driven dataset discovery. It searches Europe PMC, extracts dataset datalinks, filters them by selected metadata repositories, enriches supported accessions with metadata, and maps each accession back to publication provenance.
 
