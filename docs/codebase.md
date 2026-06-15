@@ -438,7 +438,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, collector query loading, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, harmonizer placeholder behavior, atlas CLI behavior, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, collector query loading, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, harmonizer placeholder behavior, atlas CLI behavior, README section and code-flow documentation, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, and CLI tests mock network/provider access.
 
 Useful checks:
 

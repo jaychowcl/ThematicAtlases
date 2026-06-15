@@ -4,11 +4,11 @@ Tools for collecting, filtering, and organizing biomedical dataset accessions in
 
 ## Description
 
-ThematicAtlases builds atlas-ready JSON from publication-driven dataset discovery. It searches Europe PMC, extracts dataset datalinks, filters them by selected metadata repositories, enriches supported accessions with metadata, and maps each accession back to publication provenance.
+ThematicAtlases builds atlas-ready JSON from publication-driven dataset discovery. It searches Europe PMC, extracts dataset datalinks, filters them by selected metadata repositories, enriches supported accessions with metadata, and maps each accession back to publication provenance. `create_atlas()` is the end-to-end Python flow: it calls `collect_jsons()`, then passes those collected records to `filter_jsons()`.
 
-The current workflow supports GEO and ArrayExpress routing. GEO accessions are normalized to GSE records and enriched with `geo2json` metadata through `meta-standards-converter`. ArrayExpress accessions are retained and marked with placeholder metadata so downstream JSON shapes can already include ArrayExpress records while a live ArrayExpress fetcher is still pending.
+The current workflow supports GEO and ArrayExpress routing. GEO accessions are normalized to GSE records, retain their source evidence in `original_datalinks`, deduplicate records that resolve to the same GSE, and are enriched with `geo2json` metadata through `meta-standards-converter`. ArrayExpress accessions are retained and marked with placeholder metadata so downstream JSON shapes can already include ArrayExpress records while a live ArrayExpress fetcher is still pending.
 
-The filtering stage builds a shared `publication_texts` map, fetching open-access full text from Europe PMC when available and falling back to abstracts when full text is missing. When a theme is supplied, ThematicAtlases can call `agentic-curator` to review publication text for thematic relevance and optionally remove not-relevant or unsure publications.
+The filtering stage builds a shared `publication_texts` map, fetching open-access full text from Europe PMC when available and falling back to abstracts when full text is missing. Accession publication entries then receive `publication_text_ref` pointers into that shared map so full text is not duplicated on every accession. When a theme is supplied, ThematicAtlases can call `agentic-curator` to review publication text for thematic relevance and optionally remove not-relevant or unsure publications.
 
 Current limitations: ArrayExpress metadata is placeholder-only, and `harmonize_jsons()` is currently a placeholder extension point.
 
@@ -106,6 +106,8 @@ Commands:
 - `create-atlas`: orchestrates `collect-jsons` followed by `filter-jsons`, then returns/writes the final atlas object.
 - `harmonize-jsons`: placeholder command for future harmonization behavior.
 
+The CLI is a thin adapter over the Python API. It parses command arguments, normalizes CLI spellings such as `not-relevant` to API values such as `not_relevant`, instantiates `Atlas(metadata={})`, and calls the matching orchestrator method. Result JSON is written only when `--out` is supplied; successful commands keep stdout free of result data so progress logging and data output stay separate.
+
 Collection options:
 
 - `--query TEXT`: query string; may be repeated.
@@ -149,6 +151,18 @@ Major orchestrator methods:
   - Output: final atlas object, optionally written to `out`.
 - `Atlas.harmonize_jsons() -> list[dict] | None`
   - Output: currently `None`.
+
+`Atlas` is the root orchestrator and dependency-injection boundary. Its constructor wires the collector, filterer, harmonizer, Europe PMC wrapper factory, metadata handlers, and publication text reviewer; tests and downstream applications can replace those components without changing the public workflow methods.
+
+Code flow:
+
+1. `Atlas.create_atlas()` calls `Atlas.collect_jsons()` with collection options, then calls `Atlas.filter_jsons()` with the collected records, review options, and reviewer injection.
+2. `AtlasCollector` loads query strings from `query` and/or a UTF-8 query file, asks `EuropePMCWrapper` to search publications and collect dataset datalinks, filters records to the selected metadata repositories, and routes each repository group to its metadata handler.
+3. `GEOWrapper` normalizes GEO rows to GSE-level records, drops GPL or unresolved records, preserves source datalink evidence in `original_datalinks`, deduplicates repeated GSEs, and stores `geo2json` metadata in `accession_metadata`.
+4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
+5. `AtlasFilterer` accepts collected rows or an atlas-shaped object, reuses existing publication text entries, fetches missing full text or abstract fallback text through `EuropePMCWrapper`, attaches `publication_text_ref`, and returns the final object with `accessions` and `publication_texts`.
+6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested.
+7. `AtlasHarmonizer` is reserved for future harmonization behavior and currently returns `None`.
 
 Major components:
 

@@ -52,7 +52,7 @@ Refresh ranges after editing `docs/codebase.md`.
   title: Test And Verification Status
   lines: 438-456
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, atlas orchestration, collector, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
+  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
 ## API Sections
 
