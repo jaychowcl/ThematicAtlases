@@ -158,6 +158,21 @@ def test_verbose_enables_info_logging(
     assert output.err == ""
 
 
+def test_collect_jsons_accepts_verbose_after_command(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert main(["collect-jsons", "--verbose", "--query", "fibrosis"]) == 0
+
+    output = capsys.readouterr()
+    assert "INFO:ThematicAtlases.test:fake info" in output.out
+    assert "DEBUG:ThematicAtlases.test:fake debug" not in output.out
+    assert output.err == ""
+
+
 def test_verbose_create_atlas_emits_info_logging_to_stdout(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
@@ -169,6 +184,21 @@ def test_verbose_create_atlas_emits_info_logging_to_stdout(
 
     output = capsys.readouterr()
 
+    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in output.out
+    assert "INFO:ThematicAtlases.test:fake info" in output.out
+    assert output.err == ""
+
+
+def test_create_atlas_accepts_verbose_after_command(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert main(["create-atlas", "--verbose", "--query", "fibrosis"]) == 0
+
+    output = capsys.readouterr()
     assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in output.out
     assert "INFO:ThematicAtlases.test:fake info" in output.out
     assert output.err == ""
@@ -199,6 +229,37 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
 
     output = capsys.readouterr()
 
+    assert output.out == ""
+    assert output.err == ""
+    log_text = log_file.read_text(encoding="utf-8")
+    assert "INFO:ThematicAtlases.test:fake info" in log_text
+    assert "DEBUG:ThematicAtlases.test:fake debug" not in log_text
+
+
+def test_collect_jsons_accepts_log_file_after_command(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch,
+    tmp_path,
+) -> None:
+    log_file = tmp_path / "atlas.log"
+    monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
+
+    assert (
+        main(
+            [
+                "collect-jsons",
+                "--verbose",
+                "--log-file",
+                str(log_file),
+                "--query",
+                "fibrosis",
+            ]
+        )
+        == 0
+    )
+
+    output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
     log_text = log_file.read_text(encoding="utf-8")
@@ -254,6 +315,16 @@ def test_filter_command_does_not_emit_stdout(capsys: pytest.CaptureFixture[str])
 
     output = capsys.readouterr()
     assert output.out == ""
+    assert output.err == ""
+
+
+def test_filter_jsons_accepts_verbose_after_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["filter-jsons", "--verbose"]) == 0
+
+    output = capsys.readouterr()
+    assert "INFO:ThematicAtlases.filterer.filterer:Atlas filter_jsons progress stage=collect-publication-texts" in output.out
     assert output.err == ""
 
 
@@ -644,8 +715,25 @@ def test_harmonize_jsons_does_not_emit_stdout(
     assert output.err == ""
 
 
+def test_harmonize_jsons_accepts_verbose_after_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["harmonize-jsons", "--verbose"]) == 0
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+
+
 def test_unknown_command_exits_with_argparse_error() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["not-a-command"])
+
+    assert exc_info.value.code == 2
+
+
+def test_unknown_command_argument_exits_with_argparse_error() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["collect-jsons", "--query", "fibrosis", "--not-an-option"])
 
     assert exc_info.value.code == 2

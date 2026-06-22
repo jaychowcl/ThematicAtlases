@@ -415,12 +415,12 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
-- `collect-jsons [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N]`
-- `filter-jsons [--file FILE] [--out OUT] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
-- `harmonize-jsons`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `collect-jsons [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N]`
+- `filter-jsons [--verbose] [--log-file LOG_FILE] [--file FILE] [--out OUT] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `harmonize-jsons [--verbose] [--log-file LOG_FILE]`
 
-Logging options are global and must appear before the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only.
+Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
 `--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-jsons`, `--out` writes the intermediate collected accession list. For `create-atlas`, `--out` writes the final atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. For `filter-jsons`, `--file` reads either an intermediate accession list or an atlas-shaped object with `accessions` and optional `publication_texts`; existing text entries are reused and only missing publication text is fetched. `--out` writes the filtered atlas object. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`. The local VS Code launch config uses the project `.env` interpreter and passes `--verbose filter-jsons --file .dev/atlas_len1.json --out .dev/atlas_filtered_len1.json`.
 

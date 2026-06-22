@@ -21,18 +21,47 @@ def _positive_int(value: str) -> int:
     return integer
 
 
+def _add_logging_options(
+    parser: argparse.ArgumentParser,
+    *,
+    verbose_dest: str,
+    log_file_dest: str,
+) -> None:
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=None,
+        dest=verbose_dest,
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        dest=log_file_dest,
+        metavar="LOG_FILE",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thematic-atlas",
         description="Run placeholder ThematicAtlases atlas commands.",
     )
-    parser.add_argument("-v", "--verbose", action="count", default=0)
-    parser.add_argument("--log-file", default=None)
+    _add_logging_options(
+        parser,
+        verbose_dest="global_verbose",
+        log_file_dest="global_log_file",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     collect = subparsers.add_parser(
         "collect-jsons",
         help="Call the placeholder JSON collection workflow.",
+    )
+    _add_logging_options(
+        collect,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
     )
     collect.add_argument("--query", action="append", default=None)
     collect.add_argument("--file", default=None)
@@ -48,6 +77,11 @@ def _build_parser() -> argparse.ArgumentParser:
     create = subparsers.add_parser(
         "create-atlas",
         help="Run the atlas collection and filtering workflow.",
+    )
+    _add_logging_options(
+        create,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
     )
     create.add_argument("--query", action="append", default=None)
     create.add_argument("--file", default=None)
@@ -71,6 +105,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "filter-jsons",
         help="Call the placeholder JSON filtering workflow.",
     )
+    _add_logging_options(
+        filter_parser,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
+    )
     filter_parser.add_argument("--file", default=None)
     filter_parser.add_argument("--out", default=None)
     filter_parser.add_argument("--theme", default=None)
@@ -81,9 +120,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default="none",
     )
 
-    subparsers.add_parser(
+    harmonize = subparsers.add_parser(
         "harmonize-jsons",
         help="Call the placeholder JSON harmonization workflow.",
+    )
+    _add_logging_options(
+        harmonize,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
     )
 
     return parser
@@ -123,11 +167,24 @@ def _review_filter(value: str) -> str:
     return value.replace("-", "_")
 
 
+def _resolved_logging_options(args: argparse.Namespace) -> tuple[int, str | None]:
+    command_verbose = getattr(args, "command_verbose", None)
+    global_verbose = getattr(args, "global_verbose", None)
+    command_log_file = getattr(args, "command_log_file", None)
+    global_log_file = getattr(args, "global_log_file", None)
+
+    verbosity = command_verbose if command_verbose is not None else global_verbose
+    log_file = command_log_file if command_log_file is not None else global_log_file
+
+    return verbosity or 0, log_file
+
+
 def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
-    _configure_logging(verbosity=args.verbose, log_file=args.log_file)
+    verbosity, log_file = _resolved_logging_options(args)
+    _configure_logging(verbosity=verbosity, log_file=log_file)
 
     atlas = Atlas(metadata={})
 

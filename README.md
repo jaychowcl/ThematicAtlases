@@ -93,11 +93,18 @@ thematic-atlas filter-jsons \
 
 ## CLI
 
-Global options must appear before the subcommand:
+Logging options may appear before or after the subcommand:
 
 - `-v`, `--verbose`: enable INFO progress and stats logs.
 - `-vv`: enable DEBUG logs, including request/retry/routing details.
 - `--log-file PATH`: write UTF-8 logs to a file instead of stdout.
+
+Examples:
+
+```bash
+thematic-atlas --verbose collect-jsons --query "fibrosis RNA-seq human"
+thematic-atlas collect-jsons --verbose --query "fibrosis RNA-seq human"
+```
 
 Commands:
 
