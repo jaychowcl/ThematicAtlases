@@ -4,13 +4,13 @@ Tools for collecting, filtering, and organizing biomedical dataset accessions in
 
 ## Description
 
-ThematicAtlases builds atlas-ready JSON from publication-driven dataset discovery. It searches Europe PMC, extracts dataset datalinks, filters them by selected metadata repositories, enriches supported accessions with metadata, and maps each accession back to publication provenance. `create_atlas()` is the end-to-end Python flow: it calls `collect_jsons()`, then passes those collected records to `filter_jsons()`.
+ThematicAtlases builds atlas-ready JSON from publication-driven dataset discovery. It searches Europe PMC, extracts dataset datalinks, filters them by selected metadata repositories, optionally enriches supported accessions with metadata, maps each accession back to publication provenance, and can run thematic publication review. `create_atlas()` is the end-to-end Python flow: it calls `collect_datasets()`, then passes those datasets to `harmonize_datasets()`.
 
 The current workflow supports GEO and ArrayExpress routing. GEO accessions are normalized to GSE records, retain their source evidence in `original_datalinks`, deduplicate records that resolve to the same GSE, and are enriched with `geo2json` metadata through `meta-standards-converter`. ArrayExpress accessions are retained and marked with placeholder metadata so downstream JSON shapes can already include ArrayExpress records while a live ArrayExpress fetcher is still pending.
 
 The filtering stage builds a shared `publication_texts` map, fetching open-access full text from Europe PMC when available and falling back to abstracts when full text is missing. Accession publication entries then receive `publication_text_ref` pointers into that shared map so full text is not duplicated on every accession. When a theme is supplied, ThematicAtlases can call `agentic-curator` to review publication text for thematic relevance and optionally remove not-relevant or unsure publications.
 
-Current limitations: ArrayExpress metadata is placeholder-only, and `harmonize_jsons()` is currently a placeholder extension point.
+Current limitations: ArrayExpress metadata is placeholder-only, and `harmonize_datasets()` is currently a pass-through placeholder for future ontology harmonization.
 
 ## Installation
 
@@ -46,31 +46,31 @@ python3 -m ThematicAtlases.cli_atlas --help
 
 ## Quickstart
 
-Collect GEO accession JSONs from a query:
+Collect GEO datasets from a query:
 
 ```bash
-thematic-atlas collect-jsons \
+thematic-atlas collect-datasets \
   --query "fibrosis RNA-seq human" \
-  --out atlas_collect.json
+  --out atlas_datasets.json
 ```
 
 Collect both GEO and ArrayExpress records:
 
 ```bash
-thematic-atlas collect-jsons \
+thematic-atlas collect-datasets \
   --query "fibrosis RNA-seq human" \
   --metadata-repository geo \
   --metadata-repository arrayexpress \
-  --out atlas_collect.json
+  --out atlas_datasets.json
 ```
 
 Limit a smoke run to the first 25 searched publications:
 
 ```bash
-thematic-atlas collect-jsons \
+thematic-atlas collect-datasets \
   --query "fibrosis RNA-seq human" \
   --max-publications 25 \
-  --out atlas_collect.json
+  --out atlas_datasets.json
 ```
 
 Create a final atlas object in one command:
@@ -81,14 +81,15 @@ thematic-atlas create-atlas \
   --out atlas.json
 ```
 
-Filter an existing collected JSON file and run thematic review:
+Collect datasets with thematic review while skipping metadata enrichment:
 
 ```bash
-thematic-atlas filter-jsons \
-  --file atlas_collect.json \
+thematic-atlas collect-datasets \
+  --query "fibrosis RNA-seq human" \
   --theme "human fibrosis transcriptomics datasets" \
   --review-filter not-relevant \
-  --out atlas_filtered.json
+  --skip-metadata \
+  --out atlas_datasets.json
 ```
 
 ## CLI
@@ -102,26 +103,26 @@ Logging options may appear before or after the subcommand:
 Examples:
 
 ```bash
-thematic-atlas --verbose collect-jsons --query "fibrosis RNA-seq human"
-thematic-atlas collect-jsons --verbose --query "fibrosis RNA-seq human"
+thematic-atlas --verbose collect-datasets --query "fibrosis RNA-seq human"
+thematic-atlas collect-datasets --verbose --query "fibrosis RNA-seq human"
 ```
 
 Commands:
 
-- `collect-jsons`: searches Europe PMC, collects datalinks, filters selected repositories, enriches accession metadata, and returns/writes an intermediate list of accession records.
-- `filter-jsons`: reads collected accession records or an atlas-shaped object, builds `publication_texts`, attaches `publication_text_ref`, optionally runs thematic review, and returns/writes an atlas object.
-- `create-atlas`: orchestrates `collect-jsons` followed by `filter-jsons`, then returns/writes the final atlas object.
-- `harmonize-jsons`: placeholder command for future harmonization behavior.
+- `collect-datasets`: searches Europe PMC, collects datalinks, filters selected repositories, optionally enriches accession metadata, builds `publication_texts`, attaches `publication_text_ref`, optionally runs thematic review, and returns/writes an atlas object.
+- `create-atlas`: orchestrates `collect-datasets` followed by `harmonize-datasets`, then returns/writes the final atlas object.
+- `harmonize-datasets`: placeholder command for future harmonization behavior.
 
 The CLI is a thin adapter over the Python API. It parses command arguments, normalizes CLI spellings such as `not-relevant` to API values such as `not_relevant`, instantiates `Atlas(metadata={})`, and calls the matching orchestrator method. Result JSON is written only when `--out` is supplied; successful commands keep stdout free of result data so progress logging and data output stay separate.
 
 Collection options:
 
 - `--query TEXT`: query string; may be repeated.
-- `--file PATH`: UTF-8 query file for `collect-jsons`/`create-atlas`, or JSON input file for `filter-jsons`.
+- `--file PATH`: UTF-8 query file for `collect-datasets`/`create-atlas`.
 - `--out PATH`: write JSON output.
 - `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
 - `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
+- `--skip-metadata`: keep repository-filtered accessions but skip metadata handler enrichment.
 
 Filtering options:
 
@@ -131,8 +132,7 @@ Filtering options:
 
 Output shapes:
 
-- `collect-jsons` writes a JSON list of accession records.
-- `filter-jsons` and `create-atlas` write an atlas object with `accessions` and `publication_texts`.
+- `collect-datasets` and `create-atlas` write an atlas object with `accessions` and `publication_texts`.
 - Successful commands do not print result JSON to stdout; use `--out` for data and logging options for progress.
 
 ## Python API
@@ -147,29 +147,27 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None) -> list[dict]`
-  - Inputs: repeated query strings, optional query file, optional output path, repository selection, and publication cap.
-  - Output: intermediate accession records with publication provenance and repository metadata.
-- `Atlas.filter_jsons(jsons=None, file=None, theme=None, review_filter="none", reviewer=None) -> dict`
-  - Inputs: collected accession list or atlas object, optional JSON file, optional theme/review filter, optional reviewer injection.
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True) -> dict`
+  - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
   - Output: atlas object with `accessions` and `publication_texts`.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None) -> dict`
-  - Inputs: collection and filtering options.
+- `Atlas.harmonize_datasets(datasets) -> dict`
+  - Inputs: a `collect_datasets()` atlas object.
+  - Output: currently returns the input object unchanged.
+- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True) -> dict`
+  - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
-- `Atlas.harmonize_jsons() -> list[dict] | None`
-  - Output: currently `None`.
 
 `Atlas` is the root orchestrator and dependency-injection boundary. Its constructor wires the collector, filterer, harmonizer, Europe PMC wrapper factory, metadata handlers, and publication text reviewer; tests and downstream applications can replace those components without changing the public workflow methods.
 
 Code flow:
 
-1. `Atlas.create_atlas()` calls `Atlas.collect_jsons()` with collection options, then calls `Atlas.filter_jsons()` with the collected records, review options, and reviewer injection.
+1. `Atlas.create_atlas()` calls `Atlas.collect_datasets()` with collection/filtering options, then calls `Atlas.harmonize_datasets()` with the collected atlas object.
 2. `AtlasCollector` loads query strings from `query` and/or a UTF-8 query file, asks `EuropePMCWrapper` to search publications and collect dataset datalinks, filters records to the selected metadata repositories, and routes each repository group to its metadata handler.
-3. `GEOWrapper` normalizes GEO rows to GSE-level records, drops GPL or unresolved records, preserves source datalink evidence in `original_datalinks`, deduplicates repeated GSEs, and stores `geo2json` metadata in `accession_metadata`.
+3. When metadata collection is enabled, `GEOWrapper` normalizes GEO rows to GSE-level records, drops GPL or unresolved records, preserves source datalink evidence in `original_datalinks`, deduplicates repeated GSEs, and stores `geo2json` metadata in `accession_metadata`.
 4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
 5. `AtlasFilterer` accepts collected rows or an atlas-shaped object, reuses existing publication text entries, fetches missing full text or abstract fallback text through `EuropePMCWrapper`, attaches `publication_text_ref`, and returns the final object with `accessions` and `publication_texts`.
 6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested.
-7. `AtlasHarmonizer` is reserved for future harmonization behavior and currently returns `None`.
+7. `Atlas.harmonize_datasets()` is reserved for future ontology harmonization behavior and currently returns the dataset object unchanged.
 
 Major components:
 

@@ -28,7 +28,7 @@ def test_readme_describes_major_code_flow_and_output_shape() -> None:
     text = README.read_text(encoding="utf-8")
 
     required_phrases = [
-        "`create_atlas()` is the end-to-end Python flow: it calls `collect_jsons()`, then passes those collected records to `filter_jsons()`.",
+        "`create_atlas()` is the end-to-end Python flow: it calls `collect_datasets()`, then passes those datasets to `harmonize_datasets()`.",
         "`Atlas` is the root orchestrator and dependency-injection boundary.",
         "`AtlasCollector`",
         "`AtlasFilterer`",

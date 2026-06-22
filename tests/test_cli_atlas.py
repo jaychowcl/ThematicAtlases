@@ -60,14 +60,14 @@ class FakeGEOWrapper:
         ]
 
 
-def test_collect_jsons_does_not_emit_stdout(
+def test_collect_datasets_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["collect-jsons", "--query", "fibrosis", "--query", "transcriptomics"]) == 0
+    assert main(["collect-datasets", "--query", "fibrosis", "--query", "transcriptomics"]) == 0
 
     output = capsys.readouterr()
 
@@ -75,7 +75,7 @@ def test_collect_jsons_does_not_emit_stdout(
     assert output.err == ""
 
 
-def test_collect_jsons_accepts_file(
+def test_collect_datasets_accepts_file(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
     monkeypatch,
@@ -85,14 +85,14 @@ def test_collect_jsons_accepts_file(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["collect-jsons", "--file", str(query_file)]) == 0
+    assert main(["collect-datasets", "--file", str(query_file)]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
 
 
-def test_collect_jsons_writes_outfile(
+def test_collect_datasets_writes_outfile(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
     monkeypatch,
@@ -101,12 +101,35 @@ def test_collect_jsons_writes_outfile(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["collect-jsons", "--query", "fibrosis", "--out", str(outfile)]) == 0
+    assert main(["collect-datasets", "--query", "fibrosis", "--out", str(outfile)]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
-    assert outfile.read_text(encoding="utf-8") == '[\n  {\n    "datalink_id": "GSE_FIBROSIS",\n    "datalink_id_scheme": "GEO",\n    "publications": [],\n    "original_datalinks": [\n      {\n        "datalink_id": "GSE_fibrosis",\n        "datalink_id_scheme": "GEO",\n        "datalink_url": "",\n        "datalink_category": ""\n      }\n    ],\n    "metadata_repository": "geo",\n    "metadata_source": "geo2json",\n    "metadata_status": "available",\n    "accession_metadata": {\n      "series": {\n        "accession": [\n          {\n            "value": "GSE_FIBROSIS"\n          }\n        ]\n      }\n    }\n  }\n]'
+    assert json.loads(outfile.read_text(encoding="utf-8")) == {
+        "accessions": [
+            {
+                "datalink_id": "GSE_FIBROSIS",
+                "datalink_id_scheme": "GEO",
+                "publications": [],
+                "original_datalinks": [
+                    {
+                        "datalink_id": "GSE_fibrosis",
+                        "datalink_id_scheme": "GEO",
+                        "datalink_url": "",
+                        "datalink_category": "",
+                    }
+                ],
+                "metadata_repository": "geo",
+                "metadata_source": "geo2json",
+                "metadata_status": "available",
+                "accession_metadata": {
+                    "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
+                },
+            }
+        ],
+        "publication_texts": {},
+    }
 
 
 def test_create_atlas_does_not_emit_stdout(
@@ -149,7 +172,7 @@ def test_verbose_enables_info_logging(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["--verbose", "collect-jsons", "--query", "fibrosis"]) == 0
+    assert main(["--verbose", "collect-datasets", "--query", "fibrosis"]) == 0
 
     output = capsys.readouterr()
 
@@ -158,14 +181,14 @@ def test_verbose_enables_info_logging(
     assert output.err == ""
 
 
-def test_collect_jsons_accepts_verbose_after_command(
+def test_collect_datasets_accepts_verbose_after_command(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["collect-jsons", "--verbose", "--query", "fibrosis"]) == 0
+    assert main(["collect-datasets", "--verbose", "--query", "fibrosis"]) == 0
 
     output = capsys.readouterr()
     assert "INFO:ThematicAtlases.test:fake info" in output.out
@@ -184,7 +207,7 @@ def test_verbose_create_atlas_emits_info_logging_to_stdout(
 
     output = capsys.readouterr()
 
-    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in output.out
+    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-datasets" in output.out
     assert "INFO:ThematicAtlases.test:fake info" in output.out
     assert output.err == ""
 
@@ -199,7 +222,7 @@ def test_create_atlas_accepts_verbose_after_command(
     assert main(["create-atlas", "--verbose", "--query", "fibrosis"]) == 0
 
     output = capsys.readouterr()
-    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in output.out
+    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-datasets" in output.out
     assert "INFO:ThematicAtlases.test:fake info" in output.out
     assert output.err == ""
 
@@ -219,7 +242,7 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
                 "--verbose",
                 "--log-file",
                 str(log_file),
-                "collect-jsons",
+                "collect-datasets",
                 "--query",
                 "fibrosis",
             ]
@@ -236,7 +259,7 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
     assert "DEBUG:ThematicAtlases.test:fake debug" not in log_text
 
 
-def test_collect_jsons_accepts_log_file_after_command(
+def test_collect_datasets_accepts_log_file_after_command(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
     tmp_path,
@@ -248,7 +271,7 @@ def test_collect_jsons_accepts_log_file_after_command(
     assert (
         main(
             [
-                "collect-jsons",
+                "collect-datasets",
                 "--verbose",
                 "--log-file",
                 str(log_file),
@@ -295,7 +318,7 @@ def test_verbose_create_atlas_log_file_writes_logs_only_to_file(
     assert output.out == ""
     assert output.err == ""
     log_text = log_file.read_text(encoding="utf-8")
-    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-jsons" in log_text
+    assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-datasets" in log_text
     assert "INFO:ThematicAtlases.test:fake info" in log_text
 
 
@@ -310,260 +333,7 @@ def test_double_verbose_enables_debug_logging(tmp_path) -> None:
     )
 
 
-def test_filter_command_does_not_emit_stdout(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["filter-jsons"]) == 0
-
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-
-
-def test_filter_jsons_accepts_verbose_after_command(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert main(["filter-jsons", "--verbose"]) == 0
-
-    output = capsys.readouterr()
-    assert "INFO:ThematicAtlases.filterer.filterer:Atlas filter_jsons progress stage=collect-publication-texts" in output.out
-    assert output.err == ""
-
-
-def test_filter_jsons_accepts_list_file(
-    capsys: pytest.CaptureFixture[str],
-    tmp_path,
-) -> None:
-    input_file = tmp_path / "collected.json"
-    output_file = tmp_path / "filtered.json"
-    input_file.write_text(
-        json.dumps(
-            [
-                {
-                    "datalink_id": "GSE1",
-                    "publications": [],
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    assert (
-        main(
-            [
-                "filter-jsons",
-                "--file",
-                str(input_file),
-                "--out",
-                str(output_file),
-            ]
-        )
-        == 0
-    )
-
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-    assert json.loads(output_file.read_text(encoding="utf-8")) == {
-        "accessions": [
-            {
-                "datalink_id": "GSE1",
-                "publications": [],
-            }
-        ],
-        "publication_texts": {},
-    }
-
-
-def test_filter_jsons_accepts_atlas_object_file(
-    capsys: pytest.CaptureFixture[str],
-    tmp_path,
-) -> None:
-    input_file = tmp_path / "atlas.json"
-    output_file = tmp_path / "filtered.json"
-    input_file.write_text(
-        json.dumps(
-            {
-                "accessions": [
-                    {
-                        "datalink_id": "GSE1",
-                        "publications": [],
-                    }
-                ],
-                "publication_texts": {"old": {"text": "ignored"}},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert (
-        main(
-            [
-                "filter-jsons",
-                "--file",
-                str(input_file),
-                "--out",
-                str(output_file),
-            ]
-        )
-        == 0
-    )
-
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-    assert json.loads(output_file.read_text(encoding="utf-8")) == {
-        "accessions": [
-            {
-                "datalink_id": "GSE1",
-                "publications": [],
-            }
-        ],
-        "publication_texts": {"old": {"text": "ignored"}},
-    }
-
-
-def test_filter_jsons_reuses_existing_publication_texts(
-    capsys: pytest.CaptureFixture[str],
-    tmp_path,
-) -> None:
-    input_file = tmp_path / "atlas.json"
-    output_file = tmp_path / "filtered.json"
-    input_file.write_text(
-        json.dumps(
-            {
-                "accessions": [
-                    {
-                        "datalink_id": "GSE1",
-                        "publications": [
-                            {
-                                "source": "MED",
-                                "epmc_id": "1",
-                                "pmid": "1",
-                                "publication_text_ref": "1",
-                            }
-                        ],
-                    }
-                ],
-                "publication_texts": {
-                    "1": {
-                        "text": "Existing full text",
-                        "text_source": "fullTextXML",
-                        "full_text_status": "available",
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert (
-        main(
-            [
-                "filter-jsons",
-                "--file",
-                str(input_file),
-                "--out",
-                str(output_file),
-            ]
-        )
-        == 0
-    )
-
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-    assert json.loads(output_file.read_text(encoding="utf-8")) == {
-        "accessions": [
-            {
-                "datalink_id": "GSE1",
-                "publications": [
-                    {
-                        "source": "MED",
-                        "epmc_id": "1",
-                        "pmid": "1",
-                        "publication_text_ref": "1",
-                    }
-                ],
-            }
-        ],
-        "publication_texts": {
-            "1": {
-                "text": "Existing full text",
-                "text_source": "fullTextXML",
-                "full_text_status": "available",
-            }
-        },
-    }
-
-
-def test_filter_jsons_passes_theme_file_and_review_filter_to_atlas(
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch,
-    tmp_path,
-) -> None:
-    class RecordingAtlas:
-        calls: list[dict] = []
-
-        def __init__(self, metadata: dict):
-            pass
-
-        def filter_jsons(
-            self,
-            file=None,
-            theme=None,
-            review_filter="none",
-            reviewer=None,
-        ):
-            self.__class__.calls.append(
-                {
-                    "file": file,
-                    "theme": theme,
-                    "review_filter": review_filter,
-                    "reviewer": reviewer,
-                }
-            )
-            return {"accessions": [], "publication_texts": {}}
-
-    theme_file = tmp_path / "theme.md"
-    output_file = tmp_path / "filtered.json"
-    theme_file.write_text("theme from file", encoding="utf-8")
-    RecordingAtlas.calls = []
-    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
-
-    assert (
-        main(
-            [
-                "filter-jsons",
-                "--theme",
-                "theme from arg",
-                "--theme-file",
-                str(theme_file),
-                "--review-filter",
-                "not-relevant-and-unsure",
-                "--out",
-                str(output_file),
-            ]
-        )
-        == 0
-    )
-
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-    assert RecordingAtlas.calls == [
-        {
-            "file": None,
-            "theme": "theme from file",
-            "review_filter": "not_relevant_and_unsure",
-            "reviewer": None,
-        }
-    ]
-    assert json.loads(output_file.read_text(encoding="utf-8")) == {
-        "accessions": [],
-        "publication_texts": {},
-    }
-
-
-def test_collect_jsons_passes_metadata_repositories_to_atlas(
+def test_collect_datasets_passes_options_to_atlas(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,
 ) -> None:
@@ -573,24 +343,32 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
         def __init__(self, metadata: dict):
             pass
 
-        def collect_jsons(
+        def collect_datasets(
             self,
             query=None,
             file=None,
             out=None,
+            theme=None,
+            review_filter="none",
             metadata_repositories=None,
             max_publications=None,
+            reviewer=None,
+            collect_metadata=True,
         ):
             self.__class__.calls.append(
                 {
                     "query": query,
                     "file": file,
                     "out": out,
+                    "theme": theme,
+                    "review_filter": review_filter,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
+                    "reviewer": reviewer,
+                    "collect_metadata": collect_metadata,
                 }
             )
-            return []
+            return {"accessions": [], "publication_texts": {}}
 
     RecordingAtlas.calls = []
     monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
@@ -598,15 +376,20 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
     assert (
         main(
             [
-                "collect-jsons",
+                "collect-datasets",
                 "--query",
                 "fibrosis",
+                "--theme",
+                "theme",
+                "--review-filter",
+                "not-relevant",
                 "--metadata-repository",
                 "geo",
                 "--metadata-repository",
                 "arrayexpress",
                 "--max-publications",
                 "25",
+                "--skip-metadata",
             ]
         )
         == 0
@@ -620,15 +403,19 @@ def test_collect_jsons_passes_metadata_repositories_to_atlas(
             "query": ["fibrosis"],
             "file": None,
             "out": None,
+            "theme": "theme",
+            "review_filter": "not_relevant",
             "metadata_repositories": ["geo", "arrayexpress"],
             "max_publications": 25,
+            "reviewer": None,
+            "collect_metadata": False,
         }
     ]
 
 
-def test_collect_jsons_rejects_non_positive_max_publications() -> None:
+def test_collect_datasets_rejects_non_positive_max_publications() -> None:
     with pytest.raises(SystemExit):
-        main(["collect-jsons", "--query", "fibrosis", "--max-publications", "0"])
+        main(["collect-datasets", "--query", "fibrosis", "--max-publications", "0"])
 
 
 def test_create_atlas_passes_theme_and_review_filter_to_atlas(
@@ -651,6 +438,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             metadata_repositories=None,
             max_publications=None,
             reviewer=None,
+            collect_metadata=True,
         ):
             self.__class__.calls.append(
                 {
@@ -662,6 +450,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
                     "reviewer": reviewer,
+                    "collect_metadata": collect_metadata,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -683,6 +472,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "arrayexpress",
                 "--max-publications",
                 "25",
+                "--skip-metadata",
             ]
         )
         == 0
@@ -701,24 +491,25 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "metadata_repositories": ["arrayexpress"],
             "max_publications": 25,
             "reviewer": None,
+            "collect_metadata": False,
         }
     ]
 
 
-def test_harmonize_jsons_does_not_emit_stdout(
+def test_harmonize_datasets_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["harmonize-jsons"]) == 0
+    assert main(["harmonize-datasets"]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
 
 
-def test_harmonize_jsons_accepts_verbose_after_command(
+def test_harmonize_datasets_accepts_verbose_after_command(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["harmonize-jsons", "--verbose"]) == 0
+    assert main(["harmonize-datasets", "--verbose"]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
@@ -734,6 +525,6 @@ def test_unknown_command_exits_with_argparse_error() -> None:
 
 def test_unknown_command_argument_exits_with_argparse_error() -> None:
     with pytest.raises(SystemExit) as exc_info:
-        main(["collect-jsons", "--query", "fibrosis", "--not-an-option"])
+        main(["collect-datasets", "--query", "fibrosis", "--not-an-option"])
 
     assert exc_info.value.code == 2

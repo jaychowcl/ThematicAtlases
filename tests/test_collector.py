@@ -228,6 +228,28 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
     assert '"datalink_id": "GSE1"' in outfile.read_text(encoding="utf-8")
 
 
+def test_collect_jsons_can_skip_metadata_collection(monkeypatch) -> None:
+    monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
+    FakeGEOWrapper.accessions = []
+    FakeGEOWrapper.jsons = None
+
+    assert AtlasCollector().collect_jsons(
+        query=["a"],
+        collect_metadata=False,
+    ) == [
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "https://example.org/GSE1",
+            "datalink_category": "GEO",
+            "publications": [{"source": "MED", "epmc_id": "1"}],
+        }
+    ]
+    assert FakeGEOWrapper.accessions == []
+    assert FakeGEOWrapper.jsons is None
+
+
 def test_filter_accessions_keeps_handled_geo_scheme() -> None:
     records = [
         {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"},

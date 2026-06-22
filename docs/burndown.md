@@ -8,7 +8,7 @@
 # ThematicAtlases
 ## big
 [x] Major refactor of existing codebase.
-    [x]  3 main user facing api calls, ThematicAtlases.atlas.collect_jsons() -> jsons, ThematicAtlases.atlas.filter_jsons() -> jsons, ThematicAtlases.atlas.harmonize_jsons() -> jsons.
+    [x]  Main user facing API calls are now ThematicAtlases.atlas.collect_datasets(), ThematicAtlases.atlas.harmonize_datasets(), and ThematicAtlases.atlas.create_atlas().
 
 [x] Get gse list from any geo accession level
 [x] meta_standards_converter gse to json
@@ -128,4 +128,3 @@ BurnDown
 [] agent prompts
 
 # agentic_curator
-

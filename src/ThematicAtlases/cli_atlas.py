@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
@@ -55,8 +54,8 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     collect = subparsers.add_parser(
-        "collect-jsons",
-        help="Call the placeholder JSON collection workflow.",
+        "collect-datasets",
+        help="Collect and filter datasets into an atlas object.",
     )
     _add_logging_options(
         collect,
@@ -67,11 +66,19 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--file", default=None)
     collect.add_argument("--out", default=None)
     collect.add_argument("--max-publications", type=_positive_int, default=None)
+    collect.add_argument("--skip-metadata", action="store_true", default=False)
     collect.add_argument(
         "--metadata-repository",
         action="append",
         choices=METADATA_REPOSITORY_CHOICES,
         default=None,
+    )
+    collect.add_argument("--theme", default=None)
+    collect.add_argument("--theme-file", default=None)
+    collect.add_argument(
+        "--review-filter",
+        choices=REVIEW_FILTER_CHOICES,
+        default="none",
     )
 
     create = subparsers.add_parser(
@@ -87,6 +94,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
     create.add_argument("--max-publications", type=_positive_int, default=None)
+    create.add_argument("--skip-metadata", action="store_true", default=False)
     create.add_argument(
         "--metadata-repository",
         action="append",
@@ -101,28 +109,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default="none",
     )
 
-    filter_parser = subparsers.add_parser(
-        "filter-jsons",
-        help="Call the placeholder JSON filtering workflow.",
-    )
-    _add_logging_options(
-        filter_parser,
-        verbose_dest="command_verbose",
-        log_file_dest="command_log_file",
-    )
-    filter_parser.add_argument("--file", default=None)
-    filter_parser.add_argument("--out", default=None)
-    filter_parser.add_argument("--theme", default=None)
-    filter_parser.add_argument("--theme-file", default=None)
-    filter_parser.add_argument(
-        "--review-filter",
-        choices=REVIEW_FILTER_CHOICES,
-        default="none",
-    )
-
     harmonize = subparsers.add_parser(
-        "harmonize-jsons",
-        help="Call the placeholder JSON harmonization workflow.",
+        "harmonize-datasets",
+        help="Call the placeholder dataset harmonization workflow.",
     )
     _add_logging_options(
         harmonize,
@@ -188,13 +177,16 @@ def main(argv: list[str] | None = None) -> int:
 
     atlas = Atlas(metadata={})
 
-    if args.command == "collect-jsons":
-        atlas.collect_jsons(
+    if args.command == "collect-datasets":
+        atlas.collect_datasets(
             query=args.query,
             file=args.file,
             out=args.out,
+            theme=_input_value(value=args.theme, file=args.theme_file),
+            review_filter=_review_filter(args.review_filter),
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
+            collect_metadata=not args.skip_metadata,
         )
     elif args.command == "create-atlas":
         atlas.create_atlas(
@@ -205,19 +197,10 @@ def main(argv: list[str] | None = None) -> int:
             review_filter=_review_filter(args.review_filter),
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
+            collect_metadata=not args.skip_metadata,
         )
-    elif args.command == "filter-jsons":
-        result = atlas.filter_jsons(
-            file=args.file,
-            theme=_input_value(value=args.theme, file=args.theme_file),
-            review_filter=_review_filter(args.review_filter),
-        )
-
-        if args.out is not None:
-            with open(args.out, "w", encoding="utf-8") as handle:
-                json.dump(result, handle, indent=2)
-    elif args.command == "harmonize-jsons":
-        atlas.harmonize_jsons()
+    elif args.command == "harmonize-datasets":
+        atlas.harmonize_datasets(datasets={"accessions": [], "publication_texts": {}})
     else:
         parser.error(f"unknown command: {args.command}")
 

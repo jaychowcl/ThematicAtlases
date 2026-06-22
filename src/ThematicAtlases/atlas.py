@@ -54,21 +54,74 @@ class Atlas:
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
         reviewer=None,
+        collect_metadata: bool = True,
     ) -> dict:
-        logger.info("Atlas create_atlas progress stage=collect-jsons")
-        accessions = self.collect_jsons(
+        logger.info("Atlas create_atlas progress stage=collect-datasets")
+        datasets = self.collect_datasets(
+            query=query,
+            file=file,
+            out=None,
+            theme=theme,
+            review_filter=review_filter,
+            metadata_repositories=metadata_repositories,
+            max_publications=max_publications,
+            reviewer=reviewer,
+            collect_metadata=collect_metadata,
+        )
+        logger.info(
+            "Atlas create_atlas progress stage=collect-datasets-complete accessions=%s publication_texts=%s",
+            len(datasets.get("accessions", [])),
+            len(datasets.get("publication_texts", {})),
+        )
+        logger.info("Atlas create_atlas progress stage=harmonize-datasets")
+        result = self.harmonize_datasets(datasets=datasets)
+        final_accessions = result.get("accessions", [])
+        publication_texts = result.get("publication_texts", {})
+        logger.info(
+            "Atlas create_atlas progress stage=harmonize-datasets-complete accessions=%s publication_texts=%s",
+            len(final_accessions),
+            len(publication_texts),
+        )
+
+        if out is not None:
+            logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
+            self._write_json(result=result, out=out)
+
+        logger.info(
+            "Atlas create_atlas stats final_accessions=%s publication_texts=%s output_path=%s",
+            len(final_accessions),
+            len(publication_texts),
+            out,
+        )
+        return result
+
+    def collect_datasets(
+        self,
+        query: list[str] | None = None,
+        file: str | None = None,
+        out: str | None = None,
+        theme: str | None = None,
+        review_filter: str = "none",
+        metadata_repositories: list[str] | None = None,
+        max_publications: int | None = None,
+        reviewer=None,
+        collect_metadata: bool = True,
+    ) -> dict:
+        logger.info("Atlas collect_datasets progress stage=collect-accessions")
+        accessions = self._collect_jsons(
             query=query,
             file=file,
             out=None,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
+            collect_metadata=collect_metadata,
         )
         logger.info(
-            "Atlas create_atlas progress stage=collect-jsons-complete accessions=%s",
+            "Atlas collect_datasets progress stage=collect-accessions-complete accessions=%s",
             len(accessions),
         )
-        logger.info("Atlas create_atlas progress stage=filter-jsons")
-        result = self.filter_jsons(
+        logger.info("Atlas collect_datasets progress stage=map-publication-texts")
+        result = self._filter_jsons(
             jsons=accessions,
             theme=theme,
             review_filter=review_filter,
@@ -77,32 +130,35 @@ class Atlas:
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
         logger.info(
-            "Atlas create_atlas progress stage=filter-jsons-complete accessions=%s publication_texts=%s",
+            "Atlas collect_datasets progress stage=map-publication-texts-complete accessions=%s publication_texts=%s",
             len(final_accessions),
             len(publication_texts),
         )
 
         if out is not None:
-            logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
-            with open(out, "w", encoding="utf-8") as handle:
-                json.dump(result, handle, indent=2)
+            logger.info("Atlas collect_datasets progress stage=write-output output_path=%s", out)
+            self._write_json(result=result, out=out)
 
         logger.info(
-            "Atlas create_atlas stats collected_accessions=%s final_accessions=%s publication_texts=%s output_path=%s",
-            len(accessions),
+            "Atlas collect_datasets stats final_accessions=%s publication_texts=%s collect_metadata=%s output_path=%s",
             len(final_accessions),
             len(publication_texts),
+            collect_metadata,
             out,
         )
         return result
 
-    def collect_jsons(
+    def harmonize_datasets(self, datasets: dict) -> dict:
+        return datasets
+
+    def _collect_jsons(
         self,
         query: list[str] | None = None,
         file: str | None = None,
         out: str | None = None,
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
+        collect_metadata: bool = True,
     ) -> list[dict]:
         return self._collector.collect_jsons(
             query=query,
@@ -110,9 +166,10 @@ class Atlas:
             out=out,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
+            collect_metadata=collect_metadata,
         )
 
-    def filter_jsons(
+    def _filter_jsons(
         self,
         jsons: dict | list[dict] | None = None,
         file: str | None = None,
@@ -128,5 +185,9 @@ class Atlas:
             reviewer=reviewer,
         )
 
-    def harmonize_jsons(self) -> list[dict] | None:
+    def _harmonize_jsons(self) -> list[dict] | None:
         return self._harmonizer.harmonize_jsons()
+
+    def _write_json(self, result: dict | list[dict], out: str) -> None:
+        with open(out, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, indent=2)

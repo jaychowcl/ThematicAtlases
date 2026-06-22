@@ -35,6 +35,7 @@ class AtlasCollector:
         out: str | None = None,
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
+        collect_metadata: bool = True,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -60,15 +61,18 @@ class AtlasCollector:
             accessions,
             metadata_repositories=selected_repositories,
         )
-        logger.info("Atlas collect_jsons progress stage=collect-accession-metadata")
-        result = self.collect_accession_metadata(
-            jsons=result,
-            metadata_repositories=selected_repositories,
-        )
-        logger.info(
-            "Atlas collect_jsons progress stage=collect-accession-metadata-complete metadata_records=%s",
-            len(result),
-        )
+        if collect_metadata:
+            logger.info("Atlas collect_jsons progress stage=collect-accession-metadata")
+            result = self.collect_accession_metadata(
+                jsons=result,
+                metadata_repositories=selected_repositories,
+            )
+            logger.info(
+                "Atlas collect_jsons progress stage=collect-accession-metadata-complete metadata_records=%s",
+                len(result),
+            )
+        else:
+            logger.info("Atlas collect_jsons progress stage=skip-accession-metadata")
 
         if out is not None:
             logger.info("Atlas collect_jsons progress stage=write-output output_path=%s", out)
@@ -76,10 +80,11 @@ class AtlasCollector:
                 json.dump(result, handle, indent=2)
 
         logger.info(
-            "Atlas collect_jsons stats query_count=%s raw_accessions=%s metadata_records=%s output_path=%s",
+            "Atlas collect_jsons stats query_count=%s raw_accessions=%s metadata_records=%s collect_metadata=%s output_path=%s",
             len(queries),
             len(accessions),
             len(result),
+            collect_metadata,
             out,
         )
         return result

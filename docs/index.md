@@ -34,23 +34,23 @@ Refresh ranges after editing `docs/codebase.md`.
   title: Public API
   lines: 85-102
   anchor: public-api
-  keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, filter_jsons, no ThematicAtlases.curator, no curator CLI, separate package
+  keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 410-429
+  lines: 410-428
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-jsons, filter-jsons, metadata-repository, max-publications, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, reuse publication_texts, .env, VS Code launch, verbose, log-file, after subcommand, stdout logging, progress logs, stats logs, debug logs, quiet stdout
+  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-datasets, harmonize-datasets, skip-metadata, metadata-repository, max-publications, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, publication_texts, .env, verbose, log-file, after subcommand, stdout logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 431-436
+  lines: 430-435
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 438-456
+  lines: 437-455
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
@@ -58,27 +58,27 @@ Refresh ranges after editing `docs/codebase.md`.
 
 - id: atlas-workflow
   title: Atlas Workflow
-  lines: 104-117
+  lines: 104-116
   anchor: atlas-workflow
-  keywords: Atlas, orchestrator, dependency injection, collector, filterer, harmonizer, epmc_wrapper_factory, metadata_handlers, metadata_repositories, max_publications, publication_text_reviewer, create_atlas, collect_jsons, filter_jsons, harmonize_jsons
+  keywords: Atlas, orchestrator, dependency injection, collector, filterer, harmonizer, epmc_wrapper_factory, metadata_handlers, metadata_repositories, max_publications, publication_text_reviewer, create_atlas, collect_datasets, harmonize_datasets, collect_metadata
 
 - id: collector
   title: Collector
-  lines: 119-154
+  lines: 118-154
   anchor: collector
-  keywords: AtlasCollector, query loading, collect_jsons, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
+  keywords: AtlasCollector, query loading, collect_jsons, collect_metadata, skip metadata, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
 
 - id: filterer
   title: Filterer
   lines: 156-186
   anchor: filterer
-  keywords: AtlasFilterer, filter_jsons, atlas_parts, publication_texts, publication_text_ref, collect_publication_texts, accessions_with_publication_text_refs, publication_with_text_ref, review_and_filter_publications, PublicationTextReviewer, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
+  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, collect_publication_texts, accessions_with_publication_text_refs, publication_with_text_ref, review_and_filter_publications, PublicationTextReviewer, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
 
 - id: harmonizer
   title: Harmonizer
   lines: 188-191
   anchor: harmonizer
-  keywords: AtlasHarmonizer, harmonize_jsons, placeholder, None
+  keywords: AtlasHarmonizer, harmonize_datasets, ontology_harmonizer, pass-through, placeholder
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
