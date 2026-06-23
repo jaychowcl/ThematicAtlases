@@ -132,6 +132,66 @@ def test_collect_datasets_writes_final_atlas_object(tmp_path) -> None:
     assert outfile.read_text(encoding="utf-8") == '{\n  "accessions": [\n    {\n      "datalink_id": "GSE1",\n      "publication_text_ref": "1"\n    }\n  ],\n  "publication_texts": {\n    "1": {\n      "text": "full text"\n    }\n  }\n}'
 
 
+def test_collect_datasets_writes_timestamped_dev_snapshots_by_default(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class LocalAtlas(Atlas):
+        def _dev_run_id(self):
+            return "20260623T142233"
+
+    monkeypatch.chdir(tmp_path)
+
+    LocalAtlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).collect_datasets(query=["a"])
+
+    collected_accessions = tmp_path / ".dev" / "20260623T142233_01_collected_accessions.json"
+    collected_datasets = tmp_path / ".dev" / "20260623T142233_02_collected_datasets.json"
+
+    assert json.loads(collected_accessions.read_text(encoding="utf-8")) == [
+        {"datalink_id": "GSE1", "publications": []}
+    ]
+    assert json.loads(collected_datasets.read_text(encoding="utf-8")) == {
+        "accessions": [{"datalink_id": "GSE1", "publications": []}],
+        "publication_texts": {},
+    }
+
+
+def test_collect_datasets_dev_out_dir_none_writes_no_dev_snapshots(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).collect_datasets(query=["a"], dev_out_dir=None)
+
+    assert not (tmp_path / ".dev").exists()
+
+
+def test_collect_datasets_writes_dev_snapshots_to_custom_directory(tmp_path) -> None:
+    class LocalAtlas(Atlas):
+        def _dev_run_id(self):
+            return "20260623T142233"
+
+    dev_dir = tmp_path / "debug"
+
+    LocalAtlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).collect_datasets(query=["a"], dev_out_dir=str(dev_dir))
+
+    assert (dev_dir / "20260623T142233_01_collected_accessions.json").exists()
+    assert (dev_dir / "20260623T142233_02_collected_datasets.json").exists()
+
+
 def test_harmonize_datasets_returns_input_object() -> None:
     datasets = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
 
@@ -141,6 +201,9 @@ def test_harmonize_datasets_returns_input_object() -> None:
 def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> None:
     class RecordingAtlas(Atlas):
         calls: list[tuple[str, dict]] = []
+
+        def _dev_run_id(self):
+            return "20260623T142233"
 
         def collect_datasets(self, **kwargs):
             self.__class__.calls.append(("collect_datasets", kwargs))
@@ -178,6 +241,8 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "max_publications": 25,
                 "reviewer": None,
                 "collect_metadata": False,
+                "dev_out_dir": ".dev",
+                "dev_run_id": "20260623T142233",
             },
         ),
         (
@@ -211,6 +276,34 @@ def test_create_atlas_writes_final_harmonized_object(tmp_path) -> None:
         "accessions": [{"datalink_id": "GSE1", "publication_text_ref": "1"}],
         "publication_texts": {"1": {"text": "full text"}},
         "harmonized": True,
+    }
+
+
+def test_create_atlas_writes_all_dev_snapshots_with_one_run_id(tmp_path) -> None:
+    class LocalAtlas(Atlas):
+        def _dev_run_id(self):
+            return "20260623T142233"
+
+    dev_dir = tmp_path / "debug"
+
+    LocalAtlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).create_atlas(query=["a"], dev_out_dir=str(dev_dir))
+
+    assert sorted(path.name for path in dev_dir.iterdir()) == [
+        "20260623T142233_01_collected_accessions.json",
+        "20260623T142233_02_collected_datasets.json",
+        "20260623T142233_03_harmonized_datasets.json",
+    ]
+    assert json.loads(
+        (dev_dir / "20260623T142233_03_harmonized_datasets.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {
+        "accessions": [{"datalink_id": "GSE1", "publications": []}],
+        "publication_texts": {},
     }
 
 

@@ -1,5 +1,7 @@
 import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer import AtlasFilterer
@@ -55,7 +57,9 @@ class Atlas:
         max_publications: int | None = None,
         reviewer=None,
         collect_metadata: bool = True,
+        dev_out_dir: str | None = ".dev",
     ) -> dict:
+        run_id = self._dev_run_id()
         logger.info("Atlas create_atlas progress stage=collect-datasets")
         datasets = self.collect_datasets(
             query=query,
@@ -67,6 +71,8 @@ class Atlas:
             max_publications=max_publications,
             reviewer=reviewer,
             collect_metadata=collect_metadata,
+            dev_out_dir=dev_out_dir,
+            dev_run_id=run_id,
         )
         logger.info(
             "Atlas create_atlas progress stage=collect-datasets-complete accessions=%s publication_texts=%s",
@@ -75,6 +81,12 @@ class Atlas:
         )
         logger.info("Atlas create_atlas progress stage=harmonize-datasets")
         result = self.harmonize_datasets(datasets=datasets)
+        self._write_dev_json(
+            stage_name="03_harmonized_datasets",
+            result=result,
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
+        )
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
         logger.info(
@@ -106,7 +118,10 @@ class Atlas:
         max_publications: int | None = None,
         reviewer=None,
         collect_metadata: bool = True,
+        dev_out_dir: str | None = ".dev",
+        dev_run_id: str | None = None,
     ) -> dict:
+        run_id = dev_run_id or self._dev_run_id()
         logger.info("Atlas collect_datasets progress stage=collect-accessions")
         accessions = self._collect_jsons(
             query=query,
@@ -115,6 +130,12 @@ class Atlas:
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
             collect_metadata=collect_metadata,
+        )
+        self._write_dev_json(
+            stage_name="01_collected_accessions",
+            result=accessions,
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
         )
         logger.info(
             "Atlas collect_datasets progress stage=collect-accessions-complete accessions=%s",
@@ -126,6 +147,12 @@ class Atlas:
             theme=theme,
             review_filter=review_filter,
             reviewer=reviewer,
+        )
+        self._write_dev_json(
+            stage_name="02_collected_datasets",
+            result=result,
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
         )
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
@@ -191,3 +218,32 @@ class Atlas:
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
+
+    def _write_dev_json(
+        self,
+        stage_name: str,
+        result: dict | list[dict],
+        dev_out_dir: str | None,
+        run_id: str,
+    ) -> None:
+        if dev_out_dir is None:
+            return
+
+        path = self._dev_output_path(
+            stage_name=stage_name,
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "Atlas dev snapshot progress stage=%s output_path=%s",
+            stage_name,
+            path,
+        )
+        self._write_json(result=result, out=str(path))
+
+    def _dev_output_path(self, stage_name: str, dev_out_dir: str, run_id: str) -> Path:
+        return Path(dev_out_dir) / f"{run_id}_{stage_name}.json"
+
+    def _dev_run_id(self) -> str:
+        return datetime.now().strftime("%Y%m%dT%H%M%S")

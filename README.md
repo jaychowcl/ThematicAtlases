@@ -123,6 +123,8 @@ Collection options:
 - `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
 - `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
 - `--skip-metadata`: keep repository-filtered accessions but skip metadata handler enrichment.
+- `--dev-out-dir PATH`: write timestamped development snapshots to this directory. Use `--dev-out-dir` to override the default `.dev` location.
+- `--no-dev-output`: disable development snapshot files.
 
 Filtering options:
 
@@ -134,6 +136,7 @@ Output shapes:
 
 - `collect-datasets` and `create-atlas` write an atlas object with `accessions` and `publication_texts`.
 - Successful commands do not print result JSON to stdout; use `--out` for data and logging options for progress.
+- Development snapshots are written by default under `.dev` with timestamped names such as `YYYYMMDDTHHMMSS_01_collected_accessions.json`, `YYYYMMDDTHHMMSS_02_collected_datasets.json`, and, for `create-atlas`, `YYYYMMDDTHHMMSS_03_harmonized_datasets.json`.
 
 ## Python API
 
@@ -147,13 +150,13 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True) -> dict`
-  - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev") -> dict`
+  - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, optional thematic review settings, and optional dev snapshot directory.
   - Output: atlas object with `accessions` and `publication_texts`.
 - `Atlas.harmonize_datasets(datasets) -> dict`
   - Inputs: a `collect_datasets()` atlas object.
   - Output: currently returns the input object unchanged.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True) -> dict`
+- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev") -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
 

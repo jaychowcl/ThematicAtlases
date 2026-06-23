@@ -109,11 +109,13 @@ from agentic_curator import ThematicReviewer
 Public methods:
 
 - `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
-- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True)`: runs `collect_datasets(..., out=None)`, passes the dataset object into `harmonize_datasets(...)`, optionally writes the final atlas object to `out`, and returns that object.
-- `collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True)`: runs accession collection, repository filtering, optional metadata enrichment, publication text mapping, and optional thematic review. It returns/writes an atlas object with `accessions` and `publication_texts`.
+- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev")`: runs `collect_datasets(..., out=None)`, passes the dataset object into `harmonize_datasets(...)`, optionally writes the final atlas object to `out`, and returns that object.
+- `collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev")`: runs accession collection, repository filtering, optional metadata enrichment, publication text mapping, and optional thematic review. It returns/writes an atlas object with `accessions` and `publication_texts`.
 - `harmonize_datasets(datasets)`: placeholder for future ontology harmonization. It currently returns the input atlas object unchanged.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
+
+Both `create_atlas()` and `collect_datasets()` write timestamped development snapshots by default under `.dev`. Passing `dev_out_dir=None` disables snapshots. `collect_datasets()` writes `{run_id}_01_collected_accessions.json` after accession collection and `{run_id}_02_collected_datasets.json` after publication text mapping. `create_atlas()` uses one shared run id and also writes `{run_id}_03_harmonized_datasets.json` after harmonization.
 
 <a id="collector"></a>
 ### Collector
@@ -415,13 +417,13 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-datasets` and `create-atlas`, `--out` writes the atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. `--skip-metadata` keeps repository-filtered accessions but skips metadata handler enrichment. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-datasets` and `create-atlas`, `--out` writes the atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. `--skip-metadata` keeps repository-filtered accessions but skips metadata handler enrichment. `--dev-out-dir` controls the development snapshot directory and defaults to `.dev`; `--no-dev-output` disables snapshots. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
