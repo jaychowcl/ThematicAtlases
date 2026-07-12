@@ -212,3 +212,66 @@ def test_harmonizer_preflights_once_only_when_metadata_is_eligible() -> None:
     )
 
     assert RecordingChecker.calls == 1
+
+
+def test_harmonizer_memoizes_identical_metadata_and_context() -> None:
+    class CountingHarmonizer:
+        calls = 0
+
+        def harmonize_miniml_json(self, **kwargs):
+            self.__class__.calls += 1
+            return {
+                "miniml_json": {**kwargs["miniml_json"], "harmonized": True},
+                "harmonization_targets": [],
+                "strategy": "websearch",
+                "target_paths": [],
+            }
+
+    CountingHarmonizer.calls = 0
+    result, _ = AtlasHarmonizer(
+        ontology_harmonizer=CountingHarmonizer()
+    ).harmonize_datasets(
+        {
+            "accessions": [
+                {"datalink_id": "GSE1", "accession_metadata": {"value": "x"}},
+                {"datalink_id": "GSE2", "accession_metadata": {"value": "x"}},
+            ]
+        }
+    )
+
+    assert CountingHarmonizer.calls == 1
+    assert [record["datalink_id"] for record in result["accessions"]] == [
+        "GSE1",
+        "GSE2",
+    ]
+
+
+def test_harmonizer_parallel_workers_preserve_accession_order() -> None:
+    class EchoHarmonizer:
+        def harmonize_miniml_json(self, **kwargs):
+            return {
+                "miniml_json": kwargs["miniml_json"],
+                "harmonization_targets": [],
+                "strategy": "websearch",
+                "target_paths": [],
+            }
+
+    result, _ = AtlasHarmonizer(
+        ontology_harmonizer=EchoHarmonizer(),
+        max_workers=2,
+    ).harmonize_datasets(
+        {
+            "accessions": [
+                {"datalink_id": f"GSE{index}", "accession_metadata": {"i": index}}
+                for index in range(5)
+            ]
+        }
+    )
+
+    assert [record["datalink_id"] for record in result["accessions"]] == [
+        "GSE0",
+        "GSE1",
+        "GSE2",
+        "GSE3",
+        "GSE4",
+    ]
