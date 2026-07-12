@@ -37,7 +37,13 @@ class GEOWrapper:
             len(jsons),
         )
 
-        for record in jsons:
+        for index, record in enumerate(jsons, start=1):
+            if index == 1 or index == len(jsons) or index % 10 == 0:
+                logger.info(
+                    "GEO accession resolution progress record_index=%s record_total=%s",
+                    index,
+                    len(jsons),
+                )
             gse_accession = self.get_gse(record.get("datalink_id", ""))
 
             if gse_accession is None:
@@ -152,6 +158,13 @@ class GEOWrapper:
 
     def _get(self, url: str, params: dict) -> dict:
         for attempt in range(self._request_settings["max_retries"] + 1):
+            started = time.monotonic()
+            logger.debug(
+                "GEO HTTP request endpoint=%s attempt=%s timeout=%s",
+                url.rsplit("/", 1)[-1],
+                attempt + 1,
+                self._request_settings["timeout"],
+            )
             response = requests.get(
                 url,
                 params=params,
@@ -173,6 +186,13 @@ class GEOWrapper:
                 continue
 
             response.raise_for_status()
+            logger.debug(
+                "GEO HTTP response endpoint=%s attempt=%s status=%s elapsed_seconds=%.3f",
+                url.rsplit("/", 1)[-1],
+                attempt + 1,
+                response.status_code,
+                time.monotonic() - started,
+            )
             return response.json()
 
         return {}
@@ -244,8 +264,13 @@ class GEOWrapper:
                 packages = self._gse_metadata_packages(
                     gse_accession=gse_accession
                 )
-            except Exception:
+            except Exception as error:
                 error_records += 1
+                logger.warning(
+                    "GEO metadata failed gse_accession=%s error_type=%s",
+                    gse_accession,
+                    type(error).__name__,
+                )
                 metadata_records.append(self._metadata_error_record(record=record))
                 continue
 

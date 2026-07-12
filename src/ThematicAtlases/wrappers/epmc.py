@@ -19,6 +19,10 @@ DATASET_DATALINK_CATEGORIES = {
 }
 
 
+def _periodic_progress(position: int, total: int) -> bool:
+    return position == 1 or position == total or position % 10 == 0
+
+
 class EuropePMCWrapper:
     def __init__(
         self,
@@ -179,7 +183,13 @@ class EuropePMCWrapper:
         abstract_fallbacks = 0
         missing_text = 0
 
-        for publication in publications:
+        for index, publication in enumerate(publications, start=1):
+            if _periodic_progress(index, len(publications)):
+                logger.info(
+                    "EuropePMC publication text progress publication_index=%s publication_total=%s",
+                    index,
+                    len(publications),
+                )
             full_text_id = self._full_text_id(publication=publication)
 
             if not full_text_id:
@@ -241,18 +251,26 @@ class EuropePMCWrapper:
         failed_publications = 0
         skipped_categories = 0
 
-        for publication in publications:
+        for index, publication in enumerate(publications, start=1):
             source = publication.get("source", "")
             epmc_id = publication.get("epmc_id", "")
 
             if not source or not epmc_id:
                 continue
 
+            if _periodic_progress(index, len(publications)):
+                logger.info(
+                    "EuropePMC datalink progress publication_index=%s publication_total=%s",
+                    index,
+                    len(publications),
+                )
+
             logger.debug(
                 "EuropePMC datalinks request source=%r epmc_id=%r",
                 source,
                 epmc_id,
             )
+            started = time.monotonic()
             try:
                 response_data = self._datalinks(source=source, epmc_id=epmc_id)
             except requests.RequestException as error:
@@ -264,6 +282,13 @@ class EuropePMCWrapper:
                     error,
                 )
                 continue
+            logger.debug(
+                "EuropePMC datalinks response source=%r epmc_id=%r categories=%s elapsed_seconds=%.3f",
+                source,
+                epmc_id,
+                len(response_data.get("dataLinkList", {}).get("Category", [])),
+                time.monotonic() - started,
+            )
 
             categories = response_data.get("dataLinkList", {}).get("Category", [])
 

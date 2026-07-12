@@ -88,7 +88,17 @@ class PublicationTextReviewer:
         reviewed_count = 0
         reused_count = 0
 
-        for publication_ref, publication_text in publication_texts.items():
+        total = len(publication_texts)
+        for index, (publication_ref, publication_text) in enumerate(
+            publication_texts.items(), start=1
+        ):
+            if index == 1 or index == total or index % 10 == 0:
+                logger.info(
+                    "Atlas thematic review progress publication_index=%s publication_total=%s publication_ref=%s",
+                    index,
+                    total,
+                    publication_ref,
+                )
             publication_text = dict(publication_text)
             existing_review = publication_text.get(AGENTIC_CURATOR)
 

@@ -69,8 +69,17 @@ class AtlasHarmonizer:
                 self._preflight_credentials()
             ontology_harmonizer = self._ontology_harmonizer()
             work_items = list(work_by_key.values())
+            for position, item in enumerate(work_items, start=1):
+                item["position"] = position
+                item["total"] = len(work_items)
 
             def run(item):
+                logger.info(
+                    "Atlas ontology harmonization progress work_index=%s work_total=%s accession_count=%s",
+                    item["position"],
+                    item["total"],
+                    len(item["indices"]),
+                )
                 try:
                     return ontology_harmonizer.harmonize_miniml_json(
                         publication_context=item["publication_context"],

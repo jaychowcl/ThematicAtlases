@@ -26,6 +26,7 @@ REVIEW_FILTER = "not_relevant"
 COLLECT_METADATA = True
 GENERATE_QUERIES = True
 DEV_TRACE = True
+LOG_LEVEL = "DEBUG"
 MAX_WORKERS = 1
 REMOVED_ONTOLOGY_FRAMEWORKS = ["snomed"]
 HARMONIZATION_OPTIONS = {
@@ -51,7 +52,7 @@ def require_project_venv(
 
 def configure_logging(path: Path) -> None:
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
@@ -71,6 +72,7 @@ def resolved_configuration() -> dict:
             output_dir / "fibrosis_harmonization_details.json"
         ),
         "log_out": str(output_dir / "fibrosis_atlas.log"),
+        "log_level": LOG_LEVEL,
         "dev_trace": DEV_TRACE,
         "dev_out_dir": str(output_dir / "dev_trace"),
         "ontology_storage_dir": str(output_dir / "ontology_store"),

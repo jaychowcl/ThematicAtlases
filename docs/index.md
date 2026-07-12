@@ -35,7 +35,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, full run, max publications, GEO, dev trace, OntoStore, snomed, streaming OWL, SQLite staging, ADC, .env, .out, summary, harmonization details
+  keywords: run_fibrosis_atlas.py, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, OntoStore, snomed, ADC, .env, .out, summary
 
 - id: cli-atlas
   title: CLI Atlas
@@ -77,7 +77,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: epmc-wrapper
   title: EuropePMC Wrapper
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, text_source, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, search response, datalinks, XML fallback, failed publications, Scholix, accession records, progress logs, stats logs, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, collect_datalinks, first every tenth final, periodic progress, request duration, DEBUG, fullTextXML, abstract fallback, deduplicate, publication_texts, XML fallback, failed publications, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling

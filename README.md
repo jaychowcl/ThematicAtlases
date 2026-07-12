@@ -226,6 +226,12 @@ atlas = Atlas(
 
 `Atlas(..., ontostore=None, cache_ontologies=False)` retains lazy behavior by default. With eager caching enabled, `create_atlas()` calls `store.cache_all()` once before query generation or collection and passes the same store to the default ontology harmonizer. A custom harmonizer cannot be combined with Atlas-managed store options.
 
+The fixed fibrosis runner enables DEBUG logging to both stdout and
+`.out/fibrosis_atlas.log`. Cross-package logs expose safe stage, identifier,
+attempt, status, duration, count, and periodic progress fields without logging
+prompt/response bodies, publication or MINiML payloads, credentials, headers,
+or request parameters.
+
 `harmonization_options` forwards upstream controls such as `strategy`, `target_paths`, `llm`, and judge thresholds. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request.
 
 Code flow:

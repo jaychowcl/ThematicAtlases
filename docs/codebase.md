@@ -126,6 +126,12 @@ Use `--review-filter not-relevant` with this theme so unsure candidates remain a
 
 `run_fibrosis_atlas.py` is the fixed, repository-root entry point for the complete fibrosis workflow. Run it only with `.env/bin/python`; it prints all resolved settings before network or model work and writes every generated artifact under the ignored `.out/` directory.
 
+The script configures the root logger at DEBUG with simultaneous stdout and
+file handlers. Safe diagnostics include per-request identifiers/status/duration,
+first/every-tenth/final progress for long loops, and stage summaries from all
+three packages. Prompt and response bodies, publication/metadata payloads,
+credentials, authorization headers, and request parameters are not logged.
+
 The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables full LLM-backed web-search harmonization with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
 
 Prepare and run it with:
@@ -211,6 +217,11 @@ Current responsibilities:
 - Return the top-level atlas object with `accessions` and `publication_texts`.
 
 `collect_publication_texts(jsons, publication_texts=None)` extracts unique surviving nested publications that do not already have entries in the shared text map, calls `EuropePMCWrapper.collect_publication_texts(publications=...)` for missing text only, and returns a shared `publication_texts` map keyed by existing `publication_text_ref`, PMID, PMCID, DOI, or `source:epmc_id`.
+
+Long Europe PMC datalink and publication-text loops log INFO progress for item
+1, every tenth item, and the final item. DEBUG records source/accession,
+category count, and request duration; completion summaries report collected,
+skipped, failed, full-text, fallback, and missing counts.
 
 `accessions_with_publication_text_refs(jsons, publication_texts)` adds `publication_text_ref` to nested publication metadata when text is available. Full text is not duplicated inside accession records.
 

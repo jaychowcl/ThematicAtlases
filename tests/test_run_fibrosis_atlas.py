@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,21 @@ def test_requires_repository_virtual_environment(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match=r"\.env/bin/python"):
         script.require_project_venv(root=root, executable=executable)
+
+
+def test_configure_logging_enables_debug_console_and_file(tmp_path) -> None:
+    path = tmp_path / "run.log"
+
+    script.configure_logging(path)
+
+    root = logging.getLogger()
+    assert root.level == logging.DEBUG
+    assert any(isinstance(handler, logging.FileHandler) for handler in root.handlers)
+    assert any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, logging.FileHandler)
+        for handler in root.handlers
+    )
 
 
 def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, capsys) -> None:

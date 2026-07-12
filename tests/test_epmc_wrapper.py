@@ -1137,6 +1137,27 @@ def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
     assert "failed_publications=0" in caplog.text
 
 
+def test_collect_datalinks_logs_periodic_progress(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(
+        epmc_module.requests,
+        "get",
+        lambda url, params, timeout: FakeResponse({"dataLinkList": {"Category": []}}),
+    )
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    caplog.set_level(logging.INFO, logger=epmc_module.__name__)
+
+    EuropePMCWrapper().collect_datalinks(
+        publications=[
+            {"source": "MED", "epmc_id": str(index)} for index in range(1, 13)
+        ]
+    )
+
+    assert "datalink progress publication_index=1 publication_total=12" in caplog.text
+    assert "datalink progress publication_index=10 publication_total=12" in caplog.text
+    assert "datalink progress publication_index=12 publication_total=12" in caplog.text
+    assert "datalink progress publication_index=2 publication_total=12" not in caplog.text
+
+
 def test_deduplicate_accessions_collapses_duplicate_ids() -> None:
     datalinks = [
         {
