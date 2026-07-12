@@ -323,11 +323,23 @@ class Atlas:
             len(accessions),
         )
         logger.info("Atlas collect_datasets progress stage=map-publication-texts")
+        review_progress_callback = None
+        if _trace_writer is not None:
+            review_progress_callback = lambda texts: _trace_writer.write(
+                "resume_review_progress.json",
+                {
+                    "accessions": self._filterer.accessions_with_publication_text_refs(
+                        accessions, texts
+                    ),
+                    "publication_texts": texts,
+                },
+            )
         result = self._filter_jsons(
             jsons=accessions,
             theme=theme,
             review_filter=review_filter,
             reviewer=reviewer,
+            _review_progress_callback=review_progress_callback,
         )
         if _trace_writer is not None:
             _trace_writer.write("02_reviewed_datasets.json", result)

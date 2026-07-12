@@ -595,3 +595,21 @@ def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
     ).resume(dev_out_dir=str(root))
 
     assert result["accessions"][0]["datalink_id"] == "20260712T110000"
+
+
+def test_collect_datasets_traces_incremental_review_progress(tmp_path) -> None:
+    class ProgressFilterer(RecordingFilterer):
+        def filter_jsons(self, jsons=None, _review_progress_callback=None, **kwargs):
+            _review_progress_callback({"1": {"text": "reviewed"}})
+            return {"accessions": list(jsons or []), "publication_texts": {}}
+
+        def accessions_with_publication_text_refs(self, accessions, publication_texts):
+            return accessions
+
+    from ThematicAtlases.trace import DevTraceWriter
+    trace = DevTraceWriter(str(tmp_path), "run", {})
+    Atlas(metadata={}, collector=RecordingCollector(), filterer=ProgressFilterer()).collect_datasets(
+        query=["fibrosis"], _trace_writer=trace
+    )
+    progress = json.loads((tmp_path / "run" / "resume_review_progress.json").read_text())
+    assert progress["publication_texts"] == {"1": {"text": "reviewed"}}
