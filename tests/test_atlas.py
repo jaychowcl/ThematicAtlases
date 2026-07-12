@@ -276,8 +276,12 @@ def test_harmonize_datasets_delegates_to_harmonizer() -> None:
     class RecordingHarmonizer:
         calls = []
 
-        def harmonize_datasets(self, datasets, details_out=None):
-            self.__class__.calls.append((datasets, details_out))
+        def harmonize_datasets(
+            self, datasets, details_out=None, harmonization_options=None
+        ):
+            self.__class__.calls.append(
+                (datasets, details_out, harmonization_options)
+            )
             return {**datasets, "harmonized": True}, []
 
     datasets = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
@@ -286,8 +290,11 @@ def test_harmonize_datasets_delegates_to_harmonizer() -> None:
     assert Atlas(metadata={}, harmonizer=harmonizer).harmonize_datasets(
         datasets=datasets,
         harmonization_details_out="details.json",
+        harmonization_options={"llm": False},
     ) == {**datasets, "harmonized": True}
-    assert RecordingHarmonizer.calls == [(datasets, "details.json")]
+    assert RecordingHarmonizer.calls == [
+        (datasets, "details.json", {"llm": False})
+    ]
 
 
 def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> None:

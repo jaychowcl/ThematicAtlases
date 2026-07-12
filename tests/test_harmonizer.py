@@ -127,3 +127,63 @@ def test_harmonize_datasets_writes_optional_details_file(tmp_path) -> None:
     assert json.loads(details_out.read_text(encoding="utf-8")) == [
         {"datalink_id": "GSE1", "status": "unavailable"}
     ]
+
+
+def test_harmonizer_accepts_injected_instance_and_forwards_options() -> None:
+    class RecordingHarmonizer:
+        calls = []
+
+        def harmonize_miniml_json(self, **kwargs):
+            self.__class__.calls.append(kwargs)
+            return {
+                "miniml_json": kwargs["miniml_json"],
+                "harmonization_targets": [],
+                "strategy": kwargs["strategy"],
+                "target_paths": kwargs["target_paths"],
+            }
+
+    upstream = RecordingHarmonizer()
+    AtlasHarmonizer(ontology_harmonizer=upstream).harmonize_datasets(
+        {
+            "accessions": [
+                {"datalink_id": "GSE1", "accession_metadata": {"value": "x"}}
+            ]
+        },
+        harmonization_options={
+            "strategy": "rag",
+            "target_paths": [{"path": "/samples"}],
+            "llm": False,
+        },
+    )
+
+    assert RecordingHarmonizer.calls == [
+        {
+            "publication_context": None,
+            "miniml_json": {"value": "x"},
+            "strategy": "rag",
+            "target_paths": [{"path": "/samples"}],
+            "llm": False,
+        }
+    ]
+
+
+def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
+    def unexpected_factory():
+        raise AssertionError("ontology harmonizer should not be constructed")
+
+    result, _ = AtlasHarmonizer(
+        ontology_harmonizer_factory=unexpected_factory
+    ).harmonize_datasets(
+        {
+            "accessions": [
+                {
+                    "datalink_id": "E-MTAB-1",
+                    "metadata_repository": "arrayexpress",
+                    "accession_metadata": None,
+                }
+            ]
+        },
+        harmonization_options={"llm": True},
+    )
+
+    assert result["accessions"][0]["ontology_harmonization_status"] == "unavailable"
