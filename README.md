@@ -57,6 +57,14 @@ gcloud auth application-default login
 .env/bin/python run_fibrosis_atlas.py
 ```
 
+Resume the newest incomplete trace, or a specific run, without repeating its
+latest valid completed stage:
+
+```bash
+.env/bin/python run_fibrosis_atlas.py --resume
+.env/bin/python run_fibrosis_atlas.py --resume 20260712T215848
+```
+
 `run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It removes `snomed`, eagerly downloads/parses/indexes every remaining ontology through `OntoStore.cache_all()`, then searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, performs ontology harmonization, and enables the full development trace. Any ontology cache failure aborts before dataset collection.
 
 Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atlas.summary.json`, `fibrosis_harmonization_details.json`, `fibrosis_atlas.log`, the ontology store, and timestamped trace bundles under `.out/dev_trace/`.

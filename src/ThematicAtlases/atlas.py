@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer import AtlasFilterer
@@ -118,6 +119,7 @@ class Atlas:
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
                     "harmonization_options": harmonization_options,
+                    "harmonization_details_out": harmonization_details_out,
                 },
             )
         logger.info("Atlas create_atlas progress stage=collect-datasets")
@@ -190,6 +192,94 @@ class Atlas:
             len(publication_texts),
             out,
         )
+        return result
+
+    def resume(
+        self,
+        dev_out_dir: str = ".dev",
+        run_id: str | None = None,
+        out: str | None = None,
+    ) -> dict:
+        """Resume an incomplete development trace from its latest valid stage."""
+        run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
+        manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
+        trace = DevTraceWriter.existing(run_dir)
+        output_path = out if out is not None else manifest.get("atlas_out")
+        self._prepare_ontology_cache()
+        if manifest.get("theme") is not None:
+            self._preflight_credentials()
+        logger.info("Atlas resume selected run_id=%s run_dir=%s", run_dir.name, run_dir)
+
+        final_path = run_dir / "06_final_atlas.json"
+        if final_path.exists():
+            result = self._read_checkpoint(final_path)
+            logger.info("Atlas resume progress stage=final-atlas-complete")
+            self._write_resumed_outputs(result=result, out=output_path, trace=trace)
+            return result
+
+        harmonized_path = run_dir / "resume_harmonized_datasets.json"
+        if harmonized_path.exists():
+            result = self._read_checkpoint(harmonized_path)
+            logger.info("Atlas resume progress stage=harmonization-complete")
+        else:
+            reviewed_path = run_dir / "02_reviewed_datasets.json"
+            if reviewed_path.exists():
+                datasets = self._read_checkpoint(reviewed_path)
+                logger.info("Atlas resume progress stage=review-complete")
+            else:
+                collected_path = run_dir / "01_collected_accessions.json"
+                if collected_path.exists():
+                    accessions = self._read_checkpoint(collected_path)
+                    logger.info("Atlas resume progress stage=collection-complete")
+                    progress_path = run_dir / "resume_review_progress.json"
+                    review_input = (
+                        self._read_checkpoint(progress_path)
+                        if progress_path.exists()
+                        else accessions
+                    )
+                    datasets = self._filter_jsons(
+                        jsons=review_input,
+                        theme=manifest.get("theme"),
+                        review_filter=manifest.get("review_filter", "none"),
+                        _review_progress_callback=lambda texts: trace.write(
+                            "resume_review_progress.json",
+                            {"accessions": self._filterer.accessions_with_publication_text_refs(accessions, texts), "publication_texts": texts},
+                        ),
+                    )
+                    trace.write("02_reviewed_datasets.json", datasets)
+                else:
+                    logger.info("Atlas resume progress stage=collection-required")
+                    datasets = self.collect_datasets(
+                        query=manifest.get("query"),
+                        file=manifest.get("query_file"),
+                        theme=manifest.get("theme"),
+                        review_filter=manifest.get("review_filter", "none"),
+                        metadata_repositories=manifest.get("metadata_repositories"),
+                        max_publications=manifest.get("max_publications"),
+                        collect_metadata=manifest.get("collect_metadata", True),
+                        generate_queries=manifest.get("generate_queries", False),
+                        max_generated_queries=manifest.get("max_generated_queries", 3),
+                        _trace_writer=trace,
+                    )
+
+            trace.write(
+                "03_pre_harmonization_accession_metadata.json",
+                trace.metadata(datasets.get("accessions", [])),
+            )
+            result, details = self._harmonizer.harmonize_datasets(
+                datasets=datasets,
+                details_out=manifest.get("harmonization_details_out"),
+                harmonization_options=manifest.get("harmonization_options"),
+            )
+            trace.write("04_harmonization_details.json", details)
+            trace.write(
+                "05_post_harmonization_accession_metadata.json",
+                trace.metadata(result.get("accessions", [])),
+            )
+            trace.write("resume_harmonized_datasets.json", result)
+
+        self._write_resumed_outputs(result=result, out=output_path, trace=trace)
+        logger.info("Atlas resume stats run_id=%s accessions=%s", run_dir.name, len(result.get("accessions", [])))
         return result
 
     def collect_datasets(
@@ -300,14 +390,18 @@ class Atlas:
         theme: str | None = None,
         review_filter: str = "none",
         reviewer=None,
+        _review_progress_callback=None,
     ) -> dict:
-        return self._filterer.filter_jsons(
+        options = dict(
             jsons=jsons,
             file=file,
             theme=theme,
             review_filter=review_filter,
             reviewer=reviewer,
         )
+        if _review_progress_callback is not None:
+            options["_review_progress_callback"] = _review_progress_callback
+        return self._filterer.filter_jsons(**options)
 
     def _harmonize_jsons(self, datasets: dict) -> dict:
         return self._harmonizer.harmonize_jsons(datasets=datasets)
@@ -369,6 +463,44 @@ class Atlas:
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
+
+    def _write_resumed_outputs(self, result: dict, out: str | None, trace: DevTraceWriter) -> None:
+        if out is not None:
+            Path(out).parent.mkdir(parents=True, exist_ok=True)
+            self._write_json(result=result, out=out)
+            summary = build_atlas_summary(atlas=result, atlas_path=out)
+            self._write_json(result=summary, out=str(summary_path(out)))
+        else:
+            summary = build_atlas_summary(atlas=result)
+        trace.write("06_final_atlas.json", result)
+        trace.write("07_summary.json", summary)
+
+    def _resume_run_directory(self, dev_out_dir: str, run_id: str | None) -> Path:
+        root = Path(dev_out_dir)
+        if run_id is not None:
+            candidate = Path(run_id)
+            run_dir = candidate if candidate.is_dir() else root / run_id
+            self._read_checkpoint(run_dir / "00_run_manifest.json")
+            return run_dir
+
+        candidates = []
+        for run_dir in root.iterdir() if root.is_dir() else []:
+            manifest_path = run_dir / "00_run_manifest.json"
+            final_path = run_dir / "06_final_atlas.json"
+            if not run_dir.is_dir() or not manifest_path.exists() or final_path.exists():
+                continue
+            try:
+                self._read_checkpoint(manifest_path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            candidates.append(run_dir)
+        if not candidates:
+            raise FileNotFoundError(f"No incomplete valid trace found under {root}")
+        return max(candidates, key=lambda path: path.name)
+
+    def _read_checkpoint(self, path: Path):
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
 
     def _dev_run_id(self) -> str:
         return datetime.now().strftime("%Y%m%dT%H%M%S")

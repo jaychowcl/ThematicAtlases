@@ -82,11 +82,13 @@ class PublicationTextReviewer:
         contexts: dict,
         theme: str,
         reviewer=None,
+        progress_callback=None,
     ) -> dict:
         reviewer = reviewer or self._reviewer()
         reviewed_publication_texts = {}
         reviewed_count = 0
         reused_count = 0
+        failed_count = 0
 
         total = len(publication_texts)
         for index, (publication_ref, publication_text) in enumerate(
@@ -108,27 +110,49 @@ class PublicationTextReviewer:
             ):
                 reviewed_publication_texts[publication_ref] = publication_text
                 reused_count += 1
+                if progress_callback is not None:
+                    progress_callback(reviewed_publication_texts)
                 continue
 
             context = contexts.get(publication_ref, {})
-            review = reviewer.review_relevancy(
-                publication_text=publication_text.get("text", ""),
-                theme=theme,
-                metadata=context.get("metadata"),
-                title=context.get("title"),
-            )
+            try:
+                review = reviewer.review_relevancy(
+                    publication_text=publication_text.get("text", ""),
+                    theme=theme,
+                    metadata=context.get("metadata"),
+                    title=context.get("title"),
+                )
+            except Exception as error:
+                logger.exception(
+                    "Atlas thematic review failed publication_ref=%s; retaining publication as unreviewed",
+                    publication_ref,
+                )
+                publication_text[AGENTIC_CURATOR] = {
+                    "theme": theme,
+                    "review_status": "failed",
+                    "error_type": type(error).__name__,
+                    "error": str(error),
+                }
+                reviewed_publication_texts[publication_ref] = publication_text
+                failed_count += 1
+                if progress_callback is not None:
+                    progress_callback(reviewed_publication_texts)
+                continue
             publication_text[AGENTIC_CURATOR] = self.agentic_curator_review(
                 theme=theme,
                 review=review,
             )
             reviewed_publication_texts[publication_ref] = publication_text
             reviewed_count += 1
+            if progress_callback is not None:
+                progress_callback(reviewed_publication_texts)
 
         logger.info(
-            "Atlas thematic review stats publication_texts=%s reviewed=%s reused=%s",
+            "Atlas thematic review stats publication_texts=%s reviewed=%s reused=%s failed=%s",
             len(publication_texts),
             reviewed_count,
             reused_count,
+            failed_count,
         )
         return reviewed_publication_texts
 
@@ -232,6 +256,9 @@ class PublicationTextReviewer:
         agentic_curator = publication_text.get(AGENTIC_CURATOR, {})
 
         if not isinstance(agentic_curator, dict):
+            return ""
+
+        if agentic_curator.get("review_status") == "failed":
             return ""
 
         return " ".join(

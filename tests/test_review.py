@@ -179,6 +179,58 @@ def test_review_publication_texts_reuses_matching_theme() -> None:
     ) == publication_texts
 
 
+def test_review_publication_texts_isolates_and_retains_failed_publication(caplog) -> None:
+    class PartlyFailingReviewer:
+        def review_relevancy(self, publication_text, theme, metadata, title):
+            if publication_text == "bad":
+                raise ValueError("LLM response was not valid JSON.")
+            return FakeReviewer().review_relevancy(
+                publication_text=publication_text,
+                theme=theme,
+                metadata=metadata,
+                title=title,
+            )
+
+    publication_texts = {"bad": {"text": "bad"}, "good": {"text": "good"}}
+    result = PublicationTextReviewer().review_publication_texts(
+        publication_texts=publication_texts,
+        contexts={},
+        theme="fibrosis",
+        reviewer=PartlyFailingReviewer(),
+    )
+
+    assert result["bad"]["agentic_curator"] == {
+        "theme": "fibrosis",
+        "review_status": "failed",
+        "error_type": "ValueError",
+        "error": "LLM response was not valid JSON.",
+    }
+    assert result["good"]["agentic_curator"]["judgement"] == "relevant"
+    accessions = [
+        {"datalink_id": "GSE1", "publications": [{"publication_text_ref": "bad"}]},
+        {"datalink_id": "GSE2", "publications": [{"publication_text_ref": "good"}]},
+    ]
+    filtered, texts = PublicationTextReviewer().filtered_result(
+        accessions=accessions,
+        publication_texts=result,
+        review_filter="not_relevant_and_unsure",
+    )
+    assert [item["datalink_id"] for item in filtered] == ["GSE1", "GSE2"]
+    assert set(texts) == {"bad", "good"}
+
+
+def test_review_publication_texts_reports_atomic_progress_after_each_result() -> None:
+    snapshots = []
+    PublicationTextReviewer().review_publication_texts(
+        publication_texts={"1": {"text": "one"}, "2": {"text": "two"}},
+        contexts={},
+        theme="fibrosis",
+        reviewer=FakeReviewer(),
+        progress_callback=lambda values: snapshots.append(list(values)),
+    )
+    assert snapshots == [["1"], ["1", "2"]]
+
+
 def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> None:
     result = PublicationTextReviewer().agentic_curator_review(
         theme="fibrosis",

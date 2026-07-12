@@ -41,6 +41,7 @@ class RecordingFilterer:
         theme=None,
         review_filter="none",
         reviewer=None,
+        _review_progress_callback=None,
     ):
         self.__class__.calls.append(
             {
@@ -55,6 +56,11 @@ class RecordingFilterer:
             "accessions": list(jsons or []),
             "publication_texts": {},
         }
+
+
+class RecordingHarmonizer:
+    def harmonize_datasets(self, datasets, details_out=None, harmonization_options=None):
+        return datasets, {"targets": []}
 
 
 class RecordingQueryGenerator:
@@ -525,3 +531,67 @@ def test_create_atlas_logs_progress_and_stats(caplog) -> None:
     assert "Atlas create_atlas progress stage=harmonize-datasets" in caplog.text
     assert "final_accessions=1" in caplog.text
     assert "publication_texts=0" in caplog.text
+
+
+def test_resume_from_collected_accessions_skips_collection(tmp_path) -> None:
+    run_dir = tmp_path / "trace" / "20260712T215848"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps({
+            "run_id": "20260712T215848",
+            "atlas_out": str(tmp_path / "atlas.json"),
+            "theme": "fibrosis",
+            "review_filter": "not_relevant",
+            "harmonization_options": {},
+        }),
+        encoding="utf-8",
+    )
+    (run_dir / "01_collected_accessions.json").write_text(
+        json.dumps([{"datalink_id": "GSE1", "publications": []}]),
+        encoding="utf-8",
+    )
+
+    class NoCollector:
+        def collect_jsons(self, **kwargs):
+            raise AssertionError("collection must not rerun")
+
+    atlas = Atlas(
+        metadata={},
+        collector=NoCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=RecordingHarmonizer(),
+    )
+    result = atlas.resume(dev_out_dir=str(tmp_path / "trace"))
+
+    assert result["accessions"][0]["datalink_id"] == "GSE1"
+    assert (run_dir / "02_reviewed_datasets.json").exists()
+    assert (run_dir / "06_final_atlas.json").exists()
+
+
+def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
+    root = tmp_path / "trace"
+    for run_id in ("20260712T100000", "20260712T110000"):
+        run_dir = root / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "00_run_manifest.json").write_text(
+            json.dumps({"run_id": run_id, "theme": None, "review_filter": "none"}),
+            encoding="utf-8",
+        )
+        (run_dir / "02_reviewed_datasets.json").write_text(
+            json.dumps({"accessions": [{"datalink_id": run_id}], "publication_texts": {}}),
+            encoding="utf-8",
+        )
+    completed = root / "20260712T120000"
+    completed.mkdir()
+    (completed / "00_run_manifest.json").write_text(
+        json.dumps({"run_id": "20260712T120000"}), encoding="utf-8"
+    )
+    (completed / "06_final_atlas.json").write_text(
+        json.dumps({"accessions": [], "publication_texts": {}}), encoding="utf-8"
+    )
+
+    result = Atlas(
+        metadata={}, collector=RecordingCollector(), filterer=RecordingFilterer(), harmonizer=RecordingHarmonizer()
+    ).resume(dev_out_dir=str(root))
+
+    assert result["accessions"][0]["datalink_id"] == "20260712T110000"

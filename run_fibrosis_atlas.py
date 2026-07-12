@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -90,7 +91,20 @@ def resolved_configuration() -> dict:
     }
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const="",
+        metavar="RUN_ID",
+        help="resume RUN_ID, or the latest incomplete development trace when omitted",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     require_project_venv(root=ROOT, executable=sys.executable)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     config = resolved_configuration()
@@ -109,6 +123,13 @@ def main() -> int:
         cache_ontologies=True,
         credential_checker=credential_checker,
     )
+    if args.resume is not None:
+        atlas.resume(
+            dev_out_dir=config["dev_out_dir"],
+            run_id=args.resume or None,
+            out=config["atlas_out"],
+        )
+        return 0
     atlas.create_atlas(
         query=None,
         file=None,

@@ -12,6 +12,11 @@ python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.j
 .env/bin/python run_fibrosis_atlas.py
 ```
 
+Use `--resume` to select the newest incomplete valid trace, or
+`--resume RUN_ID` to select one explicitly. Resume validates atomic JSON
+checkpoints and skips completed collection, review, harmonization, or final
+output stages as available.
+
 `create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
 
 <a id="project-purpose-and-layout"></a>
@@ -154,6 +159,7 @@ Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
 - `create_atlas(..., dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
+- `resume(dev_out_dir=".dev", run_id=None, out=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, harmonized datasets, or the final atlas without repeating completed work.
 - `collect_datasets(..., generate_queries=False, max_generated_queries=3)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
@@ -233,6 +239,7 @@ skipped, failed, full-text, fallback, and missing counts.
 - Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
 - The review output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, parsed `evidences`, parsed final judge fields `judgement`, `reasoning`, and `confidence`, plus `raw_evidences` and `raw_judgement`. Parsed fields match the `agentic_curator` response schemas: evidence items use `evidence`, `judgement`, `confidence`, and `reason`; judge output uses `judgement`, `reasoning`, and `confidence`.
 - Existing `agentic_curator` reviews are reused when their stored `theme` matches the requested theme.
+- Each thematic review is checkpointed atomically during traced resume runs. A publication-level exception is stored with `review_status="failed"`, retained as unreviewed regardless of `review_filter`, and does not terminate later reviews. Invalid or truncated consumed LLM responses are not retried; Europe PMC/network fetching retains its bounded transient retry behavior.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
 - `review_filter != "none"` without a `theme` raises `ValueError`.

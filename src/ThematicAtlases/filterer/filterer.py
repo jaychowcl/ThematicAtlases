@@ -31,6 +31,7 @@ class AtlasFilterer:
         theme: str | None = None,
         review_filter: str = "none",
         reviewer=None,
+        _review_progress_callback=None,
     ) -> dict:
         self._publication_text_reviewer.validate_options(
             theme=theme,
@@ -58,6 +59,7 @@ class AtlasFilterer:
                 theme=theme,
                 review_filter=review_filter,
                 reviewer=reviewer,
+                progress_callback=_review_progress_callback,
             )
         accessions_with_refs = sum(
             1
@@ -268,6 +270,7 @@ class AtlasFilterer:
         theme: str,
         review_filter: str,
         reviewer=None,
+        progress_callback=None,
     ) -> tuple[list[dict], dict]:
         logger.info("Atlas filter_jsons progress stage=review-publication-texts")
         publication_texts = self._publication_text_reviewer.review_publication_texts(
@@ -277,6 +280,7 @@ class AtlasFilterer:
             ),
             theme=theme,
             reviewer=reviewer,
+            progress_callback=progress_callback,
         )
         logger.info("Atlas filter_jsons progress stage=filter-reviewed-publications")
         return self._publication_text_reviewer.filtered_result(

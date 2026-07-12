@@ -72,7 +72,7 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
     monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
     monkeypatch.setattr(script, "configure_logging", lambda path: None)
 
-    assert script.main() == 0
+    assert script.main([]) == 0
 
     assert calls["configure_framework"] == ("snomed", True)
     assert "snomed" not in calls["atlas"]["ontostore"].ontology_frameworks
@@ -106,3 +106,29 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
     assert displayed["max_publications"] == 50
     assert displayed["removed_ontology_frameworks"] == ["snomed"]
     assert displayed["dev_trace"] is True
+
+
+def test_fibrosis_run_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
+    calls = {}
+
+    class RecordingStore:
+        def __init__(self, storage_dir): pass
+        def configure_framework(self, name, *, remove=False): pass
+
+    class RecordingAtlas:
+        def __init__(self, **kwargs): pass
+        def resume(self, **kwargs): calls["resume"] = kwargs
+
+    monkeypatch.setattr(script, "ROOT", tmp_path)
+    monkeypatch.setattr(script, "OUTPUT_DIR", tmp_path / ".out")
+    monkeypatch.setattr(script, "OntoStore", RecordingStore)
+    monkeypatch.setattr(script, "Atlas", RecordingAtlas)
+    monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
+    monkeypatch.setattr(script, "configure_logging", lambda path: None)
+
+    assert script.main(["--resume", "20260712T215848"]) == 0
+    assert calls["resume"] == {
+        "dev_out_dir": str(tmp_path / ".out" / "dev_trace"),
+        "run_id": "20260712T215848",
+        "out": str(tmp_path / ".out" / "fibrosis_atlas.json"),
+    }
