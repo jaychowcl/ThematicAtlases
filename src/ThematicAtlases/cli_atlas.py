@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -110,6 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--theme", default=None)
     create.add_argument("--theme-file", default=None)
+    create.add_argument("--harmonization-details-out", default=None)
     create.add_argument(
         "--review-filter",
         choices=REVIEW_FILTER_CHOICES,
@@ -125,6 +127,9 @@ def _build_parser() -> argparse.ArgumentParser:
         verbose_dest="command_verbose",
         log_file_dest="command_log_file",
     )
+    harmonize.add_argument("--file", required=True)
+    harmonize.add_argument("--out", required=True)
+    harmonize.add_argument("--harmonization-details-out", default=None)
 
     return parser
 
@@ -214,9 +219,17 @@ def main(argv: list[str] | None = None) -> int:
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,
             dev_out_dir=_dev_out_dir(args),
+            harmonization_details_out=args.harmonization_details_out,
         )
     elif args.command == "harmonize-datasets":
-        atlas.harmonize_datasets(datasets={"accessions": [], "publication_texts": {}})
+        with open(args.file, encoding="utf-8") as handle:
+            datasets = json.load(handle)
+        result = atlas.harmonize_datasets(
+            datasets=datasets,
+            harmonization_details_out=args.harmonization_details_out,
+        )
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, indent=2)
     else:
         parser.error(f"unknown command: {args.command}")
 

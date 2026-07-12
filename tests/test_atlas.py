@@ -287,7 +287,7 @@ def test_create_atlas_writes_final_harmonized_object(tmp_path) -> None:
                 "publication_texts": {"1": {"text": "full text"}},
             }
 
-        def harmonize_datasets(self, datasets):
+        def harmonize_datasets(self, datasets, harmonization_details_out=None):
             return {**datasets, "harmonized": True}
 
     outfile = tmp_path / "atlas.json"
@@ -324,7 +324,13 @@ def test_create_atlas_writes_all_dev_snapshots_with_one_run_id(tmp_path) -> None
             encoding="utf-8"
         )
     ) == {
-        "accessions": [{"datalink_id": "GSE1", "publications": []}],
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "publications": [],
+                "ontology_harmonization_status": "unavailable",
+            }
+        ],
         "publication_texts": {},
     }
 

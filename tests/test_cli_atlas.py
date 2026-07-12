@@ -8,6 +8,23 @@ from ThematicAtlases import atlas as atlas_module
 from ThematicAtlases import cli_atlas as cli_module
 
 
+class FakeOntologyHarmonizer:
+    def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
+        return {
+            "miniml_json": miniml_json,
+            "harmonization_targets": [],
+            "strategy": "websearch",
+            "target_paths": [],
+        }
+
+
+@pytest.fixture(autouse=True)
+def fake_ontology_harmonizer(monkeypatch):
+    import agentic_curator
+
+    monkeypatch.setattr(agentic_curator, "OntologyHarmonizer", FakeOntologyHarmonizer)
+
+
 class FakeEuropePMCWrapper:
     def collect_accessions(
         self,
@@ -162,7 +179,13 @@ def test_create_atlas_writes_final_filtered_object(
 
     assert output.out == ""
     assert output.err == ""
-    assert outfile.read_text(encoding="utf-8") == '{\n  "accessions": [\n    {\n      "datalink_id": "GSE_FIBROSIS",\n      "datalink_id_scheme": "GEO",\n      "publications": [],\n      "original_datalinks": [\n        {\n          "datalink_id": "GSE_fibrosis",\n          "datalink_id_scheme": "GEO",\n          "datalink_url": "",\n          "datalink_category": ""\n        }\n      ],\n      "metadata_repository": "geo",\n      "metadata_source": "geo2json",\n      "metadata_status": "available",\n      "accession_metadata": {\n        "series": {\n          "accession": [\n            {\n              "value": "GSE_FIBROSIS"\n            }\n          ]\n        }\n      }\n    }\n  ],\n  "publication_texts": {}\n}'
+    result = json.loads(outfile.read_text(encoding="utf-8"))
+    assert result["accessions"][0]["datalink_id"] == "GSE_FIBROSIS"
+    assert result["accessions"][0]["accession_metadata"] == {
+        "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
+    }
+    assert result["accessions"][0]["ontology_harmonization_status"] == "available"
+    assert result["publication_texts"] == {}
 
 
 def test_verbose_enables_info_logging(

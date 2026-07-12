@@ -58,6 +58,7 @@ class Atlas:
         reviewer=None,
         collect_metadata: bool = True,
         dev_out_dir: str | None = ".dev",
+        harmonization_details_out: str | None = None,
     ) -> dict:
         run_id = self._dev_run_id()
         logger.info("Atlas create_atlas progress stage=collect-datasets")
@@ -80,7 +81,10 @@ class Atlas:
             len(datasets.get("publication_texts", {})),
         )
         logger.info("Atlas create_atlas progress stage=harmonize-datasets")
-        result = self.harmonize_datasets(datasets=datasets)
+        result = self.harmonize_datasets(
+            datasets=datasets,
+            harmonization_details_out=harmonization_details_out,
+        )
         self._write_dev_json(
             stage_name="03_harmonized_datasets",
             result=result,
@@ -175,8 +179,16 @@ class Atlas:
         )
         return result
 
-    def harmonize_datasets(self, datasets: dict) -> dict:
-        return datasets
+    def harmonize_datasets(
+        self,
+        datasets: dict,
+        harmonization_details_out: str | None = None,
+    ) -> dict:
+        result, _ = self._harmonizer.harmonize_datasets(
+            datasets=datasets,
+            details_out=harmonization_details_out,
+        )
+        return result
 
     def _collect_jsons(
         self,
@@ -212,8 +224,8 @@ class Atlas:
             reviewer=reviewer,
         )
 
-    def _harmonize_jsons(self) -> list[dict] | None:
-        return self._harmonizer.harmonize_jsons()
+    def _harmonize_jsons(self, datasets: dict) -> dict:
+        return self._harmonizer.harmonize_jsons(datasets=datasets)
 
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:
