@@ -1,6 +1,6 @@
 # ThematicAtlases
 
-Tools for collecting, filtering, and organizing biomedical dataset accessions into thematic atlases.
+Tools for collecting, curating, and harmonizing biomedical dataset accessions into thematic atlases.
 
 ## Description
 
