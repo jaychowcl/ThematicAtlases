@@ -57,7 +57,7 @@ gcloud auth application-default login
 .env/bin/python run_fibrosis_atlas.py
 ```
 
-`run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, removes `snomed` from the configured `OntoStore`, performs ontology harmonization, and enables the full development trace.
+`run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It removes `snomed`, eagerly downloads/parses/indexes every remaining ontology through `OntoStore.cache_all()`, then searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, performs ontology harmonization, and enables the full development trace. Any ontology cache failure aborts before dataset collection.
 
 Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atlas.summary.json`, `fibrosis_harmonization_details.json`, `fibrosis_atlas.log`, the ontology store, and timestamped trace bundles under `.out/dev_trace/`.
 
@@ -205,20 +205,21 @@ Major orchestrator methods:
 
 Query loading, generation, ordering, and validation are method-owned; the CLI only forwards `generate_queries` and `max_generated_queries`. Applications may inject `query_generator` and `credential_checker` into `Atlas`.
 
-Advanced ontology configuration uses an injected upstream instance:
+Advanced ontology configuration can use one Atlas-managed store:
 
 ```python
-from agentic_curator import OntologyHarmonizer
 from agentic_curator.curators.ontology_harmonizer import OntoStore
-from ThematicAtlases.harmonizer import AtlasHarmonizer
 
 store = OntoStore(storage_dir=".cache/ontologies")
-harmonizer = AtlasHarmonizer(
-    ontology_harmonizer=OntologyHarmonizer(ontostore=store),
-    max_workers=2,
+store.configure_framework("snomed", remove=True)
+atlas = Atlas(
+    metadata={},
+    ontostore=store,
+    cache_ontologies=True,
 )
-atlas = Atlas(metadata={}, harmonizer=harmonizer)
 ```
+
+`Atlas(..., ontostore=None, cache_ontologies=False)` retains lazy behavior by default. With eager caching enabled, `create_atlas()` calls `store.cache_all()` once before query generation or collection and passes the same store to the default ontology harmonizer. A custom harmonizer cannot be combined with Atlas-managed store options.
 
 `harmonization_options` forwards upstream controls such as `strategy`, `target_paths`, `llm`, and judge thresholds. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request.
 

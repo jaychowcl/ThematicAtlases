@@ -167,6 +167,15 @@ def test_harmonizer_accepts_injected_instance_and_forwards_options() -> None:
     ]
 
 
+def test_default_ontology_harmonizer_receives_injected_ontostore() -> None:
+    from agentic_curator.curators.ontology_harmonizer import OntoStore
+
+    store = OntoStore(ontology_frameworks={})
+    harmonizer = AtlasHarmonizer(ontostore=store)._ontology_harmonizer()
+
+    assert harmonizer.ontostore is store
+
+
 def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
     def unexpected_factory():
         raise AssertionError("ontology harmonizer should not be constructed")

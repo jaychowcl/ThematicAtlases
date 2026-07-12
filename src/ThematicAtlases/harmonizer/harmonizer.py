@@ -11,11 +11,13 @@ class AtlasHarmonizer:
         self,
         ontology_harmonizer=None,
         ontology_harmonizer_factory=None,
+        ontostore=None,
         credential_checker=None,
         max_workers: int = 1,
     ):
         self._ontology_harmonizer_instance = ontology_harmonizer
         self._ontology_harmonizer_factory = ontology_harmonizer_factory
+        self._ontostore = ontostore
         self._credential_checker = credential_checker
         self._credentials_checked = False
         if max_workers < 1:
@@ -189,7 +191,12 @@ class AtlasHarmonizer:
 
         from agentic_curator import OntologyHarmonizer
 
-        self._ontology_harmonizer_instance = OntologyHarmonizer()
+        if self._ontostore is None:
+            self._ontology_harmonizer_instance = OntologyHarmonizer()
+        else:
+            self._ontology_harmonizer_instance = OntologyHarmonizer(
+                ontostore=self._ontostore
+            )
         return self._ontology_harmonizer_instance
 
     def _preflight_credentials(self) -> None:

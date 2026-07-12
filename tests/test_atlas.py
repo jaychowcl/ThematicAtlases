@@ -170,9 +170,70 @@ def test_credential_preflight_failure_prevents_collection() -> None:
             collector=RecordingCollector(),
             credential_checker=FailingCredentialChecker(),
         ).collect_datasets(theme="fibrosis")
-
     assert RecordingCollector.calls == []
 
+
+def test_create_atlas_eagerly_caches_injected_ontostore_once_before_collection() -> None:
+    events = []
+
+    class RecordingStore:
+        def cache_all(self):
+            events.append("cache")
+            return {"successful": ["efo"], "failed": []}
+
+    class OrderedCollector(RecordingCollector):
+        def collect_jsons(self, **kwargs):
+            events.append("collect")
+            return super().collect_jsons(**kwargs)
+
+    atlas = Atlas(
+        metadata={},
+        collector=OrderedCollector(),
+        filterer=RecordingFilterer(),
+        ontostore=RecordingStore(),
+        cache_ontologies=True,
+    )
+
+    atlas.create_atlas(query=["a"])
+    atlas.create_atlas(query=["a"])
+
+    assert events == ["cache", "collect", "collect"]
+
+
+def test_create_atlas_does_not_cache_ontologies_by_default() -> None:
+    class UnexpectedStore:
+        def cache_all(self):
+            raise AssertionError("cache_all should be opt-in")
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        ontostore=UnexpectedStore(),
+    ).create_atlas(query=["a"])
+
+
+def test_ontology_cache_failure_prevents_collection() -> None:
+    class FailingStore:
+        def cache_all(self):
+            raise RuntimeError("ontology cache failed")
+
+    class UnexpectedCollector:
+        def collect_jsons(self, **kwargs):
+            raise AssertionError("collection must not start")
+
+    with pytest.raises(RuntimeError, match="ontology cache failed"):
+        Atlas(
+            metadata={},
+            collector=UnexpectedCollector(),
+            ontostore=FailingStore(),
+            cache_ontologies=True,
+        ).create_atlas(query=["a"])
+
+
+def test_atlas_rejects_managed_ontostore_with_custom_harmonizer() -> None:
+    with pytest.raises(ValueError, match="custom harmonizer"):
+        Atlas(metadata={}, harmonizer=object(), ontostore=object())
 
 def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> None:
     RecordingCollector.calls = []

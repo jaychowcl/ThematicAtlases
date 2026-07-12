@@ -126,7 +126,7 @@ Use `--review-filter not-relevant` with this theme so unsure candidates remain a
 
 `run_fibrosis_atlas.py` is the fixed, repository-root entry point for the complete fibrosis workflow. Run it only with `.env/bin/python`; it prints all resolved settings before network or model work and writes every generated artifact under the ignored `.out/` directory.
 
-The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables full LLM-backed web-search harmonization with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")` and calls `configure_framework("snomed", remove=True)` before injecting the store into `OntologyHarmonizer` and `AtlasHarmonizer`.
+The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables full LLM-backed web-search harmonization with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer.
 
 Prepare and run it with:
 
@@ -146,7 +146,7 @@ The script requires working Google Application Default Credentials and quota. Te
 
 Public methods:
 
-- `__init__(metadata: dict, ..., harmonizer=None, query_generator=None, credential_checker=None)`: wires component instances and optional query-generation/credential-preflight dependencies.
+- `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
 - `create_atlas(..., dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
 - `collect_datasets(..., generate_queries=False, max_generated_queries=3)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
@@ -154,6 +154,8 @@ Public methods:
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
 `collect_datasets()` does not write development snapshots. When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, it writes a run directory under `dev_out_dir` containing a manifest, collection/review checkpoints, pre/post harmonization metadata, full harmonization targets/details, the final atlas, and the summary.
+
+Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=True)` invokes `store.cache_all()` once at the beginning of the first `create_atlas()` call, before credentials, query generation, or collection. The result is retained as `atlas.ontology_cache_result`; aggregate cache exceptions propagate and prevent collection. The same store is passed to the default `AtlasHarmonizer` and its lazily created `OntologyHarmonizer`. Supplying a custom harmonizer together with Atlas-managed store/cache options raises `ValueError`.
 
 <a id="collector"></a>
 ### Collector
@@ -228,7 +230,7 @@ Current responsibilities:
 <a id="harmonizer"></a>
 ### Harmonizer
 
-`ThematicAtlases.harmonizer.AtlasHarmonizer` iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
+`ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared `ontostore`, iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. Its lazily created default `OntologyHarmonizer` receives that same store. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
 
 The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
 

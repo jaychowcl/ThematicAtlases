@@ -9,12 +9,10 @@ import os
 from pathlib import Path
 import sys
 
-from agentic_curator import OntologyHarmonizer
 from agentic_curator.curators.ontology_harmonizer import OntoStore
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.credentials import GoogleCredentialPreflight
-from ThematicAtlases.harmonizer import AtlasHarmonizer
 
 
 ROOT = Path(__file__).resolve().parent
@@ -103,15 +101,10 @@ def main() -> int:
         store.configure_framework(framework, remove=True)
 
     credential_checker = GoogleCredentialPreflight()
-    ontology_harmonizer = OntologyHarmonizer(ontostore=store)
-    harmonizer = AtlasHarmonizer(
-        ontology_harmonizer=ontology_harmonizer,
-        credential_checker=credential_checker,
-        max_workers=MAX_WORKERS,
-    )
     atlas = Atlas(
         metadata={},
-        harmonizer=harmonizer,
+        ontostore=store,
+        cache_ontologies=True,
         credential_checker=credential_checker,
     )
     atlas.create_atlas(

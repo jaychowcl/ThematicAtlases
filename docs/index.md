@@ -57,7 +57,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, orchestrator, dependency injection, query_generator, credential_checker, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
+  keywords: Atlas, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector

@@ -27,26 +27,17 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
             if remove:
                 del self.ontology_frameworks[name]
 
-    class RecordingOntologyHarmonizer:
-        def __init__(self, ontostore):
-            calls["ontology_harmonizer_store"] = ontostore
-
     class RecordingPreflight:
         pass
 
-    class RecordingAtlasHarmonizer:
-        def __init__(self, ontology_harmonizer, credential_checker, max_workers):
-            calls["atlas_harmonizer"] = {
-                "ontology_harmonizer": ontology_harmonizer,
-                "credential_checker": credential_checker,
-                "max_workers": max_workers,
-            }
-
     class RecordingAtlas:
-        def __init__(self, metadata, harmonizer, credential_checker):
+        def __init__(
+            self, metadata, ontostore, cache_ontologies, credential_checker
+        ):
             calls["atlas"] = {
                 "metadata": metadata,
-                "harmonizer": harmonizer,
+                "ontostore": ontostore,
+                "cache_ontologies": cache_ontologies,
                 "credential_checker": credential_checker,
             }
 
@@ -60,9 +51,7 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
     monkeypatch.setattr(script, "THEME_FILE", theme)
     monkeypatch.setattr(script, "OUTPUT_DIR", tmp_path / ".out")
     monkeypatch.setattr(script, "OntoStore", RecordingStore)
-    monkeypatch.setattr(script, "OntologyHarmonizer", RecordingOntologyHarmonizer)
     monkeypatch.setattr(script, "GoogleCredentialPreflight", RecordingPreflight)
-    monkeypatch.setattr(script, "AtlasHarmonizer", RecordingAtlasHarmonizer)
     monkeypatch.setattr(script, "Atlas", RecordingAtlas)
     monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
     monkeypatch.setattr(script, "configure_logging", lambda path: None)
@@ -70,11 +59,8 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
     assert script.main() == 0
 
     assert calls["configure_framework"] == ("snomed", True)
-    assert "snomed" not in calls["ontology_harmonizer_store"].ontology_frameworks
-    assert calls["atlas_harmonizer"]["max_workers"] == 1
-    assert calls["atlas"]["credential_checker"] is calls["atlas_harmonizer"][
-        "credential_checker"
-    ]
+    assert "snomed" not in calls["atlas"]["ontostore"].ontology_frameworks
+    assert calls["atlas"]["cache_ontologies"] is True
     assert calls["create_atlas"] == {
         "query": None,
         "file": None,

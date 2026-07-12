@@ -26,6 +26,8 @@ class Atlas:
         collector: AtlasCollector | None = None,
         filterer: AtlasFilterer | None = None,
         harmonizer: AtlasHarmonizer | None = None,
+        ontostore=None,
+        cache_ontologies: bool = False,
         query_generator=None,
         credential_checker=None,
     ):
@@ -47,8 +49,21 @@ class Atlas:
             epmc_wrapper_factory=epmc_wrapper_factory,
             publication_text_reviewer=publication_text_reviewer,
         )
+        if harmonizer is not None and (ontostore is not None or cache_ontologies):
+            raise ValueError(
+                "ontostore/cache_ontologies cannot be combined with a custom harmonizer"
+            )
+        if cache_ontologies and ontostore is None:
+            from agentic_curator.curators.ontology_harmonizer import OntoStore
+
+            ontostore = OntoStore()
+        self._ontostore = ontostore
+        self._cache_ontologies = cache_ontologies
+        self._ontologies_cached = False
+        self.ontology_cache_result = None
         self._harmonizer = harmonizer or AtlasHarmonizer(
-            credential_checker=credential_checker
+            ontostore=ontostore,
+            credential_checker=credential_checker,
         )
         self._query_generator_instance = query_generator
         self._credential_checker = credential_checker
@@ -72,6 +87,7 @@ class Atlas:
         max_generated_queries: int = 3,
         harmonization_options: dict | None = None,
     ) -> dict:
+        self._prepare_ontology_cache()
         run_id = self._dev_run_id()
         trace = None
         if dev_trace:
@@ -343,6 +359,12 @@ class Atlas:
             return
         self._credential_checker.check()
         self._credentials_checked = True
+
+    def _prepare_ontology_cache(self) -> None:
+        if not self._cache_ontologies or self._ontologies_cached:
+            return
+        self.ontology_cache_result = self._ontostore.cache_all()
+        self._ontologies_cached = True
 
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:
