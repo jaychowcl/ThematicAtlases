@@ -135,6 +135,45 @@ def test_collect_datasets_does_not_create_query_generator_without_flag() -> None
     ).collect_datasets(query=["manual query"])
 
 
+def test_collect_datasets_runs_injected_credential_preflight_once_before_llm() -> None:
+    class RecordingCredentialChecker:
+        calls = 0
+
+        def check(self):
+            self.__class__.calls += 1
+
+    RecordingCredentialChecker.calls = 0
+    RecordingCollector.calls = []
+    atlas = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        query_generator=RecordingQueryGenerator(),
+        credential_checker=RecordingCredentialChecker(),
+    )
+
+    atlas.collect_datasets(theme="fibrosis", generate_queries=True)
+
+    assert RecordingCredentialChecker.calls == 1
+    assert RecordingCollector.calls
+
+
+def test_credential_preflight_failure_prevents_collection() -> None:
+    class FailingCredentialChecker:
+        def check(self):
+            raise RuntimeError("Google credentials unavailable")
+
+    RecordingCollector.calls = []
+    with pytest.raises(RuntimeError, match="Google credentials unavailable"):
+        Atlas(
+            metadata={},
+            collector=RecordingCollector(),
+            credential_checker=FailingCredentialChecker(),
+        ).collect_datasets(theme="fibrosis")
+
+    assert RecordingCollector.calls == []
+
+
 def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> None:
     RecordingCollector.calls = []
     RecordingFilterer.calls = []

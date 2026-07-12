@@ -187,3 +187,28 @@ def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
     )
 
     assert result["accessions"][0]["ontology_harmonization_status"] == "unavailable"
+
+
+def test_harmonizer_preflights_once_only_when_metadata_is_eligible() -> None:
+    class RecordingChecker:
+        calls = 0
+
+        def check(self):
+            self.__class__.calls += 1
+
+    checker = RecordingChecker()
+    RecordingOntologyHarmonizer.calls = []
+    AtlasHarmonizer(
+        ontology_harmonizer_factory=RecordingOntologyHarmonizer,
+        credential_checker=checker,
+    ).harmonize_datasets(
+        {
+            "accessions": [
+                {"datalink_id": "E-MTAB-1", "accession_metadata": None},
+                {"datalink_id": "GSE1", "accession_metadata": {"value": "x"}},
+                {"datalink_id": "GSE2", "accession_metadata": {"value": "y"}},
+            ]
+        }
+    )
+
+    assert RecordingChecker.calls == 1
