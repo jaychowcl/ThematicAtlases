@@ -192,10 +192,22 @@ def test_collect_datasets_writes_dev_snapshots_to_custom_directory(tmp_path) -> 
     assert (dev_dir / "20260623T142233_02_collected_datasets.json").exists()
 
 
-def test_harmonize_datasets_returns_input_object() -> None:
-    datasets = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
+def test_harmonize_datasets_delegates_to_harmonizer() -> None:
+    class RecordingHarmonizer:
+        calls = []
 
-    assert Atlas(metadata={}).harmonize_datasets(datasets=datasets) is datasets
+        def harmonize_datasets(self, datasets, details_out=None):
+            self.__class__.calls.append((datasets, details_out))
+            return {**datasets, "harmonized": True}, []
+
+    datasets = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
+    harmonizer = RecordingHarmonizer()
+
+    assert Atlas(metadata={}, harmonizer=harmonizer).harmonize_datasets(
+        datasets=datasets,
+        harmonization_details_out="details.json",
+    ) == {**datasets, "harmonized": True}
+    assert RecordingHarmonizer.calls == [(datasets, "details.json")]
 
 
 def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> None:
@@ -209,8 +221,16 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
             self.__class__.calls.append(("collect_datasets", kwargs))
             return {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
 
-        def harmonize_datasets(self, datasets):
-            self.__class__.calls.append(("harmonize_datasets", {"datasets": datasets}))
+        def harmonize_datasets(self, datasets, harmonization_details_out=None):
+            self.__class__.calls.append(
+                (
+                    "harmonize_datasets",
+                    {
+                        "datasets": datasets,
+                        "harmonization_details_out": harmonization_details_out,
+                    },
+                )
+            )
             return {**datasets, "harmonized": True}
 
     RecordingAtlas.calls = []
@@ -223,6 +243,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
         metadata_repositories=["arrayexpress"],
         max_publications=25,
         collect_metadata=False,
+        harmonization_details_out="harmonization.json",
     ) == {
         "accessions": [{"datalink_id": "GSE1"}],
         "publication_texts": {},
@@ -251,7 +272,8 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "datasets": {
                     "accessions": [{"datalink_id": "GSE1"}],
                     "publication_texts": {},
-                }
+                },
+                "harmonization_details_out": "harmonization.json",
             },
         ),
     ]

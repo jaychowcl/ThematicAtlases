@@ -470,6 +470,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             reviewer=None,
             collect_metadata=True,
             dev_out_dir=".dev",
+            harmonization_details_out=None,
         ):
             self.__class__.calls.append(
                 {
@@ -483,6 +484,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "reviewer": reviewer,
                     "collect_metadata": collect_metadata,
                     "dev_out_dir": dev_out_dir,
+                    "harmonization_details_out": harmonization_details_out,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -506,6 +508,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "25",
                 "--skip-metadata",
                 "--no-dev-output",
+                "--harmonization-details-out",
+                "harmonization.json",
             ]
         )
         == 0
@@ -526,24 +530,78 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "reviewer": None,
             "collect_metadata": False,
             "dev_out_dir": None,
+            "harmonization_details_out": "harmonization.json",
         }
     ]
 
 
-def test_harmonize_datasets_does_not_emit_stdout(
+def test_harmonize_datasets_transforms_file_without_stdout(
     capsys: pytest.CaptureFixture[str],
+    tmp_path,
+    monkeypatch,
 ) -> None:
-    assert main(["harmonize-datasets"]) == 0
+    infile = tmp_path / "datasets.json"
+    outfile = tmp_path / "harmonized.json"
+    details = tmp_path / "details.json"
+    infile.write_text('{"accessions": [], "publication_texts": {}}', encoding="utf-8")
+
+    class RecordingAtlas:
+        calls = []
+
+        def __init__(self, metadata):
+            pass
+
+        def harmonize_datasets(self, datasets, harmonization_details_out=None):
+            self.__class__.calls.append((datasets, harmonization_details_out))
+            return {**datasets, "harmonized": True}
+
+    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
+
+    assert main([
+        "harmonize-datasets",
+        "--file",
+        str(infile),
+        "--out",
+        str(outfile),
+        "--harmonization-details-out",
+        str(details),
+    ]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
+    assert RecordingAtlas.calls == [
+        ({"accessions": [], "publication_texts": {}}, str(details))
+    ]
+    assert json.loads(outfile.read_text(encoding="utf-8"))["harmonized"] is True
 
 
 def test_harmonize_datasets_accepts_verbose_after_command(
     capsys: pytest.CaptureFixture[str],
+    tmp_path,
+    monkeypatch,
 ) -> None:
-    assert main(["harmonize-datasets", "--verbose"]) == 0
+    infile = tmp_path / "datasets.json"
+    outfile = tmp_path / "harmonized.json"
+    infile.write_text('{"accessions": []}', encoding="utf-8")
+
+    class RecordingAtlas:
+        def __init__(self, metadata):
+            pass
+
+        def harmonize_datasets(self, datasets, harmonization_details_out=None):
+            return datasets
+
+    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
+
+    assert main([
+        "harmonize-datasets",
+        "--verbose",
+        "--file",
+        str(infile),
+        "--out",
+        str(outfile),
+    ]) == 0
 
     output = capsys.readouterr()
     assert output.out == ""
