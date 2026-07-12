@@ -63,6 +63,7 @@ class Atlas:
         harmonization_details_out: str | None = None,
         generate_queries: bool = False,
         max_generated_queries: int = 3,
+        harmonization_options: dict | None = None,
     ) -> dict:
         run_id = self._dev_run_id()
         logger.info("Atlas create_atlas progress stage=collect-datasets")
@@ -90,6 +91,7 @@ class Atlas:
         result = self.harmonize_datasets(
             datasets=datasets,
             harmonization_details_out=harmonization_details_out,
+            harmonization_options=harmonization_options,
         )
         self._write_dev_json(
             stage_name="03_harmonized_datasets",
@@ -199,10 +201,12 @@ class Atlas:
         self,
         datasets: dict,
         harmonization_details_out: str | None = None,
+        harmonization_options: dict | None = None,
     ) -> dict:
         result, _ = self._harmonizer.harmonize_datasets(
             datasets=datasets,
             details_out=harmonization_details_out,
+            harmonization_options=harmonization_options,
         )
         return result
 

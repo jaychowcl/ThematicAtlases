@@ -6,17 +6,24 @@ logger = logging.getLogger(__name__)
 
 
 class AtlasHarmonizer:
-    def __init__(self, ontology_harmonizer_factory=None):
+    def __init__(
+        self,
+        ontology_harmonizer=None,
+        ontology_harmonizer_factory=None,
+    ):
+        self._ontology_harmonizer_instance = ontology_harmonizer
         self._ontology_harmonizer_factory = ontology_harmonizer_factory
 
     def harmonize_datasets(
         self,
         datasets: dict,
         details_out: str | None = None,
+        harmonization_options: dict | None = None,
     ) -> tuple[dict, list[dict]]:
         accessions = []
         details = []
-        ontology_harmonizer = None
+        ontology_harmonizer = self._ontology_harmonizer_instance
+        harmonization_options = dict(harmonization_options or {})
 
         for record in datasets.get("accessions", []):
             record = dict(record)
@@ -39,6 +46,7 @@ class AtlasHarmonizer:
                 harmonization = ontology_harmonizer.harmonize_miniml_json(
                     publication_context=self.publication_context(record),
                     miniml_json=copy.deepcopy(metadata),
+                    **harmonization_options,
                 )
                 record["accession_metadata"] = harmonization["miniml_json"]
                 record["ontology_harmonization_status"] = "available"
@@ -107,17 +115,24 @@ class AtlasHarmonizer:
         self,
         datasets: dict,
         details_out: str | None = None,
+        harmonization_options: dict | None = None,
     ) -> dict:
         result, _ = self.harmonize_datasets(
             datasets=datasets,
             details_out=details_out,
+            harmonization_options=harmonization_options,
         )
         return result
 
     def _ontology_harmonizer(self):
+        if self._ontology_harmonizer_instance is not None:
+            return self._ontology_harmonizer_instance
+
         if self._ontology_harmonizer_factory is not None:
-            return self._ontology_harmonizer_factory()
+            self._ontology_harmonizer_instance = self._ontology_harmonizer_factory()
+            return self._ontology_harmonizer_instance
 
         from agentic_curator import OntologyHarmonizer
 
-        return OntologyHarmonizer()
+        self._ontology_harmonizer_instance = OntologyHarmonizer()
+        return self._ontology_harmonizer_instance

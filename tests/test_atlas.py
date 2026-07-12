@@ -308,13 +308,19 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
             self.__class__.calls.append(("collect_datasets", kwargs))
             return {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
 
-        def harmonize_datasets(self, datasets, harmonization_details_out=None):
+        def harmonize_datasets(
+            self,
+            datasets,
+            harmonization_details_out=None,
+            harmonization_options=None,
+        ):
             self.__class__.calls.append(
                 (
                     "harmonize_datasets",
                     {
                         "datasets": datasets,
                         "harmonization_details_out": harmonization_details_out,
+                        "harmonization_options": harmonization_options,
                     },
                 )
             )
@@ -362,7 +368,8 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                     "accessions": [{"datalink_id": "GSE1"}],
                     "publication_texts": {},
                 },
-                "harmonization_details_out": "harmonization.json",
+                    "harmonization_details_out": "harmonization.json",
+                    "harmonization_options": None,
             },
         ),
     ]
@@ -376,7 +383,12 @@ def test_create_atlas_writes_final_harmonized_object(tmp_path) -> None:
                 "publication_texts": {"1": {"text": "full text"}},
             }
 
-        def harmonize_datasets(self, datasets, harmonization_details_out=None):
+        def harmonize_datasets(
+            self,
+            datasets,
+            harmonization_details_out=None,
+            harmonization_options=None,
+        ):
             return {**datasets, "harmonized": True}
 
     outfile = tmp_path / "atlas.json"
