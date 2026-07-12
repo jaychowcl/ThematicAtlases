@@ -26,6 +26,7 @@ class Atlas:
         filterer: AtlasFilterer | None = None,
         harmonizer: AtlasHarmonizer | None = None,
         query_generator=None,
+        credential_checker=None,
     ):
         self.metadata = metadata
         epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
@@ -45,8 +46,12 @@ class Atlas:
             epmc_wrapper_factory=epmc_wrapper_factory,
             publication_text_reviewer=publication_text_reviewer,
         )
-        self._harmonizer = harmonizer or AtlasHarmonizer()
+        self._harmonizer = harmonizer or AtlasHarmonizer(
+            credential_checker=credential_checker
+        )
         self._query_generator_instance = query_generator
+        self._credential_checker = credential_checker
+        self._credentials_checked = False
 
     def create_atlas(
         self,
@@ -136,6 +141,8 @@ class Atlas:
         max_generated_queries: int = 3,
     ) -> dict:
         run_id = dev_run_id or self._dev_run_id()
+        if generate_queries or theme is not None:
+            self._preflight_credentials()
         if generate_queries:
             query = self._queries_with_generated(
                 query=query,
@@ -288,6 +295,12 @@ class Atlas:
 
             self._query_generator_instance = QueryGenerator()
         return self._query_generator_instance
+
+    def _preflight_credentials(self) -> None:
+        if self._credential_checker is None or self._credentials_checked:
+            return
+        self._credential_checker.check()
+        self._credentials_checked = True
 
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:

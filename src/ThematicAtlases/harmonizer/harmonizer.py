@@ -10,9 +10,12 @@ class AtlasHarmonizer:
         self,
         ontology_harmonizer=None,
         ontology_harmonizer_factory=None,
+        credential_checker=None,
     ):
         self._ontology_harmonizer_instance = ontology_harmonizer
         self._ontology_harmonizer_factory = ontology_harmonizer_factory
+        self._credential_checker = credential_checker
+        self._credentials_checked = False
 
     def harmonize_datasets(
         self,
@@ -40,6 +43,8 @@ class AtlasHarmonizer:
                 continue
 
             if ontology_harmonizer is None:
+                if harmonization_options.get("llm", True):
+                    self._preflight_credentials()
                 ontology_harmonizer = self._ontology_harmonizer()
 
             try:
@@ -136,3 +141,9 @@ class AtlasHarmonizer:
 
         self._ontology_harmonizer_instance = OntologyHarmonizer()
         return self._ontology_harmonizer_instance
+
+    def _preflight_credentials(self) -> None:
+        if self._credential_checker is None or self._credentials_checked:
+            return
+        self._credential_checker.check()
+        self._credentials_checked = True
