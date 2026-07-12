@@ -343,8 +343,10 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "reviewer": None,
                 "collect_metadata": False,
                 "dev_out_dir": ".dev",
-                "dev_run_id": "20260623T142233",
-            },
+                    "dev_run_id": "20260623T142233",
+                    "generate_queries": False,
+                    "max_generated_queries": 3,
+                },
         ),
         (
             "harmonize_datasets",

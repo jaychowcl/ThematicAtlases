@@ -25,6 +25,7 @@ class Atlas:
         collector: AtlasCollector | None = None,
         filterer: AtlasFilterer | None = None,
         harmonizer: AtlasHarmonizer | None = None,
+        query_generator=None,
     ):
         self.metadata = metadata
         epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
@@ -45,6 +46,7 @@ class Atlas:
             publication_text_reviewer=publication_text_reviewer,
         )
         self._harmonizer = harmonizer or AtlasHarmonizer()
+        self._query_generator_instance = query_generator
 
     def create_atlas(
         self,
@@ -59,6 +61,8 @@ class Atlas:
         collect_metadata: bool = True,
         dev_out_dir: str | None = ".dev",
         harmonization_details_out: str | None = None,
+        generate_queries: bool = False,
+        max_generated_queries: int = 3,
     ) -> dict:
         run_id = self._dev_run_id()
         logger.info("Atlas create_atlas progress stage=collect-datasets")
@@ -74,6 +78,8 @@ class Atlas:
             collect_metadata=collect_metadata,
             dev_out_dir=dev_out_dir,
             dev_run_id=run_id,
+            generate_queries=generate_queries,
+            max_generated_queries=max_generated_queries,
         )
         logger.info(
             "Atlas create_atlas progress stage=collect-datasets-complete accessions=%s publication_texts=%s",
@@ -124,8 +130,18 @@ class Atlas:
         collect_metadata: bool = True,
         dev_out_dir: str | None = ".dev",
         dev_run_id: str | None = None,
+        generate_queries: bool = False,
+        max_generated_queries: int = 3,
     ) -> dict:
         run_id = dev_run_id or self._dev_run_id()
+        if generate_queries:
+            query = self._queries_with_generated(
+                query=query,
+                file=file,
+                theme=theme,
+                max_generated_queries=max_generated_queries,
+            )
+            file = None
         logger.info("Atlas collect_datasets progress stage=collect-accessions")
         accessions = self._collect_jsons(
             query=query,
@@ -226,6 +242,48 @@ class Atlas:
 
     def _harmonize_jsons(self, datasets: dict) -> dict:
         return self._harmonizer.harmonize_jsons(datasets=datasets)
+
+    def _queries_with_generated(
+        self,
+        query: list[str] | None,
+        file: str | None,
+        theme: str | None,
+        max_generated_queries: int,
+    ) -> list[str]:
+        if theme is None or not theme.strip():
+            raise ValueError("generate_queries requires a non-empty theme")
+
+        queries = list(query or [])
+        if file is not None:
+            queries.extend(self._load_queries(file=file))
+
+        generated = self._query_generator().generate_queries(
+            theme,
+            max_queries=max_generated_queries,
+        )
+        generated_queries = generated.get("queries")
+        if not isinstance(generated_queries, list) or not all(
+            isinstance(value, str) and value.strip() for value in generated_queries
+        ):
+            raise ValueError("query generator returned an invalid queries list")
+
+        queries.extend(generated_queries)
+        return queries
+
+    def _load_queries(self, file: str) -> list[str]:
+        with open(file, encoding="utf-8") as handle:
+            return [
+                line.strip()
+                for line in handle
+                if line.strip() and not line.strip().startswith("#")
+            ]
+
+    def _query_generator(self):
+        if self._query_generator_instance is None:
+            from agentic_curator import QueryGenerator
+
+            self._query_generator_instance = QueryGenerator()
+        return self._query_generator_instance
 
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:

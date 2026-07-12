@@ -6,8 +6,6 @@ import logging
 import sys
 from pathlib import Path
 
-from agentic_curator import QueryGenerator
-
 from ThematicAtlases.atlas import Atlas
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
@@ -85,6 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--theme", default=None)
     collect.add_argument("--theme-file", default=None)
     collect.add_argument("--query-generator", action="store_true", default=False)
+    collect.add_argument("--max-generated-queries", type=_positive_int, default=3)
     collect.add_argument(
         "--review-filter",
         choices=REVIEW_FILTER_CHOICES,
@@ -115,6 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--theme", default=None)
     create.add_argument("--theme-file", default=None)
     create.add_argument("--query-generator", action="store_true", default=False)
+    create.add_argument("--max-generated-queries", type=_positive_int, default=3)
     create.add_argument("--harmonization-details-out", default=None)
     create.add_argument(
         "--review-filter",
@@ -168,37 +168,6 @@ def _input_value(value: str | None, file: str | None) -> str | None:
     return value
 
 
-def _load_queries(file: str) -> list[str]:
-    with open(file, encoding="utf-8") as handle:
-        return [
-            line.strip()
-            for line in handle
-            if line.strip() and not line.strip().startswith("#")
-        ]
-
-
-def _queries_with_generated(
-    query: list[str] | None,
-    file: str | None,
-    theme: str,
-) -> list[str]:
-    queries = list(query or [])
-
-    if file is not None:
-        queries.extend(_load_queries(file))
-
-    generated = QueryGenerator().generate_queries(theme, max_queries=3)
-    generated_queries = generated.get("queries")
-
-    if not isinstance(generated_queries, list) or not all(
-        isinstance(value, str) and value.strip() for value in generated_queries
-    ):
-        raise ValueError("query generator returned an invalid queries list")
-
-    queries.extend(generated_queries)
-    return queries
-
-
 def _review_filter(value: str) -> str:
     return value.replace("-", "_")
 
@@ -233,18 +202,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "collect-datasets":
         theme = _input_value(value=args.theme, file=args.theme_file)
-        query = args.query
-        file = args.file
-
-        if args.query_generator:
-            if theme is None or not theme.strip():
-                parser.error("--query-generator requires --theme or --theme-file")
-            query = _queries_with_generated(query=query, file=file, theme=theme)
-            file = None
-
         atlas.collect_datasets(
-            query=query,
-            file=file,
+            query=args.query,
+            file=args.file,
             out=args.out,
             theme=theme,
             review_filter=_review_filter(args.review_filter),
@@ -252,21 +212,14 @@ def main(argv: list[str] | None = None) -> int:
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,
             dev_out_dir=_dev_out_dir(args),
+            generate_queries=args.query_generator,
+            max_generated_queries=args.max_generated_queries,
         )
     elif args.command == "create-atlas":
         theme = _input_value(value=args.theme, file=args.theme_file)
-        query = args.query
-        file = args.file
-
-        if args.query_generator:
-            if theme is None or not theme.strip():
-                parser.error("--query-generator requires --theme or --theme-file")
-            query = _queries_with_generated(query=query, file=file, theme=theme)
-            file = None
-
         atlas.create_atlas(
-            query=query,
-            file=file,
+            query=args.query,
+            file=args.file,
             out=args.out,
             theme=theme,
             review_filter=_review_filter(args.review_filter),
@@ -275,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
             collect_metadata=not args.skip_metadata,
             dev_out_dir=_dev_out_dir(args),
             harmonization_details_out=args.harmonization_details_out,
+            generate_queries=args.query_generator,
+            max_generated_queries=args.max_generated_queries,
         )
     elif args.command == "harmonize-datasets":
         with open(args.file, encoding="utf-8") as handle:

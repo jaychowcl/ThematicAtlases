@@ -139,21 +139,21 @@ def test_query_generator_flag_and_theme_file_are_forwarded_to_create_method(
     assert RecordingCollectionAtlas.calls[0]["generate_queries"] is True
 
 
-def test_query_generator_requires_non_empty_theme(tmp_path, monkeypatch) -> None:
+def test_query_generator_with_empty_theme_is_forwarded_to_method(tmp_path, monkeypatch) -> None:
     theme_file = tmp_path / "theme.txt"
     theme_file.write_text("\n", encoding="utf-8")
     RecordingCollectionAtlas.calls = []
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
-    with pytest.raises(SystemExit, match="2"):
-        main([
-            "collect-datasets",
-            "--theme-file",
-            str(theme_file),
-            "--query-generator",
-        ])
+    assert main([
+        "collect-datasets",
+        "--theme-file",
+        str(theme_file),
+        "--query-generator",
+    ]) == 0
 
-    assert RecordingCollectionAtlas.calls == []
+    assert RecordingCollectionAtlas.calls[0]["theme"] == "\n"
+    assert RecordingCollectionAtlas.calls[0]["generate_queries"] is True
 
 
 def test_query_generator_is_not_called_without_flag(monkeypatch) -> None:
@@ -467,6 +467,8 @@ def test_collect_datasets_passes_options_to_atlas(
             reviewer=None,
             collect_metadata=True,
             dev_out_dir=".dev",
+            generate_queries=False,
+            max_generated_queries=3,
         ):
             self.__class__.calls.append(
                 {
@@ -480,6 +482,8 @@ def test_collect_datasets_passes_options_to_atlas(
                     "reviewer": reviewer,
                     "collect_metadata": collect_metadata,
                     "dev_out_dir": dev_out_dir,
+                    "generate_queries": generate_queries,
+                    "max_generated_queries": max_generated_queries,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -526,6 +530,8 @@ def test_collect_datasets_passes_options_to_atlas(
             "reviewer": None,
             "collect_metadata": False,
             "dev_out_dir": ".dev/custom",
+            "generate_queries": False,
+            "max_generated_queries": 3,
         }
     ]
 
@@ -583,6 +589,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             collect_metadata=True,
             dev_out_dir=".dev",
             harmonization_details_out=None,
+            generate_queries=False,
+            max_generated_queries=3,
         ):
             self.__class__.calls.append(
                 {
@@ -597,6 +605,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "collect_metadata": collect_metadata,
                     "dev_out_dir": dev_out_dir,
                     "harmonization_details_out": harmonization_details_out,
+                    "generate_queries": generate_queries,
+                    "max_generated_queries": max_generated_queries,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -643,6 +653,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "collect_metadata": False,
             "dev_out_dir": None,
             "harmonization_details_out": "harmonization.json",
+            "generate_queries": False,
+            "max_generated_queries": 3,
         }
     ]
 
