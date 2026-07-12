@@ -1,6 +1,8 @@
 import json
 import logging
 
+import pytest
+
 from ThematicAtlases.atlas import Atlas
 
 
@@ -53,6 +55,84 @@ class RecordingFilterer:
             "accessions": list(jsons or []),
             "publication_texts": {},
         }
+
+
+class RecordingQueryGenerator:
+    calls = []
+
+    def generate_queries(self, theme, max_queries=3):
+        self.__class__.calls.append((theme, max_queries))
+        return {"queries": ["generated one", "generated two"]}
+
+
+def test_collect_datasets_generates_queries_inside_atlas(tmp_path) -> None:
+    query_file = tmp_path / "queries.txt"
+    query_file.write_text("# ignored\nfile query\n", encoding="utf-8")
+    RecordingCollector.calls = []
+    RecordingQueryGenerator.calls = []
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        query_generator=RecordingQueryGenerator(),
+    ).collect_datasets(
+        query=["explicit query"],
+        file=str(query_file),
+        theme="fibrosis theme",
+        generate_queries=True,
+        max_generated_queries=2,
+    )
+
+    assert RecordingQueryGenerator.calls == [("fibrosis theme", 2)]
+    assert RecordingCollector.calls[0]["query"] == [
+        "explicit query",
+        "file query",
+        "generated one",
+        "generated two",
+    ]
+    assert RecordingCollector.calls[0]["file"] is None
+
+
+def test_collect_datasets_validates_generated_queries_before_collection() -> None:
+    class InvalidQueryGenerator:
+        def generate_queries(self, theme, max_queries=3):
+            return {"queries": [""]}
+
+    RecordingCollector.calls = []
+
+    with pytest.raises(ValueError, match="invalid queries list"):
+        Atlas(
+            metadata={},
+            collector=RecordingCollector(),
+            query_generator=InvalidQueryGenerator(),
+        ).collect_datasets(theme="fibrosis", generate_queries=True)
+
+    assert RecordingCollector.calls == []
+
+
+def test_collect_datasets_requires_theme_when_generating_queries() -> None:
+    RecordingCollector.calls = []
+
+    with pytest.raises(ValueError, match="requires a non-empty theme"):
+        Atlas(metadata={}, collector=RecordingCollector()).collect_datasets(
+            theme=" ",
+            generate_queries=True,
+        )
+
+    assert RecordingCollector.calls == []
+
+
+def test_collect_datasets_does_not_create_query_generator_without_flag() -> None:
+    class UnexpectedQueryGenerator:
+        def generate_queries(self, theme, max_queries=3):
+            raise AssertionError("query generator should not be called")
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        query_generator=UnexpectedQueryGenerator(),
+    ).collect_datasets(query=["manual query"])
 
 
 def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> None:

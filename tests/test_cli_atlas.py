@@ -77,14 +77,6 @@ class FakeGEOWrapper:
         ]
 
 
-class RecordingQueryGenerator:
-    calls = []
-
-    def generate_queries(self, theme, max_queries=3):
-        self.__class__.calls.append((theme, max_queries))
-        return {"queries": ["generated one", "generated two"]}
-
-
 class RecordingCollectionAtlas:
     calls = []
 
@@ -100,15 +92,13 @@ class RecordingCollectionAtlas:
         return {"accessions": [], "publication_texts": {}}
 
 
-def test_query_generator_appends_to_explicit_and_file_queries(
+def test_query_generator_flag_is_forwarded_to_collect_method(
     tmp_path,
     monkeypatch,
 ) -> None:
     query_file = tmp_path / "queries.txt"
     query_file.write_text("# ignored\nfile query\n", encoding="utf-8")
-    RecordingQueryGenerator.calls = []
     RecordingCollectionAtlas.calls = []
-    monkeypatch.setattr(cli_module, "QueryGenerator", RecordingQueryGenerator)
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
     assert main([
@@ -122,22 +112,18 @@ def test_query_generator_appends_to_explicit_and_file_queries(
         "--query-generator",
     ]) == 0
 
-    assert RecordingQueryGenerator.calls == [("fibrosis theme", 3)]
-    assert RecordingCollectionAtlas.calls[0]["query"] == [
-        "explicit query",
-        "file query",
-        "generated one",
-        "generated two",
-    ]
-    assert RecordingCollectionAtlas.calls[0]["file"] is None
+    assert RecordingCollectionAtlas.calls[0]["query"] == ["explicit query"]
+    assert RecordingCollectionAtlas.calls[0]["file"] == str(query_file)
+    assert RecordingCollectionAtlas.calls[0]["generate_queries"] is True
+    assert RecordingCollectionAtlas.calls[0]["max_generated_queries"] == 3
 
 
-def test_query_generator_uses_theme_file_for_create_atlas(tmp_path, monkeypatch) -> None:
+def test_query_generator_flag_and_theme_file_are_forwarded_to_create_method(
+    tmp_path, monkeypatch
+) -> None:
     theme_file = tmp_path / "theme.txt"
     theme_file.write_text("theme from file", encoding="utf-8")
-    RecordingQueryGenerator.calls = []
     RecordingCollectionAtlas.calls = []
-    monkeypatch.setattr(cli_module, "QueryGenerator", RecordingQueryGenerator)
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
     assert main([
@@ -149,20 +135,14 @@ def test_query_generator_uses_theme_file_for_create_atlas(tmp_path, monkeypatch)
         "--query-generator",
     ]) == 0
 
-    assert RecordingQueryGenerator.calls == [("theme from file", 3)]
-    assert RecordingCollectionAtlas.calls[0]["query"] == [
-        "generated one",
-        "generated two",
-    ]
     assert RecordingCollectionAtlas.calls[0]["theme"] == "theme from file"
+    assert RecordingCollectionAtlas.calls[0]["generate_queries"] is True
 
 
 def test_query_generator_requires_non_empty_theme(tmp_path, monkeypatch) -> None:
     theme_file = tmp_path / "theme.txt"
     theme_file.write_text("\n", encoding="utf-8")
-    RecordingQueryGenerator.calls = []
     RecordingCollectionAtlas.calls = []
-    monkeypatch.setattr(cli_module, "QueryGenerator", RecordingQueryGenerator)
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
     with pytest.raises(SystemExit, match="2"):
@@ -173,42 +153,17 @@ def test_query_generator_requires_non_empty_theme(tmp_path, monkeypatch) -> None
             "--query-generator",
         ])
 
-    assert RecordingQueryGenerator.calls == []
     assert RecordingCollectionAtlas.calls == []
 
 
 def test_query_generator_is_not_called_without_flag(monkeypatch) -> None:
-    class UnexpectedQueryGenerator:
-        def __init__(self):
-            raise AssertionError("query generator should not be created")
-
     RecordingCollectionAtlas.calls = []
-    monkeypatch.setattr(cli_module, "QueryGenerator", UnexpectedQueryGenerator)
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
     assert main(["collect-datasets", "--query", "manual query"]) == 0
 
     assert RecordingCollectionAtlas.calls[0]["query"] == ["manual query"]
-
-
-def test_query_generator_error_prevents_collection(monkeypatch) -> None:
-    class FailingQueryGenerator:
-        def generate_queries(self, theme, max_queries=3):
-            raise RuntimeError("LLM unavailable")
-
-    RecordingCollectionAtlas.calls = []
-    monkeypatch.setattr(cli_module, "QueryGenerator", FailingQueryGenerator)
-    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
-
-    with pytest.raises(RuntimeError, match="LLM unavailable"):
-        main([
-            "collect-datasets",
-            "--theme",
-            "fibrosis",
-            "--query-generator",
-        ])
-
-    assert RecordingCollectionAtlas.calls == []
+    assert RecordingCollectionAtlas.calls[0]["generate_queries"] is False
 
 
 def test_collect_datasets_does_not_emit_stdout(
