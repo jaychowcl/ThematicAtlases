@@ -45,6 +45,7 @@ Root project files:
 
 ```text
 pyproject.toml
+requirements.txt
 README.md
 LICENSE
 .gitignore
@@ -79,8 +80,9 @@ tests/test_theme_fibrosis.py
 - Version metadata is `0.1.0`.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
-- Runtime dependencies contain `agentic-curator` from `jaychowcl/agentic_curator`, `requests>=2.31`, and `meta-standards-converter` from `jaychowcl/meta_standards_converter`.
+- Runtime dependencies contain `agentic-curator` from `jaychowcl/agentic_curator`, `google-auth>=2,<3`, `meta-standards-converter` from `jaychowcl/meta_standards_converter`, and `requests>=2.31,<3`. The Git dependencies intentionally track their default branches.
 - The `dev` optional dependency group contains `pytest>=8`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`.
 - The package uses a `src/` layout with setuptools package discovery.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
 

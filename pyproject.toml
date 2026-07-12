@@ -12,8 +12,9 @@ license = "GPL-3.0-or-later"
 authors = []
 dependencies = [
     "agentic-curator @ git+https://github.com/jaychowcl/agentic_curator.git",
-    "requests>=2.31",
+    "google-auth>=2,<3",
     "meta-standards-converter @ git+https://github.com/jaychowcl/meta_standards_converter.git",
+    "requests>=2.31,<3",
 ]
 
 [project.optional-dependencies]

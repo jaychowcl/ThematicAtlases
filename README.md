@@ -17,7 +17,7 @@ The filtering stage builds a shared `publication_texts` map, fetching open-acces
 Install the package from the repository root:
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install -r requirements.txt
 ```
 
 For development and tests:
@@ -41,7 +41,7 @@ python3 -m ThematicAtlases.cli_atlas --help
 ### Requirements
 
 - Python `>=3.10`
-- Runtime dependencies: `requests`, `agentic-curator`, and `meta-standards-converter`
+- Runtime dependencies: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`
 - Optional development dependency: `pytest`
 
 ## Quickstart

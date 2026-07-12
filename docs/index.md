@@ -20,7 +20,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: runtime-and-packaging
   title: Runtime And Packaging
   anchor: runtime-and-packaging
-  keywords: pyproject, setuptools, version, agentic-curator, requests, meta_standards_converter, dependencies, pytest, console script, thematic-atlas
+  keywords: pyproject, requirements.txt, setuptools, version, agentic-curator, google-auth, requests, meta_standards_converter, dependencies, pytest, editable install, console script, thematic-atlas
 
 - id: public-api
   title: Public API
