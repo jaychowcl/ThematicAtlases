@@ -1,26 +1,105 @@
 # Theme to curate against
 
-theme: fibrosis
-criteria:
-- publication includes studied samples, specimens, cohorts, models, tissues, cells, or datasets that exhibit fibrosis or fibrotic biology.
+theme: >
+  Human bulk, single-cell, single-nucleus, or spatial transcriptomic datasets
+  containing at least one profiled sample with established fibrosis or an
+  explicitly documented fibrotic phenotype.
 
+objective: >
+  Curate gene-expression datasets suitable for investigating shared and
+  organ- or disease-specific transcriptional patterns of fibrosis across human
+  tissues, diseases, cell populations, and spatial regions.
 
-Direct evidence may include:
-- Direct statements that samples come from fibrotic tissue, fibrosis patients, fibrotic disease models, scarred tissue, or fibrotic lesions.
-- Descriptions of profibrotic markers or processes, such as collagen deposition, extracellular matrix accumulation, fibroblast activation, myofibroblast differentiation, tissue stiffening, scarring, or wound-healing fibrosis.
-- Sample annotations, cohort descriptions, disease labels, experimental conditions, or phenotype descriptions that connect the studied samples to fibrosis.
+dataset_level_inclusion:
+  - The publication or metadata must reference a dataset containing gene-expression measurements.
+  - The assay must be bulk transcriptomics, single-cell transcriptomics,
+    single-nucleus transcriptomics, or spatial transcriptomics.
+  - At least one profiled biological sample, specimen, tissue region, cell
+    population, culture, organoid, or ex vivo preparation must satisfy the
+    fibrosis evidence criteria below.
+  - A dataset qualifies as a whole when it contains at least one qualifying
+    fibrotic sample. Non-fibrotic controls and comparator samples in the same
+    dataset should be retained.
+  - Samples must be human-derived. Animal-only datasets do not qualify.
 
-Indirect evidence may include:
-- Statements that samples come from tissue, patients, disease models, cells that exhibit 
-conditions known to be fibrotic. eg. end stage heart failure, cirrhosis.
+relevant_direct_evidence:
+  - The profiled samples are explicitly described as fibrotic, fibrosed,
+    scarred, or originating from fibrosis patients or fibrotic lesions.
+  - The profiled samples have a clinical or pathological diagnosis of fibrosis,
+    including a fibrosis stage, histological fibrosis assessment, or documented
+    fibrotic remodelling.
+  - The profiled samples come from a condition whose defining sampled state
+    establishes advanced fibrosis, such as explicitly diagnosed cirrhotic liver
+    tissue.
+  - The publication or dataset metadata explicitly links the profiled samples
+    to organ fibrosis, disease-associated fibrosis, or a fibrotic tissue state.
+  - Spatial regions or transcriptomic cell populations are explicitly annotated
+    as belonging to fibrotic tissue, fibrotic lesions, scars, or fibrotic niches.
 
-Indirect evidence statements must include the link between the indirect evidence and fibrosis eg. patient has Cirrhosis which suggest fibrosis because cirrhosis is defined by advanced fibrosis with distortion of the liver’s normal architecture.
+unsure_evidence:
+  - Human samples are exposed to a fibrosis-inducing or profibrotic treatment,
+    but an established fibrotic phenotype is not demonstrated.
+  - The samples show fibroblast activation, myofibroblast differentiation,
+    extracellular-matrix production, collagen expression, tissue stiffening,
+    wound healing, or tissue remodelling without explicit evidence of fibrosis.
+  - The samples come from a disease frequently associated with fibrosis, but
+    fibrosis is not confirmed for the profiled cohort or specimens.
+  - Fibrosis is described for the broader study population, but it is unclear
+    whether the sequenced samples are the fibrotic samples.
+  - The publication appears relevant, but the available text or metadata does
+    not establish the assay type or the connection between fibrosis and the
+    profiled samples.
+  - The dataset contains induced human in-vitro or ex-vivo fibrosis models
+    without direct confirmation that fibrosis was achieved.
 
-Do not consider:
-- General background claims about fibrosis unless they describe the actual studied samples.
-- Mentions of fibrosis that are unrelated to the publication’s referenced samples.
+not_sufficient_alone:
+  - Expression of individual profibrotic markers.
+  - Presence of fibroblasts or myofibroblasts.
+  - Collagen, extracellular-matrix, TGF-beta, mechanotransduction, wound-healing,
+    or tissue-remodelling terminology.
+  - A disease name that can be associated with fibrosis.
+  - Fibrosis mentioned only in the introduction, discussion, cited literature,
+    future directions, or general biological background.
+  - A profibrotic perturbation applied to otherwise non-fibrotic samples.
+  - Fibrosis measured only as an outcome outside the samples subjected to
+    transcriptomic profiling.
 
-Evidence Scoring:
-"direct" if evidence is direct evidence towards judgement
-"indirect" if evdience indirectly infered towards judgement
-"context" if evidence is just additonal context for judge
+exclude:
+  - Animal-only datasets.
+  - Studies without gene-expression or transcriptomic measurements.
+  - Proteomics-only, metabolomics-only, epigenomics-only, imaging-only,
+    histology-only, or genotype-only datasets.
+  - Studies of healthy fibroblast biology with no fibrosis-linked sample state.
+  - Cancer-associated fibroblast or tumour-stroma datasets unless the profiled
+    samples are explicitly linked to fibrosis or a fibrotic tissue state.
+  - Acute wound-healing studies without established or plausibly persistent
+    fibrotic remodelling.
+  - Publications that discuss fibrosis but do not connect it to samples in the
+    referenced dataset.
+
+evidence_requirements:
+  - Extract evidence about both the assay and the fibrosis status of the
+    actually profiled samples.
+  - Do not infer sample-level fibrosis from general background statements.
+  - Do not transfer a fibrosis label from one cohort or experiment to a
+    different set of profiled samples.
+  - Prefer sample annotations, cohort descriptions, pathology, clinical
+    diagnoses, fibrosis stages, experimental-group definitions, and dataset
+    metadata.
+  - When fibrosis is inferred rather than explicit, explain the biological or
+    clinical link and return an unsure judgement.
+
+judgement_rules:
+  relevant: >
+    The evidence establishes that the dataset uses an allowed human
+    transcriptomic assay and contains at least one profiled sample with
+    established or explicitly documented fibrosis.
+  unsure: >
+    The study plausibly contains relevant human transcriptomic samples, but the
+    fibrosis phenotype, assay eligibility, or connection to the profiled
+    samples is indirect or incomplete. Induced fibrosis without confirmation
+    belongs here.
+  not_relevant: >
+    The dataset lacks an allowed transcriptomic assay, lacks qualifying human
+    fibrotic samples, or mentions fibrosis only as background or as biology not
+    demonstrated in the profiled samples.

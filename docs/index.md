@@ -27,6 +27,11 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
   anchor: public-api
   keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
 
+- id: fibrosis-curation-theme
+  title: Fibrosis Curation Theme
+  anchor: fibrosis-curation-theme
+  keywords: fibrosis, theme_fibrosis, human, bulk, single-cell, single-nucleus, spatial, transcriptomics, relevant, unsure, not relevant, induced model, controls, review-filter
+
 - id: cli-atlas
   title: CLI Atlas
   anchor: cli-atlas

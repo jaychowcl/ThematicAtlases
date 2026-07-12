@@ -7,7 +7,7 @@ The current implemented path collects Europe PMC dataset datalinks from keyword-
 ```text
 python3 -m ThematicAtlases.cli_atlas create-atlas
 python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json
-python3 -m ThematicAtlases.cli_atlas create-atlas --theme-file .dev/theme_fibrosis.txt --query-generator --out atlas.json
+python3 -m ThematicAtlases.cli_atlas create-atlas --theme-file docs/theme_fibrosis.txt --query-generator --review-filter not-relevant --out atlas.json
 ```
 
 `create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
@@ -68,6 +68,7 @@ tests/test_filterer.py
 tests/test_geo_wrapper.py
 tests/test_harmonizer.py
 tests/test_review.py
+tests/test_theme_fibrosis.py
 ```
 
 <a id="runtime-and-packaging"></a>
@@ -101,6 +102,15 @@ from agentic_curator import ThematicReviewer
 ```
 
 `ThematicAtlases` depends on `agentic-curator` but does not expose `ThematicAtlases.curator` or a curator CLI. The atlas workflow can call `ThematicReviewer` during `collect_datasets()` when a `theme` is supplied. Without a theme, thematic review is skipped and the publication text enrichment behavior is preserved.
+
+<a id="fibrosis-curation-theme"></a>
+### Fibrosis Curation Theme
+
+`docs/theme_fibrosis.txt` is the canonical inclusion policy for the current fibrosis atlas. It targets human bulk, single-cell, single-nucleus, and spatial transcriptomic datasets containing at least one profiled sample with established or explicitly documented fibrosis. A qualifying dataset retains its non-fibrotic controls and comparator samples.
+
+Confirmed sample-level fibrosis supports `relevant`. Induced fibrosis without confirmation, profibrotic stimulation, fibroblast activation, extracellular-matrix remodelling, wound healing, or a fibrosis-associated disease without sample-level confirmation supports `unsure`, not direct inclusion. Animal-only, non-transcriptomic, background-only, and otherwise unlinked studies are `not relevant`.
+
+Use `--review-filter not-relevant` with this theme so unsure candidates remain available for manual review. The same theme may be passed to `--query-generator`; query generation broadens discovery, while the thematic reviewer applies the sample- and assay-level inclusion policy.
 
 <a id="atlas-workflow"></a>
 ### Atlas Workflow

@@ -98,8 +98,9 @@ then collect datasets using those generated queries:
 
 ```bash
 thematic-atlas collect-datasets \
-  --theme-file .dev/theme_fibrosis.txt \
+  --theme-file docs/theme_fibrosis.txt \
   --query-generator \
+  --review-filter not-relevant \
   --out atlas_datasets.json
 ```
 
