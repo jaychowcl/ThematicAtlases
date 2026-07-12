@@ -52,6 +52,7 @@ env/
 # Local logs and generated outputs
 *.log
 .logs/
+.out/
 results/
 results_*.csv
 PanGPA.log

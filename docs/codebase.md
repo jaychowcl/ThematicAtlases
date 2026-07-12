@@ -9,6 +9,7 @@ python3 -m ThematicAtlases.cli_atlas create-atlas
 python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json
 python3 -m ThematicAtlases.cli_atlas create-atlas --theme-file docs/theme_fibrosis.txt --query-generator --review-filter not-relevant --out atlas.json
 python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json --dev-trace
+.env/bin/python run_fibrosis_atlas.py
 ```
 
 `create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
@@ -49,6 +50,7 @@ Root project files:
 ```text
 pyproject.toml
 requirements.txt
+run_fibrosis_atlas.py
 README.md
 LICENSE
 .gitignore
@@ -72,6 +74,7 @@ tests/test_filterer.py
 tests/test_geo_wrapper.py
 tests/test_harmonizer.py
 tests/test_review.py
+tests/test_run_fibrosis_atlas.py
 tests/test_summary.py
 tests/test_theme_fibrosis.py
 ```
@@ -117,6 +120,24 @@ from agentic_curator import ThematicReviewer
 Confirmed sample-level fibrosis supports `relevant`. Induced fibrosis without confirmation, profibrotic stimulation, fibroblast activation, extracellular-matrix remodelling, wound healing, or a fibrosis-associated disease without sample-level confirmation supports `unsure`, not direct inclusion. Animal-only, non-transcriptomic, background-only, and otherwise unlinked studies are `not relevant`.
 
 Use `--review-filter not-relevant` with this theme so unsure candidates remain available for manual review. The same theme may be passed to `--query-generator`; query generation broadens discovery, while the thematic reviewer applies the sample- and assay-level inclusion policy.
+
+<a id="fibrosis-run-script"></a>
+### Fibrosis Run Script
+
+`run_fibrosis_atlas.py` is the fixed, repository-root entry point for the complete fibrosis workflow. Run it only with `.env/bin/python`; it prints all resolved settings before network or model work and writes every generated artifact under the ignored `.out/` directory.
+
+The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables full LLM-backed web-search harmonization with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")` and calls `configure_framework("snomed", remove=True)` before injecting the store into `OntologyHarmonizer` and `AtlasHarmonizer`.
+
+Prepare and run it with:
+
+```bash
+python3 -m venv .env
+.env/bin/python -m pip install -e ".[dev]"
+gcloud auth application-default login
+.env/bin/python run_fibrosis_atlas.py
+```
+
+The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
 
 <a id="atlas-workflow"></a>
 ### Atlas Workflow

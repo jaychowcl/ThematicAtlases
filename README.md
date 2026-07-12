@@ -46,6 +46,21 @@ python3 -m ThematicAtlases.cli_atlas --help
 
 ## Quickstart
 
+### Full fibrosis atlas run
+
+Prepare the repository environment, then configure Google Application Default Credentials and a quota project for the LLM-backed query, review, and ontology stages:
+
+```bash
+python3 -m venv .env
+.env/bin/python -m pip install -e ".[dev]"
+gcloud auth application-default login
+.env/bin/python run_fibrosis_atlas.py
+```
+
+`run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, removes `snomed` from the configured `OntoStore`, performs ontology harmonization, and enables the full development trace.
+
+Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atlas.summary.json`, `fibrosis_harmonization_details.json`, `fibrosis_atlas.log`, the ontology store, and timestamped trace bundles under `.out/dev_trace/`.
+
 Collect GEO datasets from a query:
 
 ```bash
