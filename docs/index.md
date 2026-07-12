@@ -35,7 +35,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, full run, max publications, GEO, dev trace, OntoStore, snomed, ADC, .env, .out, summary, harmonization details
+  keywords: run_fibrosis_atlas.py, full run, max publications, GEO, dev trace, OntoStore, snomed, streaming OWL, SQLite staging, ADC, .env, .out, summary, harmonization details
 
 - id: cli-atlas
   title: CLI Atlas
@@ -57,7 +57,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
+  keywords: Atlas, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector
