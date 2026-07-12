@@ -38,19 +38,19 @@ Refresh ranges after editing `docs/codebase.md`.
 
 - id: cli-atlas
   title: CLI Atlas
-  lines: 412-430
+  lines: 414-432
   anchor: cli-atlas
   keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-datasets, harmonize-datasets, skip-metadata, dev-out-dir, no-dev-output, metadata-repository, max-publications, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, publication_texts, .env, verbose, log-file, after subcommand, stdout logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
-  lines: 432-437
+  lines: 434-439
   anchor: archive-reference
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
   title: Test And Verification Status
-  lines: 439-457
+  lines: 441-459
   anchor: test-and-verification-status
   keywords: tests, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
@@ -76,30 +76,30 @@ Refresh ranges after editing `docs/codebase.md`.
 
 - id: harmonizer
   title: Harmonizer
-  lines: 190-193
+  lines: 190-195
   anchor: harmonizer
-  keywords: AtlasHarmonizer, harmonize_datasets, ontology_harmonizer, pass-through, placeholder
+  keywords: AtlasHarmonizer, harmonize_datasets, OntologyHarmonizer, harmonize_miniml_json, accession_metadata, publication context, harmonization details, strategy, target_paths, failure isolation
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
-  lines: 195-333
+  lines: 197-335
   anchor: epmc-wrapper
   keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, publication_text_sections, collect_datalinks, fullTextXML, section delimiters, abstract fallback, deduplicate, publications, abstractText, text_source, publication_texts, publication_text_ref, original_datalinks, accession_metadata, Europe PMC, search response, datalinks, XML fallback, failed publications, Scholix, accession records, progress logs, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling
-  lines: 335-346
+  lines: 337-348
   anchor: rate-handling
   keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay
 
 - id: arrayexpress-wrapper
   title: ArrayExpress Wrapper
-  lines: 348-360
+  lines: 350-362
   anchor: arrayexpress-wrapper
   keywords: ArrayExpressWrapper, arrayexpress, placeholder, metadata_repository, metadata_source, metadata_status, accession_metadata, E-MTAB, E-GEOD, E-MEXP
 
 - id: geo-wrapper
   title: GEO Wrapper
-  lines: 362-410
+  lines: 364-412
   anchor: geo-wrapper
   keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs

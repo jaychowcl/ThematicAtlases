@@ -109,9 +109,9 @@ from agentic_curator import ThematicReviewer
 Public methods:
 
 - `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
-- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev")`: runs `collect_datasets(..., out=None)`, passes the dataset object into `harmonize_datasets(...)`, optionally writes the final atlas object to `out`, and returns that object.
+- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", harmonization_details_out=None)`: runs `collect_datasets(..., out=None)`, passes the dataset object into `harmonize_datasets(...)`, optionally writes harmonization details and the final atlas object, and returns that object.
 - `collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev")`: runs accession collection, repository filtering, optional metadata enrichment, publication text mapping, and optional thematic review. It returns/writes an atlas object with `accessions` and `publication_texts`.
-- `harmonize_datasets(datasets)`: placeholder for future ontology harmonization. It currently returns the input atlas object unchanged.
+- `harmonize_datasets(datasets, harmonization_details_out=None)`: delegates to `AtlasHarmonizer`, replaces supported accession metadata with harmonized MINiML JSON, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
@@ -190,7 +190,9 @@ Current responsibilities:
 <a id="harmonizer"></a>
 ### Harmonizer
 
-`ThematicAtlases.harmonizer.AtlasHarmonizer` remains a low-level harmonization extension point. The public `Atlas.harmonize_datasets(datasets)` placeholder currently returns the input atlas object unchanged and is reserved for future `ontology_harmonizer` integration.
+`ThematicAtlases.harmonizer.AtlasHarmonizer` iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
+
+The optional harmonization details file is a JSON list keyed by each entry's `datalink_id`. Successful entries include `harmonization_targets`, `strategy`, and `target_paths`; unavailable/error entries include status and errors where applicable. The upstream harmonizer uses its default `websearch` strategy and LLM behavior. Dependency injection through `Atlas(harmonizer=...)` and `AtlasHarmonizer(ontology_harmonizer_factory=...)` keeps provider/network calls mockable in tests.
 
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
@@ -417,9 +419,9 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
 - `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
-- `harmonize-datasets [--verbose] [--log-file LOG_FILE]`
+- `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
@@ -427,7 +429,7 @@ Logging options may appear before or after the subcommand. Default logging level
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
-`collect-datasets` and `create-atlas` both call `Atlas.collect_datasets()` for the collection and publication text mapping stage. Supplying `--theme` or `--theme-file` opts into `agentic_curator` thematic review for each unique publication text before review filtering is applied. `create-atlas` then calls `Atlas.harmonize_datasets()`, which currently returns the dataset object unchanged.
+`collect-datasets` and `create-atlas` both call `Atlas.collect_datasets()` for the collection and publication text mapping stage. Supplying `--theme` or `--theme-file` opts into `agentic_curator` thematic review for each unique publication text before review filtering is applied. `create-atlas` then calls `Atlas.harmonize_datasets()`. The standalone `harmonize-datasets` command reads `--file`, transforms the atlas, and writes required `--out`; both harmonizing commands can write the optional details sidecar.
 
 <a id="archive-reference"></a>
 ## Archive Reference
@@ -439,7 +441,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, collector query loading, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, harmonizer placeholder behavior, atlas CLI behavior, README section and code-flow documentation, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, collector query loading, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, ontology harmonization/replacement/context/failure behavior, atlas CLI behavior, README section and code-flow documentation, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, harmonizer, and CLI tests mock network/provider access.
 
 Useful checks:
 

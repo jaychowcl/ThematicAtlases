@@ -10,7 +10,7 @@ The current workflow supports GEO and ArrayExpress routing. GEO accessions are n
 
 The filtering stage builds a shared `publication_texts` map, fetching open-access full text from Europe PMC when available and falling back to abstracts when full text is missing. Accession publication entries then receive `publication_text_ref` pointers into that shared map so full text is not duplicated on every accession. When a theme is supplied, ThematicAtlases can call `agentic-curator` to review publication text for thematic relevance and optionally remove not-relevant or unsure publications.
 
-Current limitations: ArrayExpress metadata is placeholder-only, and `harmonize_datasets()` is currently a pass-through placeholder for future ontology harmonization.
+`create-atlas` now passes each accession's MINiML-style `accession_metadata` to `agentic-curator` ontology harmonization. Harmonized MINiML replaces the original metadata, while status fields preserve unavailable and per-accession error outcomes. ArrayExpress metadata remains placeholder-only.
 
 ## Installation
 
@@ -78,6 +78,7 @@ Create a final atlas object in one command:
 ```bash
 thematic-atlas create-atlas \
   --query "fibrosis RNA-seq human" \
+  --harmonization-details-out harmonization_details.json \
   --out atlas.json
 ```
 
@@ -111,7 +112,7 @@ Commands:
 
 - `collect-datasets`: searches Europe PMC, collects datalinks, filters selected repositories, optionally enriches accession metadata, builds `publication_texts`, attaches `publication_text_ref`, optionally runs thematic review, and returns/writes an atlas object.
 - `create-atlas`: orchestrates `collect-datasets` followed by `harmonize-datasets`, then returns/writes the final atlas object.
-- `harmonize-datasets`: placeholder command for future harmonization behavior.
+- `harmonize-datasets`: reads an existing atlas JSON, harmonizes accession MINiML metadata, and writes the transformed atlas.
 
 The CLI is a thin adapter over the Python API. It parses command arguments, normalizes CLI spellings such as `not-relevant` to API values such as `not_relevant`, instantiates `Atlas(metadata={})`, and calls the matching orchestrator method. Result JSON is written only when `--out` is supplied; successful commands keep stdout free of result data so progress logging and data output stay separate.
 
@@ -131,6 +132,11 @@ Filtering options:
 - `--theme TEXT`: theme passed to `agentic-curator` for publication relevance review.
 - `--theme-file PATH`: read the theme from a UTF-8 file; takes precedence over `--theme`.
 - `--review-filter {none,not-relevant,not-relevant-and-unsure}`: choose whether reviewed not-relevant and unsure publications are removed. Non-`none` filters require a theme.
+
+Harmonization options:
+
+- `create-atlas --harmonization-details-out PATH`: optionally write target, strategy, path, status, and error details separately from the atlas.
+- `harmonize-datasets --file INPUT --out OUTPUT [--harmonization-details-out PATH]`: transform an existing atlas file. Input and output paths are required.
 
 Output shapes:
 
@@ -153,10 +159,10 @@ Major orchestrator methods:
 - `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev") -> dict`
   - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, optional thematic review settings, and optional dev snapshot directory.
   - Output: atlas object with `accessions` and `publication_texts`.
-- `Atlas.harmonize_datasets(datasets) -> dict`
+- `Atlas.harmonize_datasets(datasets, harmonization_details_out=None) -> dict`
   - Inputs: a `collect_datasets()` atlas object.
-  - Output: currently returns the input object unchanged.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev") -> dict`
+  - Output: an atlas whose supported `accession_metadata` values have been replaced by harmonized MINiML JSON.
+- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", harmonization_details_out=None) -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
 
@@ -170,13 +176,13 @@ Code flow:
 4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
 5. `AtlasFilterer` accepts collected rows or an atlas-shaped object, reuses existing publication text entries, fetches missing full text or abstract fallback text through `EuropePMCWrapper`, attaches `publication_text_ref`, and returns the final object with `accessions` and `publication_texts`.
 6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested.
-7. `Atlas.harmonize_datasets()` is reserved for future ontology harmonization behavior and currently returns the dataset object unchanged.
+7. `AtlasHarmonizer` builds publication context from nested titles and abstracts, calls `OntologyHarmonizer.harmonize_miniml_json()`, replaces successful `accession_metadata`, annotates unavailable/error outcomes, and optionally writes detailed target/strategy results.
 
 Major components:
 
 - `AtlasCollector`: query loading, Europe PMC accession collection, repository filtering, metadata-handler routing, and optional intermediate JSON output.
 - `AtlasFilterer`: publication text collection, `publication_text_ref` attachment, thematic review, review-based filtering, and atlas object construction.
-- `AtlasHarmonizer`: placeholder harmonization extension point.
+- `AtlasHarmonizer`: per-accession MINiML ontology harmonization, publication-context construction, failure isolation, and optional detail output.
 - `EuropePMCWrapper`: publication search, datalink collection, full-text/abstract text enrichment, retry handling, and datalink XML fallback.
 - `GEOWrapper`: GEO accession normalization to GSE and `geo2json` metadata enrichment.
 - `ArrayExpressWrapper`: placeholder ArrayExpress metadata enrichment.
