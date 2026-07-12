@@ -6,6 +6,8 @@ import logging
 import sys
 from pathlib import Path
 
+from agentic_curator import QueryGenerator
+
 from ThematicAtlases.atlas import Atlas
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
@@ -82,6 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument("--theme", default=None)
     collect.add_argument("--theme-file", default=None)
+    collect.add_argument("--query-generator", action="store_true", default=False)
     collect.add_argument(
         "--review-filter",
         choices=REVIEW_FILTER_CHOICES,
@@ -111,6 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--theme", default=None)
     create.add_argument("--theme-file", default=None)
+    create.add_argument("--query-generator", action="store_true", default=False)
     create.add_argument("--harmonization-details-out", default=None)
     create.add_argument(
         "--review-filter",
@@ -164,6 +168,37 @@ def _input_value(value: str | None, file: str | None) -> str | None:
     return value
 
 
+def _load_queries(file: str) -> list[str]:
+    with open(file, encoding="utf-8") as handle:
+        return [
+            line.strip()
+            for line in handle
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+
+def _queries_with_generated(
+    query: list[str] | None,
+    file: str | None,
+    theme: str,
+) -> list[str]:
+    queries = list(query or [])
+
+    if file is not None:
+        queries.extend(_load_queries(file))
+
+    generated = QueryGenerator().generate_queries(theme, max_queries=3)
+    generated_queries = generated.get("queries")
+
+    if not isinstance(generated_queries, list) or not all(
+        isinstance(value, str) and value.strip() for value in generated_queries
+    ):
+        raise ValueError("query generator returned an invalid queries list")
+
+    queries.extend(generated_queries)
+    return queries
+
+
 def _review_filter(value: str) -> str:
     return value.replace("-", "_")
 
@@ -197,11 +232,21 @@ def main(argv: list[str] | None = None) -> int:
     atlas = Atlas(metadata={})
 
     if args.command == "collect-datasets":
+        theme = _input_value(value=args.theme, file=args.theme_file)
+        query = args.query
+        file = args.file
+
+        if args.query_generator:
+            if theme is None or not theme.strip():
+                parser.error("--query-generator requires --theme or --theme-file")
+            query = _queries_with_generated(query=query, file=file, theme=theme)
+            file = None
+
         atlas.collect_datasets(
-            query=args.query,
-            file=args.file,
+            query=query,
+            file=file,
             out=args.out,
-            theme=_input_value(value=args.theme, file=args.theme_file),
+            theme=theme,
             review_filter=_review_filter(args.review_filter),
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
@@ -209,11 +254,21 @@ def main(argv: list[str] | None = None) -> int:
             dev_out_dir=_dev_out_dir(args),
         )
     elif args.command == "create-atlas":
+        theme = _input_value(value=args.theme, file=args.theme_file)
+        query = args.query
+        file = args.file
+
+        if args.query_generator:
+            if theme is None or not theme.strip():
+                parser.error("--query-generator requires --theme or --theme-file")
+            query = _queries_with_generated(query=query, file=file, theme=theme)
+            file = None
+
         atlas.create_atlas(
-            query=args.query,
-            file=args.file,
+            query=query,
+            file=file,
             out=args.out,
-            theme=_input_value(value=args.theme, file=args.theme_file),
+            theme=theme,
             review_filter=_review_filter(args.review_filter),
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,

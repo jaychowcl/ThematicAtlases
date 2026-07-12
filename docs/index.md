@@ -40,7 +40,7 @@ Refresh ranges after editing `docs/codebase.md`.
   title: CLI Atlas
   lines: 414-432
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, out, create-atlas, collect-datasets, harmonize-datasets, skip-metadata, dev-out-dir, no-dev-output, metadata-repository, max-publications, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, publication_texts, .env, verbose, log-file, after subcommand, stdout logging, progress logs, stats logs, debug logs, quiet stdout
+  keywords: cli_atlas, argparse, query, file, query-generator, QueryGenerator, generated queries, agentic_curator, max_queries, out, create-atlas, collect-datasets, harmonize-datasets, skip-metadata, dev-out-dir, no-dev-output, metadata-repository, max-publications, geo, arrayexpress, theme, theme-file, review-filter, not-relevant, unsure, publication_texts, .env, verbose, log-file, after subcommand, stdout logging, progress logs, stats logs, debug logs, quiet stdout
 
 - id: archive-reference
   title: Archive Reference
@@ -52,7 +52,7 @@ Refresh ranges after editing `docs/codebase.md`.
   title: Test And Verification Status
   lines: 441-459
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
+  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, query generator, query ordering, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
 ## API Sections
 

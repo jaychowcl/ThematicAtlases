@@ -7,6 +7,7 @@ The current implemented path collects Europe PMC dataset datalinks from keyword-
 ```text
 python3 -m ThematicAtlases.cli_atlas create-atlas
 python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json
+python3 -m ThematicAtlases.cli_atlas create-atlas --theme-file .dev/theme_fibrosis.txt --query-generator --out atlas.json
 ```
 
 `create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
@@ -419,13 +420,13 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. For `collect-datasets` and `create-atlas`, `--out` writes the atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. `--skip-metadata` keeps repository-filtered accessions but skips metadata handler enrichment. `--dev-out-dir` controls the development snapshot directory and defaults to `.dev`; `--no-dev-output` disables snapshots. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`.
+`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--query-generator` requires a non-empty theme, calls `agentic_curator.QueryGenerator.generate_queries(theme, max_queries=3)`, and appends the returned Europe PMC queries after explicit and file queries. Without the flag no query-generation LLM call occurs. For `collect-datasets` and `create-atlas`, `--out` writes the atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. `--skip-metadata` keeps repository-filtered accessions but skips metadata handler enrichment. `--dev-out-dir` controls the development snapshot directory and defaults to `.dev`; `--no-dev-output` disables snapshots. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
@@ -441,7 +442,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, collector query loading, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, ontology harmonization/replacement/context/failure behavior, atlas CLI behavior, README section and code-flow documentation, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, harmonizer, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, collector query loading, query-generator CLI integration and ordering, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, ontology harmonization/replacement/context/failure behavior, atlas CLI behavior, README section and code-flow documentation, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, harmonizer, and CLI tests mock network/provider access.
 
 Useful checks:
 

@@ -93,6 +93,19 @@ thematic-atlas collect-datasets \
   --out atlas_datasets.json
 ```
 
+Generate up to three Europe PMC queries from a theme with `agentic-curator`,
+then collect datasets using those generated queries:
+
+```bash
+thematic-atlas collect-datasets \
+  --theme-file .dev/theme_fibrosis.txt \
+  --query-generator \
+  --out atlas_datasets.json
+```
+
+When manual `--query` values or a query `--file` are also supplied, generated
+queries are appended after them.
+
 ## CLI
 
 Logging options may appear before or after the subcommand:
@@ -120,6 +133,7 @@ Collection options:
 
 - `--query TEXT`: query string; may be repeated.
 - `--file PATH`: UTF-8 query file for `collect-datasets`/`create-atlas`.
+- `--query-generator`: use the theme to generate up to three additional Europe PMC queries with `agentic-curator`; requires `--theme` or `--theme-file`.
 - `--out PATH`: write JSON output.
 - `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
 - `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
