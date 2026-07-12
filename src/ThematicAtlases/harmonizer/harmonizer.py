@@ -1,4 +1,5 @@
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 
@@ -11,11 +12,15 @@ class AtlasHarmonizer:
         ontology_harmonizer=None,
         ontology_harmonizer_factory=None,
         credential_checker=None,
+        max_workers: int = 1,
     ):
         self._ontology_harmonizer_instance = ontology_harmonizer
         self._ontology_harmonizer_factory = ontology_harmonizer_factory
         self._credential_checker = credential_checker
         self._credentials_checked = False
+        if max_workers < 1:
+            raise ValueError("max_workers must be a positive integer")
+        self._max_workers = max_workers
 
     def harmonize_datasets(
         self,
@@ -23,41 +28,85 @@ class AtlasHarmonizer:
         details_out: str | None = None,
         harmonization_options: dict | None = None,
     ) -> tuple[dict, list[dict]]:
-        accessions = []
-        details = []
-        ontology_harmonizer = self._ontology_harmonizer_instance
+        source_accessions = [dict(record) for record in datasets.get("accessions", [])]
+        accessions = list(source_accessions)
+        details: list[dict | None] = [None] * len(accessions)
         harmonization_options = dict(harmonization_options or {})
+        work_by_key = {}
 
-        for record in datasets.get("accessions", []):
-            record = dict(record)
+        for index, record in enumerate(accessions):
             metadata = record.get("accession_metadata")
             datalink_id = record.get("datalink_id", "")
 
             if not isinstance(metadata, (dict, list)):
                 record["ontology_harmonization_status"] = "unavailable"
                 record.pop("ontology_harmonization_error", None)
-                details.append(
-                    {"datalink_id": datalink_id, "status": "unavailable"}
-                )
-                accessions.append(record)
+                details[index] = {
+                    "datalink_id": datalink_id,
+                    "status": "unavailable",
+                }
                 continue
 
-            if ontology_harmonizer is None:
-                if harmonization_options.get("llm", True):
-                    self._preflight_credentials()
-                ontology_harmonizer = self._ontology_harmonizer()
+            context = self.publication_context(record)
+            key = self._work_key(
+                metadata=metadata,
+                publication_context=context,
+                harmonization_options=harmonization_options,
+            )
+            work_by_key.setdefault(
+                key,
+                {
+                    "metadata": metadata,
+                    "publication_context": context,
+                    "indices": [],
+                },
+            )["indices"].append(index)
 
-            try:
-                harmonization = ontology_harmonizer.harmonize_miniml_json(
-                    publication_context=self.publication_context(record),
-                    miniml_json=copy.deepcopy(metadata),
-                    **harmonization_options,
-                )
-                record["accession_metadata"] = harmonization["miniml_json"]
-                record["ontology_harmonization_status"] = "available"
-                record.pop("ontology_harmonization_error", None)
-                details.append(
-                    {
+        if work_by_key:
+            if harmonization_options.get("llm", True):
+                self._preflight_credentials()
+            ontology_harmonizer = self._ontology_harmonizer()
+            work_items = list(work_by_key.values())
+
+            def run(item):
+                try:
+                    return ontology_harmonizer.harmonize_miniml_json(
+                        publication_context=item["publication_context"],
+                        miniml_json=copy.deepcopy(item["metadata"]),
+                        **harmonization_options,
+                    ), None
+                except Exception as error:
+                    return None, error
+
+            if self._max_workers == 1:
+                outcomes = [run(item) for item in work_items]
+            else:
+                with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+                    outcomes = list(executor.map(run, work_items))
+
+            for item, (harmonization, error) in zip(work_items, outcomes):
+                for index in item["indices"]:
+                    record = accessions[index]
+                    datalink_id = record.get("datalink_id", "")
+                    if error is not None:
+                        logger.error(
+                            "Atlas ontology harmonization failed datalink_id=%r error=%r",
+                            datalink_id,
+                            error,
+                        )
+                        record["ontology_harmonization_status"] = "error"
+                        record["ontology_harmonization_error"] = str(error)
+                        details[index] = {
+                            "datalink_id": datalink_id,
+                            "status": "error",
+                            "error": str(error),
+                        }
+                        continue
+
+                    record["accession_metadata"] = harmonization["miniml_json"]
+                    record["ontology_harmonization_status"] = "available"
+                    record.pop("ontology_harmonization_error", None)
+                    details[index] = {
                         "datalink_id": datalink_id,
                         "status": "available",
                         "harmonization_targets": harmonization.get(
@@ -66,23 +115,8 @@ class AtlasHarmonizer:
                         "strategy": harmonization.get("strategy"),
                         "target_paths": harmonization.get("target_paths"),
                     }
-                )
-            except Exception as error:
-                logger.exception(
-                    "Atlas ontology harmonization failed datalink_id=%r",
-                    datalink_id,
-                )
-                record["ontology_harmonization_status"] = "error"
-                record["ontology_harmonization_error"] = str(error)
-                details.append(
-                    {
-                        "datalink_id": datalink_id,
-                        "status": "error",
-                        "error": str(error),
-                    }
-                )
 
-            accessions.append(record)
+        details = [detail for detail in details if detail is not None]
 
         result = {**datasets, "accessions": accessions}
         if details_out is not None:
@@ -98,6 +132,22 @@ class AtlasHarmonizer:
             details_out,
         )
         return result, details
+
+    def _work_key(
+        self,
+        metadata,
+        publication_context: str | None,
+        harmonization_options: dict,
+    ) -> str:
+        return json.dumps(
+            {
+                "metadata": metadata,
+                "publication_context": publication_context,
+                "harmonization_options": harmonization_options,
+            },
+            sort_keys=True,
+            default=repr,
+        )
 
     def publication_context(self, record: dict) -> str | None:
         contexts = []
