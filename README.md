@@ -121,6 +121,11 @@ thematic-atlas collect-datasets \
   --out atlas_datasets.json
 ```
 
+The generator defaults to one comprehensive domain-neutral query: independent
+mandatory theme concepts are AND-joined, while relevant synonyms and variants
+within each concept are OR-joined. It uses additional queries only when one
+query cannot bridge a genuine logical, semantic, syntax, or length gap.
+
 When manual `--query` values or a query `--file` are also supplied, generated
 queries are appended after them.
 

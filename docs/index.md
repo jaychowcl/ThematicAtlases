@@ -30,7 +30,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-curation-theme
   title: Fibrosis Curation Theme
   anchor: fibrosis-curation-theme
-  keywords: fibrosis, theme_fibrosis, human, bulk, single-cell, single-nucleus, spatial, transcriptomics, relevant, unsure, not relevant, induced model, controls, review-filter
+  keywords: fibrosis, theme_fibrosis, human, bulk, single-cell, single-nucleus, spatial, transcriptomics, comprehensive query, AND concepts, OR synonyms, unbridgeable gap, relevant, unsure, not relevant, induced model, controls, review-filter
 
 - id: fibrosis-run-script
   title: Fibrosis Run Script
