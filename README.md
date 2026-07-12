@@ -241,7 +241,7 @@ Major components:
 - `EuropePMCWrapper`: publication search, datalink collection, full-text/abstract text enrichment, retry handling, and datalink XML fallback.
 - `GEOWrapper`: GEO accession normalization to GSE and `geo2json` metadata enrichment.
 - `ArrayExpressWrapper`: placeholder ArrayExpress metadata enrichment.
-- `PublicationTextReviewer`: thematic review integration, review reuse, judgement parsing, and review-filter application.
+- `PublicationTextReviewer`: thematic review integration, compact 500-character MINiML context construction, review reuse, judgement parsing, and review-filter application. Full accession metadata remains stored but is not sent to the thematic-review LLM.
 
 Python logging is library-style: modules define loggers but do not configure global logging. Applications should configure logging themselves. The CLI configures logging from `-v`, `-vv`, and `--log-file`.
 

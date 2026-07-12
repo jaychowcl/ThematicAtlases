@@ -228,7 +228,18 @@ def test_filter_jsons_reviews_publication_texts_with_agentic_curator_namespace(
     records = [
         {
             "datalink_id": "GSE1",
-            "accession_metadata": {"series": {"title": "Series metadata"}},
+            "accession_metadata": {
+                "series": {
+                    "title": "Series metadata",
+                    "summary": "must not enter the prompt",
+                },
+                "platform": {"title": "platform must not enter the prompt"},
+                "sample": [{"channel": [{
+                    "source": "fibrotic lung",
+                    "organism": [{"value": "Homo sapiens"}],
+                    "extract_protocol": "must not enter the prompt",
+                }]}],
+            },
             "publications": [
                 {
                     "source": "MED",
@@ -251,11 +262,17 @@ def test_filter_jsons_reviews_publication_texts_with_agentic_curator_namespace(
         {
             "publication_text": "Text 1",
             "theme": "fibrosis",
-            "metadata": {"series": {"title": "Series metadata"}},
+            "metadata": (
+                "Study: Series metadata | source=fibrotic lung; "
+                "organism=Homo sapiens"
+            ),
             "title": "Fibrosis atlas publication",
         }
     ]
     assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == "relevant"
+    assert result["accessions"][0]["accession_metadata"] == records[0][
+        "accession_metadata"
+    ]
 
 
 def test_filter_jsons_reuses_existing_agentic_curator_review() -> None:

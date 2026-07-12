@@ -1,6 +1,10 @@
 import json
 import logging
 
+from agentic_curator.curators.ontology_harmonizer import (
+    build_miniml_metadata_context,
+)
+
 ACCESSIONS = "accessions"
 AGENTIC_CURATOR = "agentic_curator"
 PUBLICATIONS = "publications"
@@ -65,7 +69,9 @@ class PublicationTextReviewer:
 
                 contexts[publication_ref] = {
                     "title": publication.get("title", ""),
-                    "metadata": record.get("accession_metadata"),
+                    "metadata": build_miniml_metadata_context(
+                        record.get("accession_metadata")
+                    ),
                 }
 
         return contexts
