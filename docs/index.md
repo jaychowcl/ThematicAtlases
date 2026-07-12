@@ -35,7 +35,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: cli-atlas
   title: CLI Atlas
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, query-generator, max-generated-queries, method-owned generation, out, create-atlas, collect-datasets, harmonize-datasets, metadata-repository, theme, review-filter, logging
+  keywords: cli_atlas, argparse, query, file, query-generator, max-generated-queries, method-owned generation, out, create-atlas, collect-datasets, harmonize-datasets, metadata-repository, theme, review-filter, dev-trace, summary, logging
 
 - id: archive-reference
   title: Archive Reference
@@ -52,7 +52,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, orchestrator, dependency injection, query_generator, credential_checker, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, snapshots
+  keywords: Atlas, orchestrator, dependency injection, query_generator, credential_checker, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector

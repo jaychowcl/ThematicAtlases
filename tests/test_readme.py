@@ -42,9 +42,10 @@ def test_readme_describes_major_code_flow_and_output_shape() -> None:
         "`publication_text_ref`",
         "`accessions` and `publication_texts`",
         "`--out`",
+        "`--dev-trace`",
         "`--dev-out-dir`",
-        "`--no-dev-output`",
-        "`YYYYMMDDTHHMMSS_01_collected_accessions.json`",
+        "`atlas.summary.json`",
+        "`03_pre_harmonization_accession_metadata.json`",
     ]
 
     for phrase in required_phrases:

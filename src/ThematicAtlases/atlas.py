@@ -1,12 +1,13 @@
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
+from ThematicAtlases.summary import build_atlas_summary, summary_path
+from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
@@ -64,15 +65,47 @@ class Atlas:
         max_publications: int | None = None,
         reviewer=None,
         collect_metadata: bool = True,
-        dev_out_dir: str | None = ".dev",
+        dev_trace: bool = False,
+        dev_out_dir: str = ".dev",
         harmonization_details_out: str | None = None,
         generate_queries: bool = False,
         max_generated_queries: int = 3,
         harmonization_options: dict | None = None,
     ) -> dict:
         run_id = self._dev_run_id()
+        trace = None
+        if dev_trace:
+            trace = DevTraceWriter(
+                root=dev_out_dir,
+                run_id=run_id,
+                manifest={
+                    "command": "create-atlas",
+                    "created_at": run_id,
+                    "atlas_out": out,
+                    "artifacts": [
+                        "00_run_manifest.json",
+                        "01_collected_accessions.json",
+                        "02_reviewed_datasets.json",
+                        "03_pre_harmonization_accession_metadata.json",
+                        "04_harmonization_details.json",
+                        "05_post_harmonization_accession_metadata.json",
+                        "06_final_atlas.json",
+                        "07_summary.json",
+                    ],
+                    "query": query,
+                    "query_file": file,
+                    "theme": theme,
+                    "review_filter": review_filter,
+                    "metadata_repositories": metadata_repositories,
+                    "max_publications": max_publications,
+                    "collect_metadata": collect_metadata,
+                    "generate_queries": generate_queries,
+                    "max_generated_queries": max_generated_queries,
+                    "harmonization_options": harmonization_options,
+                },
+            )
         logger.info("Atlas create_atlas progress stage=collect-datasets")
-        datasets = self.collect_datasets(
+        collect_kwargs = dict(
             query=query,
             file=file,
             out=None,
@@ -82,28 +115,39 @@ class Atlas:
             max_publications=max_publications,
             reviewer=reviewer,
             collect_metadata=collect_metadata,
-            dev_out_dir=dev_out_dir,
-            dev_run_id=run_id,
             generate_queries=generate_queries,
             max_generated_queries=max_generated_queries,
         )
+        if trace is not None:
+            collect_kwargs["_trace_writer"] = trace
+        datasets = self.collect_datasets(**collect_kwargs)
         logger.info(
             "Atlas create_atlas progress stage=collect-datasets-complete accessions=%s publication_texts=%s",
             len(datasets.get("accessions", [])),
             len(datasets.get("publication_texts", {})),
         )
         logger.info("Atlas create_atlas progress stage=harmonize-datasets")
-        result = self.harmonize_datasets(
-            datasets=datasets,
-            harmonization_details_out=harmonization_details_out,
-            harmonization_options=harmonization_options,
-        )
-        self._write_dev_json(
-            stage_name="03_harmonized_datasets",
-            result=result,
-            dev_out_dir=dev_out_dir,
-            run_id=run_id,
-        )
+        if trace is not None:
+            trace.write(
+                "03_pre_harmonization_accession_metadata.json",
+                trace.metadata(datasets.get("accessions", [])),
+            )
+            result, details = self._harmonizer.harmonize_datasets(
+                datasets=datasets,
+                details_out=harmonization_details_out,
+                harmonization_options=harmonization_options,
+            )
+            trace.write("04_harmonization_details.json", details)
+            trace.write(
+                "05_post_harmonization_accession_metadata.json",
+                trace.metadata(result.get("accessions", [])),
+            )
+        else:
+            result = self.harmonize_datasets(
+                datasets=datasets,
+                harmonization_details_out=harmonization_details_out,
+                harmonization_options=harmonization_options,
+            )
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
         logger.info(
@@ -115,6 +159,14 @@ class Atlas:
         if out is not None:
             logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
             self._write_json(result=result, out=out)
+            summary = build_atlas_summary(atlas=result, atlas_path=out)
+            self._write_json(result=summary, out=str(summary_path(out)))
+        else:
+            summary = build_atlas_summary(atlas=result)
+
+        if trace is not None:
+            trace.write("06_final_atlas.json", result)
+            trace.write("07_summary.json", summary)
 
         logger.info(
             "Atlas create_atlas stats final_accessions=%s publication_texts=%s output_path=%s",
@@ -135,12 +187,10 @@ class Atlas:
         max_publications: int | None = None,
         reviewer=None,
         collect_metadata: bool = True,
-        dev_out_dir: str | None = ".dev",
-        dev_run_id: str | None = None,
         generate_queries: bool = False,
         max_generated_queries: int = 3,
+        _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
-        run_id = dev_run_id or self._dev_run_id()
         if generate_queries or theme is not None:
             self._preflight_credentials()
         if generate_queries:
@@ -160,12 +210,8 @@ class Atlas:
             max_publications=max_publications,
             collect_metadata=collect_metadata,
         )
-        self._write_dev_json(
-            stage_name="01_collected_accessions",
-            result=accessions,
-            dev_out_dir=dev_out_dir,
-            run_id=run_id,
-        )
+        if _trace_writer is not None:
+            _trace_writer.write("01_collected_accessions.json", accessions)
         logger.info(
             "Atlas collect_datasets progress stage=collect-accessions-complete accessions=%s",
             len(accessions),
@@ -177,12 +223,8 @@ class Atlas:
             review_filter=review_filter,
             reviewer=reviewer,
         )
-        self._write_dev_json(
-            stage_name="02_collected_datasets",
-            result=result,
-            dev_out_dir=dev_out_dir,
-            run_id=run_id,
-        )
+        if _trace_writer is not None:
+            _trace_writer.write("02_reviewed_datasets.json", result)
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
         logger.info(
@@ -305,32 +347,6 @@ class Atlas:
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         with open(out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
-
-    def _write_dev_json(
-        self,
-        stage_name: str,
-        result: dict | list[dict],
-        dev_out_dir: str | None,
-        run_id: str,
-    ) -> None:
-        if dev_out_dir is None:
-            return
-
-        path = self._dev_output_path(
-            stage_name=stage_name,
-            dev_out_dir=dev_out_dir,
-            run_id=run_id,
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(
-            "Atlas dev snapshot progress stage=%s output_path=%s",
-            stage_name,
-            path,
-        )
-        self._write_json(result=result, out=str(path))
-
-    def _dev_output_path(self, stage_name: str, dev_out_dir: str, run_id: str) -> Path:
-        return Path(dev_out_dir) / f"{run_id}_{stage_name}.json"
 
     def _dev_run_id(self) -> str:
         return datetime.now().strftime("%Y%m%dT%H%M%S")

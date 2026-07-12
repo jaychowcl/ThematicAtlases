@@ -251,64 +251,16 @@ def test_collect_datasets_writes_final_atlas_object(tmp_path) -> None:
     assert outfile.read_text(encoding="utf-8") == '{\n  "accessions": [\n    {\n      "datalink_id": "GSE1",\n      "publication_text_ref": "1"\n    }\n  ],\n  "publication_texts": {\n    "1": {\n      "text": "full text"\n    }\n  }\n}'
 
 
-def test_collect_datasets_writes_timestamped_dev_snapshots_by_default(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    class LocalAtlas(Atlas):
-        def _dev_run_id(self):
-            return "20260623T142233"
-
-    monkeypatch.chdir(tmp_path)
-
-    LocalAtlas(
-        metadata={},
-        collector=RecordingCollector(),
-        filterer=RecordingFilterer(),
-    ).collect_datasets(query=["a"])
-
-    collected_accessions = tmp_path / ".dev" / "20260623T142233_01_collected_accessions.json"
-    collected_datasets = tmp_path / ".dev" / "20260623T142233_02_collected_datasets.json"
-
-    assert json.loads(collected_accessions.read_text(encoding="utf-8")) == [
-        {"datalink_id": "GSE1", "publications": []}
-    ]
-    assert json.loads(collected_datasets.read_text(encoding="utf-8")) == {
-        "accessions": [{"datalink_id": "GSE1", "publications": []}],
-        "publication_texts": {},
-    }
-
-
-def test_collect_datasets_dev_out_dir_none_writes_no_dev_snapshots(
-    tmp_path,
-    monkeypatch,
-) -> None:
+def test_collect_datasets_writes_no_dev_snapshots(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
     Atlas(
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
-    ).collect_datasets(query=["a"], dev_out_dir=None)
+    ).collect_datasets(query=["a"])
 
     assert not (tmp_path / ".dev").exists()
-
-
-def test_collect_datasets_writes_dev_snapshots_to_custom_directory(tmp_path) -> None:
-    class LocalAtlas(Atlas):
-        def _dev_run_id(self):
-            return "20260623T142233"
-
-    dev_dir = tmp_path / "debug"
-
-    LocalAtlas(
-        metadata={},
-        collector=RecordingCollector(),
-        filterer=RecordingFilterer(),
-    ).collect_datasets(query=["a"], dev_out_dir=str(dev_dir))
-
-    assert (dev_dir / "20260623T142233_01_collected_accessions.json").exists()
-    assert (dev_dir / "20260623T142233_02_collected_datasets.json").exists()
 
 
 def test_harmonize_datasets_delegates_to_harmonizer() -> None:
@@ -394,11 +346,9 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "max_publications": 25,
                 "reviewer": None,
                 "collect_metadata": False,
-                "dev_out_dir": ".dev",
-                    "dev_run_id": "20260623T142233",
-                    "generate_queries": False,
-                    "max_generated_queries": 3,
-                },
+                "generate_queries": False,
+                "max_generated_queries": 3,
+            },
         ),
         (
             "harmonize_datasets",
@@ -439,9 +389,29 @@ def test_create_atlas_writes_final_harmonized_object(tmp_path) -> None:
         "publication_texts": {"1": {"text": "full text"}},
         "harmonized": True,
     }
+    summary = json.loads((tmp_path / "atlas.summary.json").read_text(encoding="utf-8"))
+    assert summary["counts"] == {
+        "accessions": 1,
+        "publications": 0,
+        "publication_texts": 1,
+    }
 
 
-def test_create_atlas_writes_all_dev_snapshots_with_one_run_id(tmp_path) -> None:
+def test_create_atlas_without_output_or_trace_writes_no_files(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).create_atlas(query=["a"])
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
     class LocalAtlas(Atlas):
         def _dev_run_id(self):
             return "20260623T142233"
@@ -452,15 +422,21 @@ def test_create_atlas_writes_all_dev_snapshots_with_one_run_id(tmp_path) -> None
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
-    ).create_atlas(query=["a"], dev_out_dir=str(dev_dir))
+    ).create_atlas(query=["a"], dev_trace=True, dev_out_dir=str(dev_dir))
 
-    assert sorted(path.name for path in dev_dir.iterdir()) == [
-        "20260623T142233_01_collected_accessions.json",
-        "20260623T142233_02_collected_datasets.json",
-        "20260623T142233_03_harmonized_datasets.json",
+    run_dir = dev_dir / "20260623T142233"
+    assert sorted(path.name for path in run_dir.iterdir()) == [
+        "00_run_manifest.json",
+        "01_collected_accessions.json",
+        "02_reviewed_datasets.json",
+        "03_pre_harmonization_accession_metadata.json",
+        "04_harmonization_details.json",
+        "05_post_harmonization_accession_metadata.json",
+        "06_final_atlas.json",
+        "07_summary.json",
     ]
     assert json.loads(
-        (dev_dir / "20260623T142233_03_harmonized_datasets.json").read_text(
+        (run_dir / "06_final_atlas.json").read_text(
             encoding="utf-8"
         )
     ) == {

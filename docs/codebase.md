@@ -8,6 +8,7 @@ The current implemented path collects Europe PMC dataset datalinks from keyword-
 python3 -m ThematicAtlases.cli_atlas create-atlas
 python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json
 python3 -m ThematicAtlases.cli_atlas create-atlas --theme-file docs/theme_fibrosis.txt --query-generator --review-filter not-relevant --out atlas.json
+python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.json --dev-trace
 ```
 
 `create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
@@ -24,6 +25,8 @@ src/ThematicAtlases/
 ├── __init__.py
 ├── atlas.py
 ├── cli_atlas.py
+├── summary.py
+├── trace.py
 ├── collector/
 │   ├── __init__.py
 │   └── collector.py
@@ -69,6 +72,7 @@ tests/test_filterer.py
 tests/test_geo_wrapper.py
 tests/test_harmonizer.py
 tests/test_review.py
+tests/test_summary.py
 tests/test_theme_fibrosis.py
 ```
 
@@ -122,13 +126,13 @@ Use `--review-filter not-relevant` with this theme so unsure candidates remain a
 Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, query_generator=None, credential_checker=None)`: wires component instances and optional query-generation/credential-preflight dependencies.
-- `create_atlas(..., harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering, forwards harmonization options, and writes/returns the final atlas.
+- `create_atlas(..., dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
 - `collect_datasets(..., generate_queries=False, max_generated_queries=3)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
-Both `create_atlas()` and `collect_datasets()` write timestamped development snapshots by default under `.dev`. Passing `dev_out_dir=None` disables snapshots. `collect_datasets()` writes `{run_id}_01_collected_accessions.json` after accession collection and `{run_id}_02_collected_datasets.json` after publication text mapping. `create_atlas()` uses one shared run id and also writes `{run_id}_03_harmonized_datasets.json` after harmonization.
+`collect_datasets()` does not write development snapshots. When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, it writes a run directory under `dev_out_dir` containing a manifest, collection/review checkpoints, pre/post harmonization metadata, full harmonization targets/details, the final atlas, and the summary.
 
 <a id="collector"></a>
 ### Collector
@@ -434,17 +438,17 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
-The CLI forwards explicit queries, the query-file path, `--query-generator`, and `--max-generated-queries`; `Atlas.collect_datasets()` owns loading, ordering, generation, and validation. Explicit values precede file queries, followed by generated queries. Without the flag no query-generation LLM call occurs. Other collection, review, output, and snapshot options retain their existing behavior.
+The CLI forwards explicit queries, the query-file path, `--query-generator`, and `--max-generated-queries`; `Atlas.collect_datasets()` owns loading, ordering, generation, and validation. Explicit values precede file queries, followed by generated queries. Without the flag no query-generation LLM call occurs. `--dev-trace` is supported by `create-atlas` only; `--dev-out-dir` chooses its root directory.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
-`collect-datasets` and `create-atlas` both call `Atlas.collect_datasets()` for the collection and publication text mapping stage. Supplying `--theme` or `--theme-file` opts into `agentic_curator` thematic review for each unique publication text before review filtering is applied. `create-atlas` then calls `Atlas.harmonize_datasets()`. The standalone `harmonize-datasets` command reads `--file`, transforms the atlas, and writes required `--out`; both harmonizing commands can write the optional details sidecar.
+`collect-datasets` and `create-atlas` both call `Atlas.collect_datasets()` for the collection and publication text mapping stage. Supplying `--theme` or `--theme-file` opts into `agentic_curator` thematic review for each unique publication text before review filtering is applied. `create-atlas` then harmonizes the atlas, writes the requested final JSON and automatic summary, and optionally writes the trace bundle. The standalone `harmonize-datasets` command reads `--file`, transforms the atlas, and writes required `--out`; both harmonizing commands can write the optional details sidecar.
 
 <a id="archive-reference"></a>
 ## Archive Reference
@@ -456,12 +460,12 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
+Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
 
 Useful checks:
 
 ```bash
-.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/ae.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
+.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/summary.py src/ThematicAtlases/trace.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/ae.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
 .env/bin/python -m pytest
 ```
 

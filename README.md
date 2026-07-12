@@ -79,6 +79,8 @@ Create a final atlas object in one command:
 thematic-atlas create-atlas \
   --query "fibrosis RNA-seq human" \
   --harmonization-details-out harmonization_details.json \
+  --dev-trace \
+  --dev-out-dir .dev \
   --out atlas.json
 ```
 
@@ -140,8 +142,8 @@ Collection options:
 - `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
 - `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
 - `--skip-metadata`: keep repository-filtered accessions but skip metadata handler enrichment.
-- `--dev-out-dir PATH`: write timestamped development snapshots to this directory. Use `--dev-out-dir` to override the default `.dev` location.
-- `--no-dev-output`: disable development snapshot files.
+- `create-atlas --dev-trace`: write a complete timestamped development trace bundle.
+- `--dev-out-dir` `PATH`: choose the `create-atlas` trace root directory; defaults to `.dev` and is used only with `--dev-trace`.
 
 Filtering options:
 
@@ -158,7 +160,9 @@ Output shapes:
 
 - `collect-datasets` and `create-atlas` write an atlas object with `accessions` and `publication_texts`.
 - Successful commands do not print result JSON to stdout; use `--out` for data and logging options for progress.
-- Development snapshots are written by default under `.dev` with timestamped names such as `YYYYMMDDTHHMMSS_01_collected_accessions.json`, `YYYYMMDDTHHMMSS_02_collected_datasets.json`, and, for `create-atlas`, `YYYYMMDDTHHMMSS_03_harmonized_datasets.json`.
+- `create-atlas --out atlas.json` also writes `atlas.summary.json` with operational counts and a deterministic scientific metadata profile.
+- `create-atlas --dev-trace` writes `00_run_manifest.json` through `07_summary.json` under `.dev/YYYYMMDDTHHMMSS/`, including collected/reviewed stages, pre/post harmonization metadata, targets/details, the final atlas, and summary.
+- The trace includes `03_pre_harmonization_accession_metadata.json`, `04_harmonization_details.json`, and `05_post_harmonization_accession_metadata.json` for accession-level comparison and target inspection.
 
 ## Python API
 
@@ -172,13 +176,13 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", generate_queries=False, max_generated_queries=3) -> dict`
-  - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, optional thematic review settings, and optional dev snapshot directory.
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3) -> dict`
+  - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
   - Output: atlas object with `accessions` and `publication_texts`.
 - `Atlas.harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None) -> dict`
   - Inputs: a `collect_datasets()` atlas object.
   - Output: an atlas whose supported `accession_metadata` values have been replaced by harmonized MINiML JSON.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None) -> dict`
+- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None) -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
 

@@ -466,7 +466,6 @@ def test_collect_datasets_passes_options_to_atlas(
             max_publications=None,
             reviewer=None,
             collect_metadata=True,
-            dev_out_dir=".dev",
             generate_queries=False,
             max_generated_queries=3,
         ):
@@ -481,7 +480,6 @@ def test_collect_datasets_passes_options_to_atlas(
                     "max_publications": max_publications,
                     "reviewer": reviewer,
                     "collect_metadata": collect_metadata,
-                    "dev_out_dir": dev_out_dir,
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
                 }
@@ -508,8 +506,6 @@ def test_collect_datasets_passes_options_to_atlas(
                 "--max-publications",
                 "25",
                 "--skip-metadata",
-                "--dev-out-dir",
-                ".dev/custom",
             ]
         )
         == 0
@@ -529,36 +525,17 @@ def test_collect_datasets_passes_options_to_atlas(
             "max_publications": 25,
             "reviewer": None,
             "collect_metadata": False,
-            "dev_out_dir": ".dev/custom",
             "generate_queries": False,
             "max_generated_queries": 3,
         }
     ]
 
 
-def test_collect_datasets_no_dev_output_passes_none_to_atlas(
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch,
-) -> None:
-    class RecordingAtlas:
-        calls: list[dict] = []
-
-        def __init__(self, metadata: dict):
-            pass
-
-        def collect_datasets(self, **kwargs):
-            self.__class__.calls.append(kwargs)
-            return {"accessions": [], "publication_texts": {}}
-
-    RecordingAtlas.calls = []
-    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
-
-    assert main(["collect-datasets", "--query", "fibrosis", "--no-dev-output"]) == 0
-
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-    assert RecordingAtlas.calls[0]["dev_out_dir"] is None
+def test_collect_datasets_rejects_removed_dev_output_options() -> None:
+    with pytest.raises(SystemExit):
+        main(["collect-datasets", "--query", "fibrosis", "--dev-out-dir", ".dev"])
+    with pytest.raises(SystemExit):
+        main(["collect-datasets", "--query", "fibrosis", "--no-dev-output"])
 
 
 def test_collect_datasets_rejects_non_positive_max_publications() -> None:
@@ -587,6 +564,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             max_publications=None,
             reviewer=None,
             collect_metadata=True,
+            dev_trace=False,
             dev_out_dir=".dev",
             harmonization_details_out=None,
             generate_queries=False,
@@ -603,6 +581,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "max_publications": max_publications,
                     "reviewer": reviewer,
                     "collect_metadata": collect_metadata,
+                    "dev_trace": dev_trace,
                     "dev_out_dir": dev_out_dir,
                     "harmonization_details_out": harmonization_details_out,
                     "generate_queries": generate_queries,
@@ -629,7 +608,9 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "--max-publications",
                 "25",
                 "--skip-metadata",
-                "--no-dev-output",
+                "--dev-trace",
+                "--dev-out-dir",
+                ".dev/custom",
                 "--harmonization-details-out",
                 "harmonization.json",
             ]
@@ -651,7 +632,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "max_publications": 25,
             "reviewer": None,
             "collect_metadata": False,
-            "dev_out_dir": None,
+            "dev_trace": True,
+            "dev_out_dir": ".dev/custom",
             "harmonization_details_out": "harmonization.json",
             "generate_queries": False,
             "max_generated_queries": 3,

@@ -42,9 +42,9 @@ def _add_logging_options(
     )
 
 
-def _add_dev_output_options(parser: argparse.ArgumentParser) -> None:
+def _add_dev_trace_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dev-trace", action="store_true", default=False)
     parser.add_argument("--dev-out-dir", default=".dev")
-    parser.add_argument("--no-dev-output", action="store_true", default=False)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -73,7 +73,6 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--out", default=None)
     collect.add_argument("--max-publications", type=_positive_int, default=None)
     collect.add_argument("--skip-metadata", action="store_true", default=False)
-    _add_dev_output_options(collect)
     collect.add_argument(
         "--metadata-repository",
         action="append",
@@ -104,7 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--out", default=None)
     create.add_argument("--max-publications", type=_positive_int, default=None)
     create.add_argument("--skip-metadata", action="store_true", default=False)
-    _add_dev_output_options(create)
+    _add_dev_trace_options(create)
     create.add_argument(
         "--metadata-repository",
         action="append",
@@ -184,13 +183,6 @@ def _resolved_logging_options(args: argparse.Namespace) -> tuple[int, str | None
     return verbosity or 0, log_file
 
 
-def _dev_out_dir(args: argparse.Namespace) -> str | None:
-    if getattr(args, "no_dev_output", False):
-        return None
-
-    return getattr(args, "dev_out_dir", ".dev")
-
-
 def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
@@ -211,7 +203,6 @@ def main(argv: list[str] | None = None) -> int:
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,
-            dev_out_dir=_dev_out_dir(args),
             generate_queries=args.query_generator,
             max_generated_queries=args.max_generated_queries,
         )
@@ -226,7 +217,8 @@ def main(argv: list[str] | None = None) -> int:
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,
-            dev_out_dir=_dev_out_dir(args),
+            dev_trace=args.dev_trace,
+            dev_out_dir=args.dev_out_dir,
             harmonization_details_out=args.harmonization_details_out,
             generate_queries=args.query_generator,
             max_generated_queries=args.max_generated_queries,
