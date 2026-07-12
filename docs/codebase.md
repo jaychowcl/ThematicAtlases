@@ -109,10 +109,10 @@ from agentic_curator import ThematicReviewer
 
 Public methods:
 
-- `__init__(metadata: dict, epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, publication_text_reviewer=None, collector=None, filterer=None, harmonizer=None)`: wires component instances. Defaults preserve the live Europe PMC, GEO, and `PublicationTextReviewer` behavior. Tests and future integrations can inject full components or the lower-level factories.
-- `create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", harmonization_details_out=None)`: runs `collect_datasets(..., out=None)`, passes the dataset object into `harmonize_datasets(...)`, optionally writes harmonization details and the final atlas object, and returns that object.
-- `collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev")`: runs accession collection, repository filtering, optional metadata enrichment, publication text mapping, and optional thematic review. It returns/writes an atlas object with `accessions` and `publication_texts`.
-- `harmonize_datasets(datasets, harmonization_details_out=None)`: delegates to `AtlasHarmonizer`, replaces supported accession metadata with harmonized MINiML JSON, and optionally writes a details sidecar.
+- `__init__(metadata: dict, ..., harmonizer=None, query_generator=None, credential_checker=None)`: wires component instances and optional query-generation/credential-preflight dependencies.
+- `create_atlas(..., harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering, forwards harmonization options, and writes/returns the final atlas.
+- `collect_datasets(..., generate_queries=False, max_generated_queries=3)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review.
+- `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
@@ -193,7 +193,9 @@ Current responsibilities:
 
 `ThematicAtlases.harmonizer.AtlasHarmonizer` iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
 
-The optional harmonization details file is a JSON list keyed by each entry's `datalink_id`. Successful entries include `harmonization_targets`, `strategy`, and `target_paths`; unavailable/error entries include status and errors where applicable. The upstream harmonizer uses its default `websearch` strategy and LLM behavior. Dependency injection through `Atlas(harmonizer=...)` and `AtlasHarmonizer(ontology_harmonizer_factory=...)` keeps provider/network calls mockable in tests.
+The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
+
+`ThematicAtlases.credentials.GoogleCredentialPreflight` is an optional injected policy. It resolves Google ADC/project configuration and refreshes the token once without generating model content. An injected checker runs before method-owned query generation/thematic review and before eligible LLM-enabled harmonization.
 
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
@@ -420,13 +422,13 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-out-dir DIR] [--no-dev-output] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
-`--query` may be repeated. When `--query` and `--file` are both provided, explicit query values come before file query lines. `--query-generator` requires a non-empty theme, calls `agentic_curator.QueryGenerator.generate_queries(theme, max_queries=3)`, and appends the returned Europe PMC queries after explicit and file queries. Without the flag no query-generation LLM call occurs. For `collect-datasets` and `create-atlas`, `--out` writes the atlas object with `accessions` and `publication_texts`. `--metadata-repository` may be repeated on collection commands and accepts `geo` or `arrayexpress`; omitting it preserves GEO-only behavior. `--max-publications` accepts a positive integer and caps searched Europe PMC publications before datalink fetching. `--skip-metadata` keeps repository-filtered accessions but skips metadata handler enrichment. `--dev-out-dir` controls the development snapshot directory and defaults to `.dev`; `--no-dev-output` disables snapshots. `--theme-file` takes precedence over `--theme`. `--review-filter` accepts `none`, `not-relevant`, and `not-relevant-and-unsure`; CLI values are normalized to the Python API values `none`, `not_relevant`, and `not_relevant_and_unsure`.
+The CLI forwards explicit queries, the query-file path, `--query-generator`, and `--max-generated-queries`; `Atlas.collect_datasets()` owns loading, ordering, generation, and validation. Explicit values precede file queries, followed by generated queries. Without the flag no query-generation LLM call occurs. Other collection, review, output, and snapshot options retain their existing behavior.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
@@ -442,7 +444,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, collector query loading, query-generator CLI integration and ordering, repository selection, GEO filtering, ArrayExpress placeholder metadata, filterer publication text mapping and review behavior, ontology harmonization/replacement/context/failure behavior, atlas CLI behavior, README section and code-flow documentation, thematic review parsing/filtering, Europe PMC request parameter construction, cursor pagination, retry handling, publication field normalization, publication text enrichment and section parsing, datalink flattening, accession deduplication, and GEO-to-GSE resolution. Wrapper, filterer review, harmonizer, and CLI tests mock network/provider access.
+Live tests cover atlas orchestration, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
 
 Useful checks:
 

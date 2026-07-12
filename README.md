@@ -134,6 +134,7 @@ Collection options:
 - `--query TEXT`: query string; may be repeated.
 - `--file PATH`: UTF-8 query file for `collect-datasets`/`create-atlas`.
 - `--query-generator`: use the theme to generate up to three additional Europe PMC queries with `agentic-curator`; requires `--theme` or `--theme-file`.
+- `--max-generated-queries N`: generated-query limit from 1 to 3; defaults to 3.
 - `--out PATH`: write JSON output.
 - `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
 - `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
@@ -170,21 +171,40 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev") -> dict`
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", generate_queries=False, max_generated_queries=3) -> dict`
   - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, optional thematic review settings, and optional dev snapshot directory.
   - Output: atlas object with `accessions` and `publication_texts`.
-- `Atlas.harmonize_datasets(datasets, harmonization_details_out=None) -> dict`
+- `Atlas.harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None) -> dict`
   - Inputs: a `collect_datasets()` atlas object.
   - Output: an atlas whose supported `accession_metadata` values have been replaced by harmonized MINiML JSON.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", harmonization_details_out=None) -> dict`
+- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None) -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
 
 `Atlas` is the root orchestrator and dependency-injection boundary. Its constructor wires the collector, filterer, harmonizer, Europe PMC wrapper factory, metadata handlers, and publication text reviewer; tests and downstream applications can replace those components without changing the public workflow methods.
 
+Query loading, generation, ordering, and validation are method-owned; the CLI only forwards `generate_queries` and `max_generated_queries`. Applications may inject `query_generator` and `credential_checker` into `Atlas`.
+
+Advanced ontology configuration uses an injected upstream instance:
+
+```python
+from agentic_curator import OntologyHarmonizer
+from agentic_curator.curators.ontology_harmonizer import OntoStore
+from ThematicAtlases.harmonizer import AtlasHarmonizer
+
+store = OntoStore(storage_dir=".cache/ontologies")
+harmonizer = AtlasHarmonizer(
+    ontology_harmonizer=OntologyHarmonizer(ontostore=store),
+    max_workers=2,
+)
+atlas = Atlas(metadata={}, harmonizer=harmonizer)
+```
+
+`harmonization_options` forwards upstream controls such as `strategy`, `target_paths`, `llm`, and judge thresholds. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request.
+
 Code flow:
 
-1. `Atlas.create_atlas()` calls `Atlas.collect_datasets()` with collection/filtering options, then calls `Atlas.harmonize_datasets()` with the collected atlas object.
+1. `Atlas.create_atlas()` optionally generates and merges theme queries inside the method, calls `Atlas.collect_datasets()` with collection/filtering options, then calls `Atlas.harmonize_datasets()` with the collected atlas object.
 2. `AtlasCollector` loads query strings from `query` and/or a UTF-8 query file, asks `EuropePMCWrapper` to search publications and collect dataset datalinks, filters records to the selected metadata repositories, and routes each repository group to its metadata handler.
 3. When metadata collection is enabled, `GEOWrapper` normalizes GEO rows to GSE-level records, drops GPL or unresolved records, preserves source datalink evidence in `original_datalinks`, deduplicates repeated GSEs, and stores `geo2json` metadata in `accession_metadata`.
 4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
