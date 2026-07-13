@@ -71,8 +71,9 @@ Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atla
 
 ### Fibrosis discovery without harmonization
 
-Run publication discovery, GEO metadata collection, and thematic review for up
-to 5,000 publications without loading ontologies or starting harmonization:
+Run publication discovery and thematic review for up to 5,000 publications,
+then download GEO metadata only for surviving accessions, without loading
+ontologies or starting harmonization:
 
 ```bash
 .env/bin/python run_fibrosis_discovery.py
@@ -89,6 +90,12 @@ the fibrosis theme instead, opt in explicitly:
 This writes `.out/fibrosis_discovery.json`, its summary, and a dedicated DEBUG
 log. The output retains `relevant` and `unsure` datasets and removes reviewed
 `not_relevant` publications.
+
+The discovery runner enables `review_before_metadata`: it first restricts
+datalinks to GEO accessions, fetches open-access publication full text with
+abstract fallback, and reviews without MINiML context. Only publications not
+judged `not relevant` proceed to GEO resolution and metadata conversion. It does
+not perform a second review after metadata download.
 
 Discovery also enables its own trace under `.out/dev_trace_discovery/`. Resume
 the newest incomplete discovery run, or select a run id, with:
@@ -205,6 +212,7 @@ Collection options:
 - `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
 - `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
 - `--skip-metadata`: keep repository-filtered accessions but skip metadata handler enrichment.
+- `--review-before-metadata`: review repository-filtered publications without metadata context and enrich only retained accessions; requires a theme.
 - `create-atlas --dev-trace`: write a complete timestamped development trace bundle.
 - `--dev-out-dir` `PATH`: choose the `create-atlas` trace root directory; defaults to `.dev` and is used only with `--dev-trace`.
 
@@ -239,13 +247,13 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None) -> dict`
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False) -> dict`
   - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
   - Output: atlas object with `accessions` and `publication_texts`.
 - `Atlas.harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None) -> dict`
   - Inputs: a `collect_datasets()` atlas object.
   - Output: an atlas whose supported `accession_metadata` values have been replaced by harmonized MINiML JSON.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None) -> dict`
+- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False) -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
 - `Atlas.resume(dev_out_dir=".dev", run_id=None, out=None) -> dict`

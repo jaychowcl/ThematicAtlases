@@ -184,8 +184,10 @@ The script requires working Google Application Default Credentials and quota. Te
 
 `run_fibrosis_discovery.py` is the pre-harmonization companion entry point. It
 uses an embedded human/fibrosis/transcriptomics Europe PMC query by default,
-while retaining the same fibrosis theme for review, GEO metadata enrichment,
-compact reviewer metadata context, and `not_relevant` filter. The query removes
+while retaining the same fibrosis theme and `not_relevant` filter. It enables
+review-before-metadata: GEO-linked publications receive full-text/abstract
+review with no MINiML context, then only retained accessions receive GEO
+metadata. It does not run a second post-metadata review. The query removes
 generic sclerosis and remodelling-only terms, excludes reviews, and deliberately
 does not exclude mouse/rat mentions because mixed-species publications can still
 contain qualifying human datasets. `--generate-query` replaces the static query
@@ -218,14 +220,20 @@ existing in-memory behavior.
 Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
-- `create_atlas(..., dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
+- `create_atlas(..., dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
 - `resume(dev_out_dir=".dev", run_id=None, out=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried.
-- `collect_datasets(..., generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. Direct discovery calls can own a resumable trace without invoking harmonization.
+- `collect_datasets(..., generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. Direct discovery calls can own a resumable trace without invoking harmonization.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
 When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run directory under `dev_out_dir` containing `resume_state.sqlite`, a manifest, readable collection/review checkpoints, and final output/summary; full atlas traces also include pre/post harmonization metadata and target details. `CheckpointStore` uses WAL mode, full synchronous commits, a configuration fingerprint, and one row per stage/item. Statuses distinguish reusable success/no-data outcomes, non-retryable consumed-call failures, and transient failures that should be attempted again.
+
+Review-before-metadata traces use `01_collected_accessions.json` for the raw
+repository-filtered accessions, `02_reviewed_datasets.json` for pre-metadata
+survivors, and `resume_metadata_enriched_datasets.json` for the enriched result.
+Resume treats datalink, publication-text/review, and GEO metadata progress as
+separate boundaries, so a GEO retry does not repeat successful reviews.
 
 Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=True)` invokes `store.cache_all()` once at the beginning of the first `create_atlas()` call, before credentials, query generation, or collection. The upstream cache API directly streams OWL into SQLite, imports an existing legacy JSON cache when available, and supports selective refresh through `store.cache_all(force_frameworks=[...])`; `force=True` still refreshes all active frameworks. Its framework replacement is transactional and temporary staging databases are deleted after success or failure. The result is retained as `atlas.ontology_cache_result`; aggregate cache exceptions propagate and prevent collection. The same store is passed to the default `AtlasHarmonizer` and its lazily created `OntologyHarmonizer`. Supplying a custom harmonizer together with Atlas-managed store/cache options raises `ValueError`.
 
@@ -555,13 +563,13 @@ reused; transient fetch/conversion failures are retried on resume.
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--harmonization-details-out PATH]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
-The CLI forwards explicit queries, the query-file path, `--query-generator`, and `--max-generated-queries`; `Atlas.collect_datasets()` owns loading, ordering, generation, and validation. Explicit values precede file queries, followed by generated queries. Without the flag no query-generation LLM call occurs. `--dev-trace` is supported by `create-atlas` only; `--dev-out-dir` chooses its root directory.
+The CLI forwards explicit queries, the query-file path, `--query-generator`, `--max-generated-queries`, and `--review-before-metadata`; `Atlas.collect_datasets()` owns loading, ordering, generation, and validation. Explicit values precede file queries, followed by generated queries. Without the query-generator flag no query-generation LLM call occurs. Review-before-metadata requires a theme. `--dev-trace` is supported by `create-atlas` only; `--dev-out-dir` chooses its root directory.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
@@ -577,7 +585,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
+Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, review-before-metadata ordering/resume, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
 
 Useful checks:
 
