@@ -27,6 +27,11 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
   anchor: public-api
   keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
 
+- id: benchmark-package
+  title: Benchmark Package
+  anchor: benchmark-package
+  keywords: benchmark_ThematicAtlases, benchmark, statistics, atlas output, dev trace, empty package, sibling package, future API
+
 - id: fibrosis-curation-theme
   title: Fibrosis Curation Theme
   anchor: fibrosis-curation-theme
