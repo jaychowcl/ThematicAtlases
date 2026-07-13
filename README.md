@@ -69,6 +69,19 @@ latest valid completed stage:
 
 Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atlas.summary.json`, `fibrosis_harmonization_details.json`, `fibrosis_atlas.log`, the ontology store, and timestamped trace bundles under `.out/dev_trace/`.
 
+### Fibrosis discovery without harmonization
+
+Run publication discovery, GEO metadata collection, and thematic review for up
+to 100 publications without loading ontologies or starting harmonization:
+
+```bash
+.env/bin/python run_fibrosis_discovery.py
+```
+
+This writes `.out/fibrosis_discovery.json`, its summary, and a dedicated DEBUG
+log. The output retains `relevant` and `unsure` datasets and removes reviewed
+`not_relevant` publications.
+
 Collect GEO datasets from a query:
 
 ```bash

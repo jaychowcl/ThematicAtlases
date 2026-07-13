@@ -18,6 +18,7 @@ def test_readme_preserves_top_level_section_names() -> None:
         "### Requirements",
         "## Quickstart",
         "### Full fibrosis atlas run",
+        "### Fibrosis discovery without harmonization",
         "## CLI",
         "## Python API",
         "## More information",

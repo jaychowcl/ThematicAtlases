@@ -150,6 +150,21 @@ gcloud auth application-default login
 
 The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
 
+`run_fibrosis_discovery.py` is the pre-harmonization companion entry point. It
+uses the same fibrosis theme, generated-query policy, GEO metadata enrichment,
+compact reviewer metadata context, and `not_relevant` filter, but searches up
+to 100 publications and calls `Atlas.collect_datasets()` directly. It never
+constructs `OntoStore`, caches ontologies, calls `create_atlas()`, or invokes
+harmonization. It prints its fixed configuration and writes
+`.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and
+`.out/fibrosis_discovery.log`.
+
+Run it with:
+
+```bash
+.env/bin/python run_fibrosis_discovery.py
+```
+
 <a id="atlas-workflow"></a>
 ### Atlas Workflow
 
