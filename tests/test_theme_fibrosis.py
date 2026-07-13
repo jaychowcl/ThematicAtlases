@@ -19,6 +19,9 @@ def test_fibrosis_theme_defines_the_curated_dataset_scope() -> None:
         "relevant:",
         "unsure:",
         "not_relevant:",
+        "an accession identifier alone provides no biological evidence",
+        "do not use remembered or external knowledge",
+        "do not transfer evidence between accessions",
     ]
 
     for phrase in required_phrases:

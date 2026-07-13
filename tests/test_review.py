@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from ThematicAtlases.filterer.review import PublicationTextReviewer
+from ThematicAtlases.filterer.review import (
+    REVIEW_CONTRACT_VERSION,
+    PublicationTextReviewer,
+)
 from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.checkpoint import CheckpointStore
 
@@ -75,6 +78,19 @@ class DirectReviewer:
                 "strategy": strategy,
             }
         )
+        assessment = {
+            "accession": "GSE2",
+            "human_samples": {
+                "status": "fails",
+                "evidence": "The publication identifies GSE2 as mouse-only.",
+            },
+            "transcriptomics_assay": {"status": "meets", "evidence": "RNA-seq."},
+            "established_fibrosis": {"status": "meets", "evidence": "Fibrosis."},
+            "accession_linkage": {"status": "meets", "evidence": "Names GSE2."},
+            "confidence": "high",
+            "reason": "Mouse-only dataset.",
+            "decision": "exclude",
+        }
         return {
             "judgement": "relevant",
             "reasoning": "GSE1 contains human fibrosis samples.",
@@ -86,6 +102,7 @@ class DirectReviewer:
                     "confidence": "high",
                 }
             ],
+            "accession_assessments": [assessment],
             "strategy": strategy,
         }
 
@@ -487,6 +504,7 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
     )
 
     trace = texts["1"]["agentic_curator"]
+    assert trace["accession_assessments"][0]["decision"] == "exclude"
     assert trace["accessions_to_remove"] == [
         {
             "accession": "GSE2",
@@ -500,6 +518,10 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
         review_filter="not_relevant",
     )
     assert [record["datalink_id"] for record in filtered] == ["GSE1", "GSE2"]
+
+
+def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
+    assert REVIEW_CONTRACT_VERSION == 3
 
 
 def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(
