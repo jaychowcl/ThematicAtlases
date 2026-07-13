@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from importlib import resources
 import json
 from pathlib import Path
 import re
@@ -22,21 +23,38 @@ UNKNOWN_STAGE_LIMITATION = (
     "be indistinguishable from publications that were never discovered."
 )
 
+REFERENCE_SET_FILES = {
+    "leonie_2026_fibrosis": "leonie_2026_fibrosis.json",
+}
+
 
 class ThematicReviewerBenchmark:
-    """Measure publication discovery and review recall against known references."""
+    """Measure publication discovery and review recall for a named reference set."""
 
-    def benchmark(
+    def benchmark_reference_publication_recall(
         self,
-        reference_publications: list[Mapping[str, object]],
+        *,
+        reference_set: str,
         thematic_output: Mapping[str, object] | str | Path,
     ) -> dict:
+        reference_data = self._load_reference_set(reference_set)
+        reference_publications = reference_data["reference_publications"]
         references = self._reference_groups(reference_publications)
         output, source = self._load_thematic_output(thematic_output)
         reviewed_publications = self._reviewed_publication_groups(output)
         rows = self._match_rows(references, reviewed_publications)
         return {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
+            "benchmark": {
+                "method": "reference_publication_recall",
+                "reference_set": {
+                    "id": reference_data["id"],
+                    "name": reference_data["name"],
+                    "description": reference_data["description"],
+                    "source": reference_data["source"],
+                    "publication_count": len(reference_publications),
+                },
+            },
             "source": source,
             "summary": self._summary(
                 input_count=len(reference_publications),
@@ -44,6 +62,27 @@ class ThematicReviewerBenchmark:
             ),
             "publications": rows,
         }
+
+    @staticmethod
+    def _load_reference_set(reference_set: str) -> dict:
+        filename = REFERENCE_SET_FILES.get(reference_set)
+        if filename is None:
+            available = ", ".join(sorted(REFERENCE_SET_FILES))
+            raise ValueError(
+                f"unknown reference set {reference_set!r}; available: {available}"
+            )
+        data_file = resources.files(
+            "benchmark_ThematicAtlases.thematic_reviewer"
+        ).joinpath("data", filename)
+        with data_file.open(encoding="utf-8") as handle:
+            reference_data = json.load(handle)
+        if (
+            not isinstance(reference_data, dict)
+            or reference_data.get("id") != reference_set
+            or not isinstance(reference_data.get("reference_publications"), list)
+        ):
+            raise ValueError(f"invalid packaged reference set {reference_set!r}")
+        return reference_data
 
     def _reference_groups(
         self,
@@ -61,9 +100,7 @@ class ThematicReviewerBenchmark:
                     f"reference publication at index {index} must be a dictionary"
                 )
             doi = self._normalize_reference_doi(reference.get("doi"), index=index)
-            pmid = self._normalize_reference_pmid(
-                reference.get("pmid"), index=index
-            )
+            pmid = self._normalize_reference_pmid(reference.get("pmid"), index=index)
             if not doi and not pmid:
                 raise ValueError(
                     f"reference publication at index {index} requires a DOI or PMID"
@@ -159,9 +196,7 @@ class ThematicReviewerBenchmark:
                         {item["pmid"] for item in items if item["pmid"]}, key=int
                     ),
                     "publication_text_refs": publication_refs,
-                    "titles": sorted(
-                        {item["title"] for item in items if item["title"]}
-                    ),
+                    "titles": sorted({item["title"] for item in items if item["title"]}),
                     "accession_ids": sorted(
                         {
                             item["accession_id"]
@@ -192,12 +227,18 @@ class ThematicReviewerBenchmark:
 
         rows = []
         for reference in references:
-            doi_matches = set().union(
-                *(doi_index.get(doi, set()) for doi in reference["dois"])
-            ) if reference["dois"] else set()
-            pmid_matches = set().union(
-                *(pmid_index.get(pmid, set()) for pmid in reference["pmids"])
-            ) if reference["pmids"] else set()
+            doi_matches = (
+                set().union(*(doi_index.get(doi, set()) for doi in reference["dois"]))
+                if reference["dois"]
+                else set()
+            )
+            pmid_matches = (
+                set().union(
+                    *(pmid_index.get(pmid, set()) for pmid in reference["pmids"])
+                )
+                if reference["pmids"]
+                else set()
+            )
             candidates = doi_matches | pmid_matches
             matched_by = [
                 identifier
@@ -283,10 +324,7 @@ class ThematicReviewerBenchmark:
         if isinstance(thematic_output, Mapping):
             output = dict(thematic_output)
             source = self._source(
-                kind="object",
-                artifact=None,
-                view="unknown",
-                complete=None,
+                kind="object", artifact=None, view="unknown", complete=None
             )
         elif isinstance(thematic_output, (str, Path)):
             path = Path(thematic_output)
@@ -407,9 +445,7 @@ class ThematicReviewerBenchmark:
 
     @staticmethod
     def _normalize_judgement(value) -> str:
-        judgement = " ".join(
-            str(value or "").lower().replace("_", " ").split()
-        )
+        judgement = " ".join(str(value or "").lower().replace("_", " ").split())
         if not judgement:
             return ""
         if judgement == "not relevant":
@@ -434,7 +470,9 @@ class ThematicReviewerBenchmark:
         try:
             return self._normalize_doi(value)
         except ValueError as error:
-            raise ValueError(f"invalid DOI at reference index {index}: {value!r}") from error
+            raise ValueError(
+                f"invalid DOI at reference index {index}: {value!r}"
+            ) from error
 
     def _normalize_reference_pmid(self, value, *, index: int) -> str:
         if value is None or str(value).strip() == "":
@@ -476,7 +514,9 @@ class ThematicReviewerBenchmark:
         return str(int(pmid))
 
     @staticmethod
-    def _connected_groups(identity_keys: list[list[tuple[str, str]]]) -> list[list[int]]:
+    def _connected_groups(
+        identity_keys: list[list[tuple[str, str]]],
+    ) -> list[list[int]]:
         parents = list(range(len(identity_keys)))
 
         def find(index: int) -> int:

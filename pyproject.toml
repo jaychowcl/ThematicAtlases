@@ -26,6 +26,9 @@ thematic-atlas = "ThematicAtlases.cli_atlas:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"benchmark_ThematicAtlases.thematic_reviewer" = ["data/*.json"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
