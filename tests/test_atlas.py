@@ -810,3 +810,149 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
 
     assert len(calls) == 1
     assert result["accessions"][0]["datalink_id"] == "GSE1"
+
+
+def test_collect_datasets_can_review_before_collecting_metadata() -> None:
+    events = []
+    raw = [
+        {
+            "datalink_id": "GSE_KEEP",
+            "publications": [{"publication_text_ref": "keep"}],
+        },
+        {
+            "datalink_id": "GSE_DROP",
+            "publications": [{"publication_text_ref": "drop"}],
+        },
+    ]
+
+    class StrategyCollector:
+        def collect_jsons(self, collect_metadata=True, **kwargs):
+            events.append(("discover", collect_metadata))
+            return raw
+
+        def collect_accession_metadata(self, jsons, **kwargs):
+            events.append(("metadata", [item["datalink_id"] for item in jsons]))
+            return [
+                {
+                    **jsons[0],
+                    "metadata_status": "available",
+                    "accession_metadata": {"series": {"title": "kept"}},
+                }
+            ]
+
+    class StrategyFilterer:
+        def filter_jsons(self, jsons=None, **kwargs):
+            assert all("accession_metadata" not in item for item in jsons)
+            events.append(("review", [item["datalink_id"] for item in jsons]))
+            return {
+                "accessions": [jsons[0]],
+                "publication_texts": {
+                    "keep": {"text": "relevant"},
+                    "drop": {"text": "not relevant"},
+                },
+            }
+
+    result = Atlas(
+        metadata={},
+        collector=StrategyCollector(),
+        filterer=StrategyFilterer(),
+    ).collect_datasets(
+        query=["fibrosis"],
+        theme="fibrosis theme",
+        review_filter="not_relevant",
+        review_before_metadata=True,
+    )
+
+    assert events == [
+        ("discover", False),
+        ("review", ["GSE_KEEP", "GSE_DROP"]),
+        ("metadata", ["GSE_KEEP"]),
+    ]
+    assert result["accessions"][0]["metadata_status"] == "available"
+    assert result["publication_texts"] == {"keep": {"text": "relevant"}}
+
+
+def test_review_before_metadata_requires_theme() -> None:
+    with pytest.raises(ValueError, match="requires a theme"):
+        Atlas(metadata={}).collect_datasets(
+            query=["fibrosis"],
+            review_before_metadata=True,
+        )
+
+
+def test_review_before_metadata_trace_writes_enriched_checkpoint(tmp_path) -> None:
+    class LocalAtlas(Atlas):
+        def _dev_run_id(self):
+            return "review-first"
+
+    LocalAtlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).collect_datasets(
+        query=["fibrosis"],
+        theme="fibrosis",
+        review_before_metadata=True,
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+    )
+
+    run_dir = tmp_path / "review-first"
+    manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
+    assert manifest["review_before_metadata"] is True
+    assert (run_dir / "resume_metadata_enriched_datasets.json").exists()
+
+
+def test_resume_review_first_trace_enriches_reviewed_survivors_only(tmp_path) -> None:
+    run_dir = tmp_path / "trace" / "review-first"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "review-first",
+                "command": "collect-datasets",
+                "theme": "fibrosis",
+                "review_filter": "not_relevant",
+                "review_before_metadata": True,
+                "collect_metadata": True,
+                "metadata_repositories": ["geo"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    reviewed = {
+        "accessions": [
+            {
+                "datalink_id": "GSE_KEEP",
+                "publications": [{"publication_text_ref": "1"}],
+            }
+        ],
+        "publication_texts": {"1": {"text": "relevant"}},
+    }
+    (run_dir / "02_reviewed_datasets.json").write_text(
+        json.dumps(reviewed), encoding="utf-8"
+    )
+    calls = []
+
+    class ResumeCollector:
+        def collect_jsons(self, **kwargs):
+            raise AssertionError("discovery must not rerun")
+
+        def collect_accession_metadata(self, jsons, **kwargs):
+            calls.append(jsons)
+            return [{**jsons[0], "metadata_status": "available"}]
+
+    class NoReviewFilterer:
+        def filter_jsons(self, **kwargs):
+            raise AssertionError("review must not rerun")
+
+    result = Atlas(
+        metadata={},
+        collector=ResumeCollector(),
+        filterer=NoReviewFilterer(),
+    ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="review-first")
+
+    assert calls == [reviewed["accessions"]]
+    assert result["accessions"][0]["metadata_status"] == "available"
+    assert result["publication_texts"] == reviewed["publication_texts"]
+    assert (run_dir / "resume_metadata_enriched_datasets.json").exists()

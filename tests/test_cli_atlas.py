@@ -166,6 +166,24 @@ def test_query_generator_is_not_called_without_flag(monkeypatch) -> None:
     assert RecordingCollectionAtlas.calls[0]["generate_queries"] is False
 
 
+def test_review_before_metadata_flag_is_forwarded(monkeypatch) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    assert main(
+        [
+            "collect-datasets",
+            "--query",
+            "fibrosis",
+            "--theme",
+            "fibrosis theme",
+            "--review-before-metadata",
+        ]
+    ) == 0
+
+    assert RecordingCollectionAtlas.calls[0]["review_before_metadata"] is True
+
+
 def test_collect_datasets_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,

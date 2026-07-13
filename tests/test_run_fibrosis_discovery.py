@@ -77,6 +77,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
         "max_generated_queries": 3,
         "dev_trace": True,
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
+        "review_before_metadata": True,
     }
     assert not hasattr(calls["atlas"]["credential_checker"], "ontology_frameworks")
     summary = json.loads(
@@ -92,6 +93,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
     assert displayed["harmonization"] is False
     assert displayed["collect_metadata"] is True
     assert displayed["dev_trace"] is True
+    assert displayed["review_before_metadata"] is True
 
 
 def test_static_query_has_narrowed_mandatory_concepts() -> None:
