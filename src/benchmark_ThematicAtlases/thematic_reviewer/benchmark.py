@@ -25,6 +25,7 @@ UNKNOWN_STAGE_LIMITATION = (
 
 REFERENCE_SET_FILES = {
     "leonie_2026_fibrosis": "leonie_2026_fibrosis.json",
+    "taylor_2020_nafld_fibrosis": "taylor_2020_nafld_fibrosis.json",
 }
 
 
@@ -34,10 +35,19 @@ class ThematicReviewerBenchmark:
     def benchmark_reference_publication_recall(
         self,
         *,
-        reference_set: str,
+        reference_set: str | None = None,
+        reference_set_file: str | Path | None = None,
         thematic_output: Mapping[str, object] | str | Path,
     ) -> dict:
-        reference_data = self._load_reference_set(reference_set)
+        if (reference_set is None) == (reference_set_file is None):
+            raise ValueError(
+                "exactly one of reference_set or reference_set_file is required"
+            )
+        reference_data = (
+            self._load_reference_set(reference_set)
+            if reference_set is not None
+            else self._load_reference_set_file(reference_set_file)
+        )
         reference_publications = reference_data["reference_publications"]
         references = self._reference_groups(reference_publications)
         output, source = self._load_thematic_output(thematic_output)
@@ -64,7 +74,11 @@ class ThematicReviewerBenchmark:
         }
 
     @staticmethod
-    def _load_reference_set(reference_set: str) -> dict:
+    def available_reference_sets() -> tuple[str, ...]:
+        return tuple(REFERENCE_SET_FILES)
+
+    @classmethod
+    def _load_reference_set(cls, reference_set: str) -> dict:
         filename = REFERENCE_SET_FILES.get(reference_set)
         if filename is None:
             available = ", ".join(sorted(REFERENCE_SET_FILES))
@@ -76,12 +90,50 @@ class ThematicReviewerBenchmark:
         ).joinpath("data", filename)
         with data_file.open(encoding="utf-8") as handle:
             reference_data = json.load(handle)
+        return cls._validate_reference_set(
+            reference_data,
+            label=f"packaged reference set {reference_set!r}",
+            expected_id=reference_set,
+        )
+
+    @classmethod
+    def _load_reference_set_file(cls, path: str | Path) -> dict:
+        path = Path(path)
+        with path.open(encoding="utf-8") as handle:
+            reference_data = json.load(handle)
+        return cls._validate_reference_set(
+            reference_data,
+            label=f"reference set file {str(path)!r}",
+        )
+
+    @staticmethod
+    def _validate_reference_set(
+        reference_data,
+        *,
+        label: str,
+        expected_id: str | None = None,
+    ) -> dict:
+        required = {
+            "schema_version",
+            "id",
+            "name",
+            "description",
+            "source",
+            "reference_publications",
+        }
         if (
             not isinstance(reference_data, dict)
-            or reference_data.get("id") != reference_set
+            or not required <= reference_data.keys()
+            or not isinstance(reference_data.get("id"), str)
+            or not reference_data["id"].strip()
+            or not isinstance(reference_data.get("name"), str)
+            or not isinstance(reference_data.get("description"), str)
+            or not isinstance(reference_data.get("source"), Mapping)
             or not isinstance(reference_data.get("reference_publications"), list)
+            or not reference_data["reference_publications"]
+            or (expected_id is not None and reference_data.get("id") != expected_id)
         ):
-            raise ValueError(f"invalid packaged reference set {reference_set!r}")
+            raise ValueError(f"invalid reference set: {label}")
         return reference_data
 
     def _reference_groups(
