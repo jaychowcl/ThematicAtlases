@@ -484,8 +484,9 @@ def test_collect_datasets_passes_options_to_atlas(
             max_publications=None,
             reviewer=None,
             collect_metadata=True,
-            generate_queries=False,
-            max_generated_queries=3,
+                generate_queries=False,
+                max_generated_queries=3,
+                review_before_metadata=False,
         ):
             self.__class__.calls.append(
                 {
@@ -500,6 +501,7 @@ def test_collect_datasets_passes_options_to_atlas(
                     "collect_metadata": collect_metadata,
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
+                    "review_before_metadata": review_before_metadata,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -543,8 +545,9 @@ def test_collect_datasets_passes_options_to_atlas(
             "max_publications": 25,
             "reviewer": None,
             "collect_metadata": False,
-            "generate_queries": False,
-            "max_generated_queries": 3,
+                "generate_queries": False,
+                "max_generated_queries": 3,
+                "review_before_metadata": False,
         }
     ]
 
@@ -585,8 +588,9 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             dev_trace=False,
             dev_out_dir=".dev",
             harmonization_details_out=None,
-            generate_queries=False,
-            max_generated_queries=3,
+                generate_queries=False,
+                max_generated_queries=3,
+                review_before_metadata=False,
         ):
             self.__class__.calls.append(
                 {
@@ -604,6 +608,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "harmonization_details_out": harmonization_details_out,
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
+                    "review_before_metadata": review_before_metadata,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -653,8 +658,9 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "dev_trace": True,
             "dev_out_dir": ".dev/custom",
             "harmonization_details_out": "harmonization.json",
-            "generate_queries": False,
-            "max_generated_queries": 3,
+                "generate_queries": False,
+                "max_generated_queries": 3,
+                "review_before_metadata": False,
         }
     ]
 

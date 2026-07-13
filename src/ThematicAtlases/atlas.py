@@ -89,6 +89,7 @@ class Atlas:
         generate_queries: bool = False,
         max_generated_queries: int = 3,
         harmonization_options: dict | None = None,
+        review_before_metadata: bool = False,
     ) -> dict:
         self._prepare_ontology_cache()
         run_id = self._dev_run_id()
@@ -123,6 +124,7 @@ class Atlas:
                     "max_generated_queries": max_generated_queries,
                     "harmonization_options": harmonization_options,
                     "harmonization_details_out": harmonization_details_out,
+                    "review_before_metadata": review_before_metadata,
                 },
             )
         logger.info("Atlas create_atlas progress stage=collect-datasets")
@@ -138,6 +140,7 @@ class Atlas:
             collect_metadata=collect_metadata,
             generate_queries=generate_queries,
             max_generated_queries=max_generated_queries,
+            review_before_metadata=review_before_metadata,
         )
         if trace is not None:
             collect_kwargs["_trace_writer"] = trace
@@ -228,6 +231,13 @@ class Atlas:
             )
         )
         harmonization_retryable = checkpoint_store.has_retryable("harmonization")
+        discovery_retryable = checkpoint_store.has_retryable("datalinks")
+        review_retryable = checkpoint_store.has_retryable("publication_text")
+        metadata_retryable = any(
+            checkpoint_store.has_retryable(stage)
+            for stage in ("geo_resolution", "geo_metadata")
+        )
+        review_before_metadata = manifest.get("review_before_metadata", False)
         final_path = run_dir / "06_final_atlas.json"
         if (
             final_path.exists()
@@ -253,12 +263,37 @@ class Atlas:
                     "Atlas resume progress stage=harmonization-retry-required"
                 )
             reviewed_path = run_dir / "02_reviewed_datasets.json"
-            if reviewed_path.exists() and not collection_retryable:
+            metadata_enriched_path = run_dir / "resume_metadata_enriched_datasets.json"
+            if (
+                review_before_metadata
+                and manifest.get("collect_metadata", True)
+                and metadata_enriched_path.exists()
+                and not metadata_retryable
+                and not discovery_retryable
+                and not review_retryable
+            ):
+                datasets = self._read_checkpoint(metadata_enriched_path)
+                logger.info("Atlas resume progress stage=metadata-enrichment-complete")
+            elif reviewed_path.exists() and not (
+                discovery_retryable
+                or review_retryable
+                or (metadata_retryable and not review_before_metadata)
+            ):
                 datasets = self._read_checkpoint(reviewed_path)
                 logger.info("Atlas resume progress stage=review-complete")
+                if review_before_metadata and manifest.get("collect_metadata", True):
+                    datasets = self._metadata_for_reviewed_datasets(
+                        datasets=datasets,
+                        metadata_repositories=manifest.get("metadata_repositories"),
+                        checkpoint_store=checkpoint_store,
+                    )
+                    trace.write("resume_metadata_enriched_datasets.json", datasets)
             else:
                 collected_path = run_dir / "01_collected_accessions.json"
-                if collected_path.exists() and not collection_retryable:
+                can_reuse_collected = not discovery_retryable and not review_retryable
+                if not review_before_metadata:
+                    can_reuse_collected = can_reuse_collected and not metadata_retryable
+                if collected_path.exists() and can_reuse_collected:
                     accessions = self._read_checkpoint(collected_path)
                     logger.info("Atlas resume progress stage=collection-complete")
                     progress_path = run_dir / "resume_review_progress.json"
@@ -290,6 +325,7 @@ class Atlas:
                         collect_metadata=manifest.get("collect_metadata", True),
                         generate_queries=manifest.get("generate_queries", False),
                         max_generated_queries=manifest.get("max_generated_queries", 3),
+                        review_before_metadata=review_before_metadata,
                         _trace_writer=trace,
                     )
 
@@ -346,8 +382,11 @@ class Atlas:
         dev_trace: bool = False,
         dev_out_dir: str = ".dev",
         run_id: str | None = None,
+        review_before_metadata: bool = False,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
+        if review_before_metadata and theme is None:
+            raise ValueError("review_before_metadata requires a theme")
         owned_trace = dev_trace and _trace_writer is None
         if owned_trace:
             effective_run_id = run_id or self._dev_run_id()
@@ -363,6 +402,7 @@ class Atlas:
                         "resume_state.sqlite",
                         "01_collected_accessions.json",
                         "02_reviewed_datasets.json",
+                        "resume_metadata_enriched_datasets.json",
                         "06_final_atlas.json",
                         "07_summary.json",
                     ],
@@ -375,6 +415,7 @@ class Atlas:
                     "collect_metadata": collect_metadata,
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
+                    "review_before_metadata": review_before_metadata,
                 },
             )
         checkpoint_store = (
@@ -401,17 +442,18 @@ class Atlas:
                     checkpoint_store.set_meta("resolved_queries", query)
             file = None
         if checkpoint_store is not None:
-            checkpoint_store.validate_fingerprint(
-                {
-                    "query": query,
-                    "query_file": file,
-                    "theme": theme,
-                    "review_filter": review_filter,
-                    "metadata_repositories": metadata_repositories,
-                    "max_publications": max_publications,
-                    "collect_metadata": collect_metadata,
-                }
-            )
+            fingerprint_configuration = {
+                "query": query,
+                "query_file": file,
+                "theme": theme,
+                "review_filter": review_filter,
+                "metadata_repositories": metadata_repositories,
+                "max_publications": max_publications,
+                "collect_metadata": collect_metadata,
+            }
+            if review_before_metadata:
+                fingerprint_configuration["review_before_metadata"] = True
+            checkpoint_store.validate_fingerprint(fingerprint_configuration)
         logger.info("Atlas collect_datasets progress stage=collect-accessions")
         accessions = self._collect_jsons(
             query=query,
@@ -419,7 +461,7 @@ class Atlas:
             out=None,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
-            collect_metadata=collect_metadata,
+            collect_metadata=collect_metadata and not review_before_metadata,
             checkpoint_store=checkpoint_store,
         )
         if _trace_writer is not None:
@@ -450,6 +492,19 @@ class Atlas:
         )
         if _trace_writer is not None:
             _trace_writer.write("02_reviewed_datasets.json", result)
+        if review_before_metadata and collect_metadata:
+            logger.info("Atlas collect_datasets progress stage=collect-accession-metadata")
+            result = self._metadata_for_reviewed_datasets(
+                datasets=result,
+                metadata_repositories=metadata_repositories,
+                checkpoint_store=checkpoint_store,
+            )
+            if _trace_writer is not None:
+                _trace_writer.write("resume_metadata_enriched_datasets.json", result)
+            logger.info(
+                "Atlas collect_datasets progress stage=collect-accession-metadata-complete accessions=%s",
+                len(result.get("accessions", [])),
+            )
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
         logger.info(
@@ -475,6 +530,40 @@ class Atlas:
             out,
         )
         return result
+
+    def _metadata_for_reviewed_datasets(
+        self,
+        datasets: dict,
+        metadata_repositories: list[str] | None,
+        checkpoint_store=None,
+    ) -> dict:
+        options = {
+            "jsons": datasets.get("accessions", []),
+            "metadata_repositories": metadata_repositories,
+        }
+        options.update(
+            self._checkpoint_keyword(
+                self._collector.collect_accession_metadata,
+                checkpoint_store,
+            )
+        )
+        accessions = self._collector.collect_accession_metadata(**options)
+        used_refs = {
+            publication.get("publication_text_ref")
+            for record in accessions
+            for publication in record.get("publications", [])
+            if publication.get("publication_text_ref")
+        }
+        publication_texts = {
+            ref: value
+            for ref, value in datasets.get("publication_texts", {}).items()
+            if ref in used_refs
+        }
+        return {
+            **datasets,
+            "accessions": accessions,
+            "publication_texts": publication_texts,
+        }
 
     def harmonize_datasets(
         self,

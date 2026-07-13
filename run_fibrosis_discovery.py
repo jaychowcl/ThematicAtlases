@@ -25,6 +25,7 @@ METADATA_REPOSITORIES = ["geo"]
 REVIEW_FILTER = "not_relevant"
 COLLECT_METADATA = True
 DEV_TRACE = True
+REVIEW_BEFORE_METADATA = True
 LOG_LEVEL = "DEBUG"
 
 FIBROSIS_DISCOVERY_QUERY = """\
@@ -120,6 +121,7 @@ def resolved_configuration(*, generate_query: bool = False) -> dict:
         "harmonization": False,
         "dev_trace": DEV_TRACE,
         "dev_out_dir": str(OUTPUT_DIR / "dev_trace_discovery"),
+        "review_before_metadata": REVIEW_BEFORE_METADATA,
     }
 
 
@@ -156,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         max_generated_queries=MAX_GENERATED_QUERIES,
         dev_trace=DEV_TRACE,
         dev_out_dir=config["dev_out_dir"],
+        review_before_metadata=REVIEW_BEFORE_METADATA,
     )
     summary = build_atlas_summary(
         atlas=result,

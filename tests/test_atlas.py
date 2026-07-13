@@ -30,6 +30,14 @@ class RecordingCollector:
         )
         return [{"datalink_id": "GSE1", "publications": []}]
 
+    def collect_accession_metadata(
+        self,
+        jsons,
+        metadata_repositories=None,
+        checkpoint_store=None,
+    ):
+        return list(jsons)
+
 
 class RecordingFilterer:
     calls: list[dict] = []
@@ -413,9 +421,10 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "max_publications": 25,
                 "reviewer": None,
                 "collect_metadata": False,
-                "generate_queries": False,
-                "max_generated_queries": 3,
-            },
+                    "generate_queries": False,
+                    "max_generated_queries": 3,
+                    "review_before_metadata": False,
+                },
         ),
         (
             "harmonize_datasets",

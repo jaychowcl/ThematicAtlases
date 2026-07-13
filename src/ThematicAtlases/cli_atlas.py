@@ -74,6 +74,9 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--max-publications", type=_positive_int, default=None)
     collect.add_argument("--skip-metadata", action="store_true", default=False)
     collect.add_argument(
+        "--review-before-metadata", action="store_true", default=False
+    )
+    collect.add_argument(
         "--metadata-repository",
         action="append",
         choices=METADATA_REPOSITORY_CHOICES,
@@ -103,6 +106,9 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--out", default=None)
     create.add_argument("--max-publications", type=_positive_int, default=None)
     create.add_argument("--skip-metadata", action="store_true", default=False)
+    create.add_argument(
+        "--review-before-metadata", action="store_true", default=False
+    )
     _add_dev_trace_options(create)
     create.add_argument(
         "--metadata-repository",
@@ -205,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             collect_metadata=not args.skip_metadata,
             generate_queries=args.query_generator,
             max_generated_queries=args.max_generated_queries,
+            review_before_metadata=args.review_before_metadata,
         )
     elif args.command == "create-atlas":
         theme = _input_value(value=args.theme, file=args.theme_file)
@@ -222,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             harmonization_details_out=args.harmonization_details_out,
             generate_queries=args.query_generator,
             max_generated_queries=args.max_generated_queries,
+            review_before_metadata=args.review_before_metadata,
         )
     elif args.command == "harmonize-datasets":
         with open(args.file, encoding="utf-8") as handle:
