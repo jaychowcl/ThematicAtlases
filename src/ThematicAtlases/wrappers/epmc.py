@@ -30,7 +30,7 @@ class EuropePMCWrapper:
         page_limit: int = 5,
         page_size: int = 1000,
         timeout: int = 30,
-        request_delay: float = 0.1,
+        request_delay: float = 0.5,
         max_retries: int = 3,
     ):
         self._request_settings = {
