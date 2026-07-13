@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from ThematicAtlases.filterer.review import PublicationTextReviewer
+from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.checkpoint import CheckpointStore
 
 
@@ -490,6 +491,70 @@ def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) ->
         "GSE2",
     ]
     assert set(result["publication_texts"]) == {"1", "2"}
+
+
+def test_resume_picks_up_retryable_datalink_after_it_becomes_available(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="recovered abstract",
+    )
+    store.put(
+        "datalinks",
+        "MED:1",
+        1,
+        "retryable_error",
+        error="temporary timeout",
+    )
+    FakeReviewer.calls = []
+    review = PublicationTextReviewer()
+
+    assert review.resume(trace_dir, reviewer=FakeReviewer()) == {
+        "accessions": [],
+        "publication_texts": {},
+    }
+
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="recovered abstract",
+    )
+    result = review.resume(trace_dir, reviewer=FakeReviewer())
+
+    assert [record["datalink_id"] for record in result["accessions"]] == ["GSE1"]
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "recovered abstract"
+    ]
+
+
+def test_normal_filterer_reuses_review_created_by_incremental_resume(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="reviewed early",
+    )
+    snapshot = PublicationTextReviewer().resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+    )
+
+    result = AtlasFilterer().filter_jsons(
+        jsons=snapshot["accessions"],
+        theme="fibrosis",
+        reviewer=FailingReviewer(),
+        _checkpoint_store=store,
+    )
+
+    assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == (
+        "relevant"
+    )
 
 
 def test_resume_applies_manifest_repository_selection(tmp_path) -> None:
