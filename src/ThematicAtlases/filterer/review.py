@@ -1,6 +1,8 @@
 import json
 import logging
 import hashlib
+from contextlib import nullcontext
+from pathlib import Path
 
 from agentic_curator.curators.ontology_harmonizer import (
     build_miniml_metadata_context,
@@ -22,8 +24,24 @@ logger = logging.getLogger(__name__)
 
 
 class PublicationTextReviewer:
-    def __init__(self, reviewer_factory=None):
+    def __init__(self, reviewer_factory=None, resume_orchestrator_factory=None):
         self._reviewer_factory = reviewer_factory
+        self._resume_orchestrator_factory = resume_orchestrator_factory
+        self._resume_orchestrator_instance = None
+
+    def resume(
+        self,
+        trace_dir: str | Path,
+        *,
+        theme: str | None = None,
+        reviewer=None,
+    ) -> dict:
+        """Review the current publication snapshot in an evolving trace."""
+        return self._resume_orchestrator().resume(
+            trace_dir=trace_dir,
+            theme=theme,
+            reviewer=reviewer,
+        )
 
     def validate_options(self, theme: str | None, review_filter: str) -> None:
         if review_filter not in REVIEW_FILTERS:
@@ -110,84 +128,32 @@ class PublicationTextReviewer:
                 context=context,
                 theme=theme,
             )
-            checkpoint = (
-                checkpoint_store.get("thematic_review", publication_ref)
-                if checkpoint_store is not None
-                else None
-            )
-            if checkpoint and checkpoint["status"] in {
-                "available",
-                "terminal_error",
-            } and (checkpoint.get("payload") or {}).get("input_hash") == input_hash:
-                publication_text = dict(
-                    (checkpoint.get("payload") or {}).get(
-                        "publication_text", publication_text
-                    )
-                )
-            existing_review = publication_text.get(AGENTIC_CURATOR)
-
-            if (
-                isinstance(existing_review, dict)
-                and existing_review.get("theme") == theme
-            ):
-                reviewed_publication_texts[publication_ref] = publication_text
-                reused_count += 1
-                if progress_callback is not None:
-                    progress_callback(reviewed_publication_texts)
-                continue
-
-            try:
-                review = reviewer.review_relevancy(
-                    publication_text=publication_text.get("text", ""),
-                    theme=theme,
-                    metadata=context.get("metadata"),
-                    title=context.get("title"),
-                )
-            except Exception as error:
-                logger.exception(
-                    "Atlas thematic review failed publication_ref=%s; retaining publication as unreviewed",
-                    publication_ref,
-                )
-                publication_text[AGENTIC_CURATOR] = {
-                    "theme": theme,
-                    "review_status": "failed",
-                    "error_type": type(error).__name__,
-                    "error": str(error),
-                }
-                reviewed_publication_texts[publication_ref] = publication_text
-                failed_count += 1
-                if checkpoint_store is not None:
-                    checkpoint_store.put(
-                        "thematic_review",
-                        publication_ref,
-                        index,
-                        "terminal_error",
-                        payload={
-                            "publication_text": publication_text,
-                            "input_hash": input_hash,
-                        },
-                        error=str(error),
-                    )
-                if progress_callback is not None:
-                    progress_callback(reviewed_publication_texts)
-                continue
-            publication_text[AGENTIC_CURATOR] = self.agentic_curator_review(
+            identity_hash = self._review_identity_hash(
+                publication_text=publication_text,
+                context=context,
                 theme=theme,
-                review=review,
             )
-            reviewed_publication_texts[publication_ref] = publication_text
-            reviewed_count += 1
-            if checkpoint_store is not None:
-                checkpoint_store.put(
-                    "thematic_review",
-                    publication_ref,
-                    index,
-                    "available",
-                    payload={
-                        "publication_text": publication_text,
-                        "input_hash": input_hash,
-                    },
+            item_lock = (
+                checkpoint_store.item_lock("thematic_review", publication_ref)
+                if checkpoint_store is not None
+                else nullcontext()
+            )
+            with item_lock:
+                outcome = self._review_checkpoint_item(
+                    publication_ref=publication_ref,
+                    publication_text=publication_text,
+                    context=context,
+                    theme=theme,
+                    reviewer=reviewer,
+                    checkpoint_store=checkpoint_store,
+                    index=index,
+                    input_hash=input_hash,
+                    identity_hash=identity_hash,
                 )
+            reviewed_publication_texts[publication_ref] = outcome["publication_text"]
+            reviewed_count += outcome["reviewed"]
+            reused_count += outcome["reused"]
+            failed_count += outcome["failed"]
             if progress_callback is not None:
                 progress_callback(reviewed_publication_texts)
 
@@ -200,6 +166,106 @@ class PublicationTextReviewer:
         )
         return reviewed_publication_texts
 
+    def _review_checkpoint_item(
+        self,
+        *,
+        publication_ref: str,
+        publication_text: dict,
+        context: dict,
+        theme: str,
+        reviewer,
+        checkpoint_store,
+        index: int,
+        input_hash: str,
+        identity_hash: str,
+    ) -> dict:
+        checkpoint = (
+            checkpoint_store.get("thematic_review", publication_ref)
+            if checkpoint_store is not None
+            else None
+        )
+        payload = (checkpoint or {}).get("payload") or {}
+        if checkpoint and checkpoint["status"] in {
+            "available",
+            "terminal_error",
+        } and (
+            payload.get("identity_hash") == identity_hash
+            or payload.get("input_hash") == input_hash
+        ):
+            publication_text = dict(
+                payload.get("publication_text", publication_text)
+            )
+
+        existing_review = publication_text.get(AGENTIC_CURATOR)
+        if isinstance(existing_review, dict) and existing_review.get("theme") == theme:
+            return {
+                "publication_text": publication_text,
+                "reviewed": 0,
+                "reused": 1,
+                "failed": 0,
+            }
+
+        try:
+            review = reviewer.review_relevancy(
+                publication_text=publication_text.get("text", ""),
+                theme=theme,
+                metadata=context.get("metadata"),
+                title=context.get("title"),
+            )
+        except Exception as error:
+            logger.exception(
+                "Atlas thematic review failed publication_ref=%s; retaining publication as unreviewed",
+                publication_ref,
+            )
+            publication_text[AGENTIC_CURATOR] = {
+                "theme": theme,
+                "review_status": "failed",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+            if checkpoint_store is not None:
+                checkpoint_store.put(
+                    "thematic_review",
+                    publication_ref,
+                    index,
+                    "terminal_error",
+                    payload={
+                        "publication_text": publication_text,
+                        "input_hash": input_hash,
+                        "identity_hash": identity_hash,
+                    },
+                    error=str(error),
+                )
+            return {
+                "publication_text": publication_text,
+                "reviewed": 0,
+                "reused": 0,
+                "failed": 1,
+            }
+
+        publication_text[AGENTIC_CURATOR] = self.agentic_curator_review(
+            theme=theme,
+            review=review,
+        )
+        if checkpoint_store is not None:
+            checkpoint_store.put(
+                "thematic_review",
+                publication_ref,
+                index,
+                "available",
+                payload={
+                    "publication_text": publication_text,
+                    "input_hash": input_hash,
+                    "identity_hash": identity_hash,
+                },
+            )
+        return {
+            "publication_text": publication_text,
+            "reviewed": 1,
+            "reused": 0,
+            "failed": 0,
+        }
+
     @staticmethod
     def _review_input_hash(publication_text: dict, context: dict, theme: str) -> str:
         value = json.dumps(
@@ -207,6 +273,24 @@ class PublicationTextReviewer:
                 "text": publication_text.get("text", ""),
                 "theme": theme,
                 "context": context,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=repr,
+        )
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _review_identity_hash(
+        publication_text: dict,
+        context: dict,
+        theme: str,
+    ) -> str:
+        value = json.dumps(
+            {
+                "text": publication_text.get("text", ""),
+                "theme": theme,
+                "title": context.get("title", ""),
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -330,3 +414,18 @@ class PublicationTextReviewer:
         from agentic_curator import ThematicReviewer
 
         return ThematicReviewer()
+
+    def _resume_orchestrator(self):
+        if self._resume_orchestrator_instance is not None:
+            return self._resume_orchestrator_instance
+
+        if self._resume_orchestrator_factory is not None:
+            self._resume_orchestrator_instance = self._resume_orchestrator_factory(
+                self
+            )
+            return self._resume_orchestrator_instance
+
+        from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
+
+        self._resume_orchestrator_instance = TracePublicationReviewResumer(self)
+        return self._resume_orchestrator_instance

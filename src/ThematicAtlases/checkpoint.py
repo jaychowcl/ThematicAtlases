@@ -7,6 +7,8 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 
+import fcntl
+
 
 class CheckpointStore:
     """Transactional, run-local storage for resumable workflow items."""
@@ -160,6 +162,20 @@ class CheckpointStore:
         query += " LIMIT 1"
         with self._lock, self._connection() as connection:
             return connection.execute(query, params).fetchone() is not None
+
+    @contextmanager
+    def item_lock(self, stage: str, key: str):
+        """Serialize expensive work for one checkpoint item across processes."""
+        lock_directory = self.path.with_name(f"{self.path.name}.locks")
+        lock_directory.mkdir(parents=True, exist_ok=True)
+        lock_name = hashlib.sha256(f"{stage}\0{key}".encode("utf-8")).hexdigest()
+        lock_path = lock_directory / f"{lock_name}.lock"
+        with open(lock_path, "a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _item(row: sqlite3.Row) -> dict:

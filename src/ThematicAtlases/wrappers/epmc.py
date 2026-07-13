@@ -470,7 +470,8 @@ class EuropePMCWrapper:
 
         return self._deduplicate_accessions(datalinks=datalinks)
 
-    def _deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
+    def accessions_from_datalinks(self, datalinks: list[dict]) -> list[dict]:
+        """Build deduplicated accession records from normalized datalink rows."""
         accessions = []
         accession_index = {}
         publication_keys = {}
@@ -519,6 +520,10 @@ class EuropePMCWrapper:
         )
 
         return accessions
+
+    def _deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
+        """Compatibility wrapper for the former private transformation helper."""
+        return self.accessions_from_datalinks(datalinks=datalinks)
 
     def _search(self, query: str, cursor: str) -> dict:
         params = {
