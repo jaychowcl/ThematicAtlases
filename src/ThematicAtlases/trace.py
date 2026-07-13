@@ -4,13 +4,24 @@ import json
 import os
 from pathlib import Path
 
+from ThematicAtlases.checkpoint import CheckpointStore
+
 
 class DevTraceWriter:
     def __init__(self, root: str, run_id: str, manifest: dict, write_manifest: bool = True):
         self.directory = Path(root) / run_id
         self.directory.mkdir(parents=True, exist_ok=True)
+        self._checkpoint_store = None
         if write_manifest:
             self.write("00_run_manifest.json", {**manifest, "run_id": run_id})
+
+    @property
+    def checkpoint_store(self) -> CheckpointStore:
+        if self._checkpoint_store is None:
+            self._checkpoint_store = CheckpointStore(
+                self.directory / "resume_state.sqlite"
+            )
+        return self._checkpoint_store
 
     @classmethod
     def existing(cls, directory: str | Path) -> "DevTraceWriter":

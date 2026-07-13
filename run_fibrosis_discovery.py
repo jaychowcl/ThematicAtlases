@@ -24,6 +24,7 @@ MAX_GENERATED_QUERIES = 3
 METADATA_REPOSITORIES = ["geo"]
 REVIEW_FILTER = "not_relevant"
 COLLECT_METADATA = True
+DEV_TRACE = True
 LOG_LEVEL = "DEBUG"
 
 FIBROSIS_DISCOVERY_QUERY = """\
@@ -81,13 +82,21 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run fibrosis discovery and thematic review without harmonization."
     )
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--generate-query",
         action="store_true",
         help=(
             "Generate Europe PMC queries from the fibrosis theme with the LLM "
             "instead of using the embedded static query."
         ),
+    )
+    modes.add_argument(
+        "--resume",
+        nargs="?",
+        const="",
+        metavar="RUN_ID",
+        help="resume RUN_ID, or the latest incomplete discovery trace when omitted",
     )
     return parser
 
@@ -109,6 +118,8 @@ def resolved_configuration(*, generate_query: bool = False) -> dict:
         "collect_metadata": COLLECT_METADATA,
         "review_filter": REVIEW_FILTER,
         "harmonization": False,
+        "dev_trace": DEV_TRACE,
+        "dev_out_dir": str(OUTPUT_DIR / "dev_trace_discovery"),
     }
 
 
@@ -125,6 +136,13 @@ def main(argv: list[str] | None = None) -> int:
         metadata={},
         credential_checker=GoogleCredentialPreflight(),
     )
+    if args.resume is not None:
+        atlas.resume(
+            dev_out_dir=config["dev_out_dir"],
+            run_id=args.resume or None,
+            out=config["discovery_out"],
+        )
+        return 0
     result = atlas.collect_datasets(
         query=config["query"],
         file=None,
@@ -136,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
         collect_metadata=COLLECT_METADATA,
         generate_queries=config["generate_queries"],
         max_generated_queries=MAX_GENERATED_QUERIES,
+        dev_trace=DEV_TRACE,
+        dev_out_dir=config["dev_out_dir"],
     )
     summary = build_atlas_summary(
         atlas=result,

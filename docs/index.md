@@ -27,11 +27,6 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
   anchor: public-api
   keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
 
-- id: benchmark-package
-  title: Benchmark Package
-  anchor: benchmark-package
-  keywords: benchmark_ThematicAtlases, benchmark, statistics, atlas output, dev trace, empty package, sibling package, future API
-
 - id: fibrosis-curation-theme
   title: Fibrosis Curation Theme
   anchor: fibrosis-curation-theme
@@ -40,7 +35,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, static query, --generate-query, LLM query generation, 5000 publications, no harmonization, --resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, static query, --generate-query, LLM query generation, 5000 publications, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
 
 - id: cli-atlas
   title: CLI Atlas
@@ -62,7 +57,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, resume, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
+  keywords: Atlas, resume, resume_state.sqlite, CheckpointStore, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector
@@ -82,7 +77,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: epmc-wrapper
   title: EuropePMC Wrapper
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, collect_datalinks, first every tenth final, periodic progress, request duration, DEBUG, fullTextXML, abstract fallback, deduplicate, publication_texts, XML fallback, failed publications, stats logs, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, collect_datalinks, search_pages, datalinks, publication_text, SQLite checkpoint, first every tenth final, periodic progress, request duration, DEBUG, fullTextXML, abstract fallback, deduplicate, publication_texts, XML fallback, failed publications, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling

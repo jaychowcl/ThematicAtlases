@@ -90,6 +90,20 @@ This writes `.out/fibrosis_discovery.json`, its summary, and a dedicated DEBUG
 log. The output retains `relevant` and `unsure` datasets and removes reviewed
 `not_relevant` publications.
 
+Discovery also enables its own trace under `.out/dev_trace_discovery/`. Resume
+the newest incomplete discovery run, or select a run id, with:
+
+```bash
+.env/bin/python run_fibrosis_discovery.py --resume
+.env/bin/python run_fibrosis_discovery.py --resume RUN_ID
+```
+
+Traced workflows maintain `resume_state.sqlite` alongside the readable JSON
+exports. Search pages, publication datalinks and full text, GEO resolution and
+metadata, thematic reviews, and dataset-level harmonizations are committed
+individually. Resume reuses successful and terminal outcomes, retries transient
+network/provider failures, and validates that the run configuration matches.
+
 Collect GEO datasets from a query:
 
 ```bash
@@ -210,7 +224,7 @@ Output shapes:
 - `collect-datasets` and `create-atlas` write an atlas object with `accessions` and `publication_texts`.
 - Successful commands do not print result JSON to stdout; use `--out` for data and logging options for progress.
 - `create-atlas --out atlas.json` also writes `atlas.summary.json` with operational counts and a deterministic scientific metadata profile.
-- `create-atlas --dev-trace` writes `00_run_manifest.json` through `07_summary.json` under `.dev/YYYYMMDDTHHMMSS/`, including collected/reviewed stages, pre/post harmonization metadata, targets/details, the final atlas, and summary.
+- `create-atlas --dev-trace` writes `resume_state.sqlite` and `00_run_manifest.json` through `07_summary.json` under `.dev/YYYYMMDDTHHMMSS/`, including collected/reviewed stages, pre/post harmonization metadata, targets/details, the final atlas, and summary.
 - The trace includes `03_pre_harmonization_accession_metadata.json`, `04_harmonization_details.json`, and `05_post_harmonization_accession_metadata.json` for accession-level comparison and target inspection.
 
 ## Python API
@@ -225,7 +239,7 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3) -> dict`
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None) -> dict`
   - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
   - Output: atlas object with `accessions` and `publication_texts`.
 - `Atlas.harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None) -> dict`
@@ -234,6 +248,8 @@ Major orchestrator methods:
 - `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None) -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
+- `Atlas.resume(dev_out_dir=".dev", run_id=None, out=None) -> dict`
+  - Resumes the selected traced discovery or atlas workflow from its latest durable item checkpoint.
 
 `Atlas` is the root orchestrator and dependency-injection boundary. Its constructor wires the collector, filterer, harmonizer, Europe PMC wrapper factory, metadata handlers, and publication text reviewer; tests and downstream applications can replace those components without changing the public workflow methods.
 

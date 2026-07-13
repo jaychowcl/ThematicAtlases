@@ -1,8 +1,10 @@
 import json
 import logging
 from datetime import datetime
+import inspect
 from pathlib import Path
 
+from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
@@ -101,6 +103,7 @@ class Atlas:
                     "atlas_out": out,
                     "artifacts": [
                         "00_run_manifest.json",
+                        "resume_state.sqlite",
                         "01_collected_accessions.json",
                         "02_reviewed_datasets.json",
                         "03_pre_harmonization_accession_metadata.json",
@@ -154,6 +157,10 @@ class Atlas:
                 datasets=datasets,
                 details_out=harmonization_details_out,
                 harmonization_options=harmonization_options,
+                **self._checkpoint_keyword(
+                    self._harmonizer.harmonize_datasets,
+                    trace.checkpoint_store,
+                ),
             )
             trace.write("04_harmonization_details.json", details)
             trace.write(
@@ -204,31 +211,54 @@ class Atlas:
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
         manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
         trace = DevTraceWriter.existing(run_dir)
+        checkpoint_store = trace.checkpoint_store
         output_path = out if out is not None else manifest.get("atlas_out")
         self._prepare_ontology_cache()
         if manifest.get("theme") is not None:
             self._preflight_credentials()
         logger.info("Atlas resume selected run_id=%s run_dir=%s", run_dir.name, run_dir)
 
+        collection_retryable = any(
+            checkpoint_store.has_retryable(stage)
+            for stage in (
+                "datalinks",
+                "geo_resolution",
+                "geo_metadata",
+                "publication_text",
+            )
+        )
+        harmonization_retryable = checkpoint_store.has_retryable("harmonization")
         final_path = run_dir / "06_final_atlas.json"
-        if final_path.exists():
+        if (
+            final_path.exists()
+            and not collection_retryable
+            and not harmonization_retryable
+        ):
             result = self._read_checkpoint(final_path)
             logger.info("Atlas resume progress stage=final-atlas-complete")
             self._write_resumed_outputs(result=result, out=output_path, trace=trace)
             return result
 
         harmonized_path = run_dir / "resume_harmonized_datasets.json"
-        if harmonized_path.exists():
+        if (
+            harmonized_path.exists()
+            and not collection_retryable
+            and not harmonization_retryable
+        ):
             result = self._read_checkpoint(harmonized_path)
             logger.info("Atlas resume progress stage=harmonization-complete")
         else:
+            if harmonization_retryable:
+                logger.info(
+                    "Atlas resume progress stage=harmonization-retry-required"
+                )
             reviewed_path = run_dir / "02_reviewed_datasets.json"
-            if reviewed_path.exists():
+            if reviewed_path.exists() and not collection_retryable:
                 datasets = self._read_checkpoint(reviewed_path)
                 logger.info("Atlas resume progress stage=review-complete")
             else:
                 collected_path = run_dir / "01_collected_accessions.json"
-                if collected_path.exists():
+                if collected_path.exists() and not collection_retryable:
                     accessions = self._read_checkpoint(collected_path)
                     logger.info("Atlas resume progress stage=collection-complete")
                     progress_path = run_dir / "resume_review_progress.json"
@@ -245,6 +275,7 @@ class Atlas:
                             "resume_review_progress.json",
                             {"accessions": self._filterer.accessions_with_publication_text_refs(accessions, texts), "publication_texts": texts},
                         ),
+                        _checkpoint_store=checkpoint_store,
                     )
                     trace.write("02_reviewed_datasets.json", datasets)
                 else:
@@ -262,6 +293,19 @@ class Atlas:
                         _trace_writer=trace,
                     )
 
+            if manifest.get("command") == "collect-datasets":
+                self._write_resumed_outputs(
+                    result=datasets,
+                    out=output_path,
+                    trace=trace,
+                )
+                logger.info(
+                    "Atlas resume stats run_id=%s workflow=collect-datasets accessions=%s",
+                    run_dir.name,
+                    len(datasets.get("accessions", [])),
+                )
+                return datasets
+
             trace.write(
                 "03_pre_harmonization_accession_metadata.json",
                 trace.metadata(datasets.get("accessions", [])),
@@ -270,6 +314,10 @@ class Atlas:
                 datasets=datasets,
                 details_out=manifest.get("harmonization_details_out"),
                 harmonization_options=manifest.get("harmonization_options"),
+                **self._checkpoint_keyword(
+                    self._harmonizer.harmonize_datasets,
+                    checkpoint_store,
+                ),
             )
             trace.write("04_harmonization_details.json", details)
             trace.write(
@@ -295,18 +343,75 @@ class Atlas:
         collect_metadata: bool = True,
         generate_queries: bool = False,
         max_generated_queries: int = 3,
+        dev_trace: bool = False,
+        dev_out_dir: str = ".dev",
+        run_id: str | None = None,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
+        owned_trace = dev_trace and _trace_writer is None
+        if owned_trace:
+            effective_run_id = run_id or self._dev_run_id()
+            _trace_writer = DevTraceWriter(
+                root=dev_out_dir,
+                run_id=effective_run_id,
+                manifest={
+                    "command": "collect-datasets",
+                    "created_at": effective_run_id,
+                    "atlas_out": out,
+                    "artifacts": [
+                        "00_run_manifest.json",
+                        "resume_state.sqlite",
+                        "01_collected_accessions.json",
+                        "02_reviewed_datasets.json",
+                        "06_final_atlas.json",
+                        "07_summary.json",
+                    ],
+                    "query": query,
+                    "query_file": file,
+                    "theme": theme,
+                    "review_filter": review_filter,
+                    "metadata_repositories": metadata_repositories,
+                    "max_publications": max_publications,
+                    "collect_metadata": collect_metadata,
+                    "generate_queries": generate_queries,
+                    "max_generated_queries": max_generated_queries,
+                },
+            )
+        checkpoint_store = (
+            _trace_writer.checkpoint_store if _trace_writer is not None else None
+        )
         if generate_queries or theme is not None:
             self._preflight_credentials()
         if generate_queries:
-            query = self._queries_with_generated(
-                query=query,
-                file=file,
-                theme=theme,
-                max_generated_queries=max_generated_queries,
+            resolved_queries = (
+                checkpoint_store.get_meta("resolved_queries")
+                if checkpoint_store is not None
+                else None
             )
+            if resolved_queries is not None:
+                query = resolved_queries
+            else:
+                query = self._queries_with_generated(
+                    query=query,
+                    file=file,
+                    theme=theme,
+                    max_generated_queries=max_generated_queries,
+                )
+                if checkpoint_store is not None:
+                    checkpoint_store.set_meta("resolved_queries", query)
             file = None
+        if checkpoint_store is not None:
+            checkpoint_store.validate_fingerprint(
+                {
+                    "query": query,
+                    "query_file": file,
+                    "theme": theme,
+                    "review_filter": review_filter,
+                    "metadata_repositories": metadata_repositories,
+                    "max_publications": max_publications,
+                    "collect_metadata": collect_metadata,
+                }
+            )
         logger.info("Atlas collect_datasets progress stage=collect-accessions")
         accessions = self._collect_jsons(
             query=query,
@@ -315,6 +420,7 @@ class Atlas:
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
             collect_metadata=collect_metadata,
+            checkpoint_store=checkpoint_store,
         )
         if _trace_writer is not None:
             _trace_writer.write("01_collected_accessions.json", accessions)
@@ -340,6 +446,7 @@ class Atlas:
             review_filter=review_filter,
             reviewer=reviewer,
             _review_progress_callback=review_progress_callback,
+            _checkpoint_store=checkpoint_store,
         )
         if _trace_writer is not None:
             _trace_writer.write("02_reviewed_datasets.json", result)
@@ -354,6 +461,11 @@ class Atlas:
         if out is not None:
             logger.info("Atlas collect_datasets progress stage=write-output output_path=%s", out)
             self._write_json(result=result, out=out)
+
+        if owned_trace and _trace_writer is not None:
+            summary = build_atlas_summary(atlas=result, atlas_path=out)
+            _trace_writer.write("06_final_atlas.json", result)
+            _trace_writer.write("07_summary.json", summary)
 
         logger.info(
             "Atlas collect_datasets stats final_accessions=%s publication_texts=%s collect_metadata=%s output_path=%s",
@@ -385,8 +497,9 @@ class Atlas:
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
         collect_metadata: bool = True,
+        checkpoint_store=None,
     ) -> list[dict]:
-        return self._collector.collect_jsons(
+        options = dict(
             query=query,
             file=file,
             out=out,
@@ -394,6 +507,13 @@ class Atlas:
             max_publications=max_publications,
             collect_metadata=collect_metadata,
         )
+        options.update(
+            self._checkpoint_keyword(
+                self._collector.collect_jsons,
+                checkpoint_store,
+            )
+        )
+        return self._collector.collect_jsons(**options)
 
     def _filter_jsons(
         self,
@@ -403,6 +523,7 @@ class Atlas:
         review_filter: str = "none",
         reviewer=None,
         _review_progress_callback=None,
+        _checkpoint_store=None,
     ) -> dict:
         options = dict(
             jsons=jsons,
@@ -413,6 +534,13 @@ class Atlas:
         )
         if _review_progress_callback is not None:
             options["_review_progress_callback"] = _review_progress_callback
+        options.update(
+            self._checkpoint_keyword(
+                self._filterer.filter_jsons,
+                _checkpoint_store,
+                name="_checkpoint_store",
+            )
+        )
         return self._filterer.filter_jsons(**options)
 
     def _harmonize_jsons(self, datasets: dict) -> dict:
@@ -476,6 +604,18 @@ class Atlas:
         with open(out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
 
+    @staticmethod
+    def _checkpoint_keyword(callable_object, checkpoint_store, name="checkpoint_store"):
+        if checkpoint_store is None:
+            return {}
+        parameters = inspect.signature(callable_object).parameters
+        if name in parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            return {name: checkpoint_store}
+        return {}
+
     def _write_resumed_outputs(self, result: dict, out: str | None, trace: DevTraceWriter) -> None:
         if out is not None:
             Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -499,8 +639,14 @@ class Atlas:
         for run_dir in root.iterdir() if root.is_dir() else []:
             manifest_path = run_dir / "00_run_manifest.json"
             final_path = run_dir / "06_final_atlas.json"
-            if not run_dir.is_dir() or not manifest_path.exists() or final_path.exists():
+            if not run_dir.is_dir() or not manifest_path.exists():
                 continue
+            if final_path.exists():
+                state_path = run_dir / "resume_state.sqlite"
+                if not state_path.exists() or not CheckpointStore(
+                    state_path
+                ).has_retryable():
+                    continue
             try:
                 self._read_checkpoint(manifest_path)
             except (OSError, ValueError, json.JSONDecodeError):

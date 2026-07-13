@@ -1,5 +1,6 @@
 import json
 import logging
+import hashlib
 
 from agentic_curator.curators.ontology_harmonizer import (
     build_miniml_metadata_context,
@@ -83,6 +84,7 @@ class PublicationTextReviewer:
         theme: str,
         reviewer=None,
         progress_callback=None,
+        checkpoint_store=None,
     ) -> dict:
         reviewer = reviewer or self._reviewer()
         reviewed_publication_texts = {}
@@ -102,6 +104,26 @@ class PublicationTextReviewer:
                     publication_ref,
                 )
             publication_text = dict(publication_text)
+            context = contexts.get(publication_ref, {})
+            input_hash = self._review_input_hash(
+                publication_text=publication_text,
+                context=context,
+                theme=theme,
+            )
+            checkpoint = (
+                checkpoint_store.get("thematic_review", publication_ref)
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint and checkpoint["status"] in {
+                "available",
+                "terminal_error",
+            } and (checkpoint.get("payload") or {}).get("input_hash") == input_hash:
+                publication_text = dict(
+                    (checkpoint.get("payload") or {}).get(
+                        "publication_text", publication_text
+                    )
+                )
             existing_review = publication_text.get(AGENTIC_CURATOR)
 
             if (
@@ -114,7 +136,6 @@ class PublicationTextReviewer:
                     progress_callback(reviewed_publication_texts)
                 continue
 
-            context = contexts.get(publication_ref, {})
             try:
                 review = reviewer.review_relevancy(
                     publication_text=publication_text.get("text", ""),
@@ -135,6 +156,18 @@ class PublicationTextReviewer:
                 }
                 reviewed_publication_texts[publication_ref] = publication_text
                 failed_count += 1
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "thematic_review",
+                        publication_ref,
+                        index,
+                        "terminal_error",
+                        payload={
+                            "publication_text": publication_text,
+                            "input_hash": input_hash,
+                        },
+                        error=str(error),
+                    )
                 if progress_callback is not None:
                     progress_callback(reviewed_publication_texts)
                 continue
@@ -144,6 +177,17 @@ class PublicationTextReviewer:
             )
             reviewed_publication_texts[publication_ref] = publication_text
             reviewed_count += 1
+            if checkpoint_store is not None:
+                checkpoint_store.put(
+                    "thematic_review",
+                    publication_ref,
+                    index,
+                    "available",
+                    payload={
+                        "publication_text": publication_text,
+                        "input_hash": input_hash,
+                    },
+                )
             if progress_callback is not None:
                 progress_callback(reviewed_publication_texts)
 
@@ -155,6 +199,20 @@ class PublicationTextReviewer:
             failed_count,
         )
         return reviewed_publication_texts
+
+    @staticmethod
+    def _review_input_hash(publication_text: dict, context: dict, theme: str) -> str:
+        value = json.dumps(
+            {
+                "text": publication_text.get("text", ""),
+                "theme": theme,
+                "context": context,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=repr,
+        )
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
     def filtered_result(
         self,

@@ -75,6 +75,8 @@ def test_discovery_runs_search_and_review_without_harmonization(
         "collect_metadata": True,
         "generate_queries": False,
         "max_generated_queries": 3,
+        "dev_trace": True,
+        "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
     }
     assert not hasattr(calls["atlas"]["credential_checker"], "ontology_frameworks")
     summary = json.loads(
@@ -89,6 +91,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
     assert displayed["max_publications"] == 5000
     assert displayed["harmonization"] is False
     assert displayed["collect_metadata"] is True
+    assert displayed["dev_trace"] is True
 
 
 def test_static_query_has_narrowed_mandatory_concepts() -> None:
@@ -139,3 +142,32 @@ def test_generate_query_flag_uses_llm_query_instead_of_static_query(
 
     assert calls["collect_datasets"]["query"] is None
     assert calls["collect_datasets"]["generate_queries"] is True
+
+
+def test_discovery_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
+    calls = {}
+
+    class RecordingAtlas:
+        def __init__(self, **kwargs):
+            pass
+
+        def resume(self, **kwargs):
+            calls["resume"] = kwargs
+
+    theme = tmp_path / "theme.txt"
+    theme.write_text("fibrosis theme", encoding="utf-8")
+    monkeypatch.setattr(script, "ROOT", tmp_path)
+    monkeypatch.setattr(script, "THEME_FILE", theme)
+    monkeypatch.setattr(script, "OUTPUT_DIR", tmp_path / ".out")
+    monkeypatch.setattr(script, "Atlas", RecordingAtlas)
+    monkeypatch.setattr(script, "GoogleCredentialPreflight", lambda: object())
+    monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
+    monkeypatch.setattr(script, "configure_logging", lambda path: None)
+
+    assert script.main(["--resume", "discovery-run"]) == 0
+
+    assert calls["resume"] == {
+        "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
+        "run_id": "discovery-run",
+        "out": str(tmp_path / ".out" / "fibrosis_discovery.json"),
+    }

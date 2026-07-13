@@ -36,6 +36,7 @@ class AtlasCollector:
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
         collect_metadata: bool = True,
+        checkpoint_store=None,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -48,10 +49,13 @@ class AtlasCollector:
 
         logger.info("Atlas collect_jsons stats query_count=%s", len(queries))
         logger.info("Atlas collect_jsons progress stage=collect-accessions")
-        accessions = self._epmc_wrapper().collect_accessions(
-            queries=queries,
-            max_publications=max_publications,
-        )
+        accession_options = {
+            "queries": queries,
+            "max_publications": max_publications,
+        }
+        if checkpoint_store is not None:
+            accession_options["checkpoint_store"] = checkpoint_store
+        accessions = self._epmc_wrapper().collect_accessions(**accession_options)
         logger.info(
             "Atlas collect_jsons progress stage=collect-accessions-complete raw_accessions=%s",
             len(accessions),
@@ -66,6 +70,7 @@ class AtlasCollector:
             result = self.collect_accession_metadata(
                 jsons=result,
                 metadata_repositories=selected_repositories,
+                checkpoint_store=checkpoint_store,
             )
             logger.info(
                 "Atlas collect_jsons progress stage=collect-accession-metadata-complete metadata_records=%s",
@@ -138,6 +143,7 @@ class AtlasCollector:
         self,
         jsons: list[dict],
         metadata_repositories: list[str] | tuple[str, ...] | set[str] | None = None,
+        checkpoint_store=None,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -162,9 +168,12 @@ class AtlasCollector:
                 repository,
                 len(repository_jsons),
             )
+            handler_options = {"jsons": repository_jsons}
+            if checkpoint_store is not None:
+                handler_options["checkpoint_store"] = checkpoint_store
             records.extend(
                 self.metadata_handler(repository=repository).collect_accession_metadata(
-                    jsons=repository_jsons
+                    **handler_options
                 )
             )
 

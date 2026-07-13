@@ -1,7 +1,10 @@
 import copy
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed, ThreadPoolExecutor
+import hashlib
 import json
 import logging
+
+from ThematicAtlases.checkpoint import is_retryable_error
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ class AtlasHarmonizer:
         datasets: dict,
         details_out: str | None = None,
         harmonization_options: dict | None = None,
+        checkpoint_store=None,
     ) -> tuple[dict, list[dict]]:
         source_accessions = [dict(record) for record in datasets.get("accessions", [])]
         accessions = list(source_accessions)
@@ -58,6 +62,7 @@ class AtlasHarmonizer:
             work_by_key.setdefault(
                 key,
                 {
+                    "work_key": hashlib.sha256(key.encode("utf-8")).hexdigest(),
                     "metadata": metadata,
                     "publication_context": context,
                     "indices": [],
@@ -89,13 +94,7 @@ class AtlasHarmonizer:
                 except Exception as error:
                     return None, error
 
-            if self._max_workers == 1:
-                outcomes = [run(item) for item in work_items]
-            else:
-                with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-                    outcomes = list(executor.map(run, work_items))
-
-            for item, (harmonization, error) in zip(work_items, outcomes):
+            def apply_outcome(item, harmonization, error, *, cached=False):
                 for index in item["indices"]:
                     record = accessions[index]
                     datalink_id = record.get("datalink_id", "")
@@ -126,6 +125,58 @@ class AtlasHarmonizer:
                         "strategy": harmonization.get("strategy"),
                         "target_paths": harmonization.get("target_paths"),
                     }
+
+                if checkpoint_store is None or cached:
+                    return
+                if error is None:
+                    checkpoint_store.put(
+                        "harmonization",
+                        item["work_key"],
+                        item["position"],
+                        "available",
+                        payload=harmonization,
+                    )
+                else:
+                    checkpoint_store.put(
+                        "harmonization",
+                        item["work_key"],
+                        item["position"],
+                        "retryable_error"
+                        if is_retryable_error(error)
+                        else "terminal_error",
+                        error=str(error),
+                    )
+
+            pending = []
+            for item in work_items:
+                checkpoint = (
+                    checkpoint_store.get("harmonization", item["work_key"])
+                    if checkpoint_store is not None
+                    else None
+                )
+                if checkpoint and checkpoint["status"] == "available":
+                    apply_outcome(item, checkpoint["payload"], None, cached=True)
+                elif checkpoint and checkpoint["status"] == "terminal_error":
+                    apply_outcome(
+                        item,
+                        None,
+                        RuntimeError(checkpoint["error"] or "harmonization failed"),
+                        cached=True,
+                    )
+                else:
+                    pending.append(item)
+
+            if self._max_workers == 1:
+                for item in pending:
+                    harmonization, error = run(item)
+                    apply_outcome(item, harmonization, error)
+            else:
+                with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+                    futures = {executor.submit(run, item): item for item in pending}
+                    for future in as_completed(futures):
+                        item = futures[future]
+                        harmonization, error = future.result()
+                        apply_outcome(item, harmonization, error)
 
         details = [detail for detail in details if detail is not None]
 

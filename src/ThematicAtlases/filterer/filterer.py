@@ -32,6 +32,7 @@ class AtlasFilterer:
         review_filter: str = "none",
         reviewer=None,
         _review_progress_callback=None,
+        _checkpoint_store=None,
     ) -> dict:
         self._publication_text_reviewer.validate_options(
             theme=theme,
@@ -46,6 +47,7 @@ class AtlasFilterer:
         publication_texts = self.collect_publication_texts(
             jsons=accession_records,
             publication_texts=publication_texts,
+            checkpoint_store=_checkpoint_store,
         )
         logger.info("Atlas filter_jsons progress stage=attach-publication-text-refs")
         accessions = self.accessions_with_publication_text_refs(
@@ -60,6 +62,7 @@ class AtlasFilterer:
                 review_filter=review_filter,
                 reviewer=reviewer,
                 progress_callback=_review_progress_callback,
+                checkpoint_store=_checkpoint_store,
             )
         accessions_with_refs = sum(
             1
@@ -152,6 +155,7 @@ class AtlasFilterer:
         self,
         jsons: list[dict],
         publication_texts: dict | None = None,
+        checkpoint_store=None,
     ) -> dict:
         publication_texts = dict(publication_texts or {})
         publications = []
@@ -182,8 +186,11 @@ class AtlasFilterer:
             "Atlas publication text progress unique_publications=%s",
             len(publications),
         )
+        text_options = {"publications": publications}
+        if checkpoint_store is not None:
+            text_options["checkpoint_store"] = checkpoint_store
         enriched_publications = self._epmc_wrapper().collect_publication_texts(
-            publications=publications
+            **text_options
         )
 
         publication_texts.update(
@@ -271,9 +278,10 @@ class AtlasFilterer:
         review_filter: str,
         reviewer=None,
         progress_callback=None,
+        checkpoint_store=None,
     ) -> tuple[list[dict], dict]:
         logger.info("Atlas filter_jsons progress stage=review-publication-texts")
-        publication_texts = self._publication_text_reviewer.review_publication_texts(
+        review_options = dict(
             publication_texts=publication_texts,
             contexts=self._publication_text_reviewer.publication_review_contexts(
                 accessions=accessions
@@ -281,6 +289,11 @@ class AtlasFilterer:
             theme=theme,
             reviewer=reviewer,
             progress_callback=progress_callback,
+        )
+        if checkpoint_store is not None:
+            review_options["checkpoint_store"] = checkpoint_store
+        publication_texts = self._publication_text_reviewer.review_publication_texts(
+            **review_options
         )
         logger.info("Atlas filter_jsons progress stage=filter-reviewed-publications")
         return self._publication_text_reviewer.filtered_result(

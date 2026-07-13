@@ -499,9 +499,10 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
         "03_pre_harmonization_accession_metadata.json",
         "04_harmonization_details.json",
         "05_post_harmonization_accession_metadata.json",
-        "06_final_atlas.json",
-        "07_summary.json",
-    ]
+            "06_final_atlas.json",
+            "07_summary.json",
+            "resume_state.sqlite",
+        ]
     assert json.loads(
         (run_dir / "06_final_atlas.json").read_text(
             encoding="utf-8"
@@ -613,3 +614,199 @@ def test_collect_datasets_traces_incremental_review_progress(tmp_path) -> None:
     )
     progress = json.loads((tmp_path / "run" / "resume_review_progress.json").read_text())
     assert progress["publication_texts"] == {"1": {"text": "reviewed"}}
+
+
+def test_collect_datasets_can_own_resumable_discovery_trace(tmp_path) -> None:
+    result = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).collect_datasets(
+        query=["fibrosis"],
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+        run_id="discovery-run",
+    )
+
+    run_dir = tmp_path / "discovery-run"
+    manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
+    assert manifest["command"] == "collect-datasets"
+    assert (run_dir / "resume_state.sqlite").exists()
+    assert json.loads((run_dir / "06_final_atlas.json").read_text()) == result
+
+
+def test_resume_discovery_trace_stops_before_harmonization(tmp_path) -> None:
+    run_dir = tmp_path / "trace" / "discovery-run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "discovery-run",
+                "command": "collect-datasets",
+                "query": ["fibrosis"],
+                "theme": None,
+                "review_filter": "none",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "01_collected_accessions.json").write_text(
+        json.dumps([{"datalink_id": "GSE1", "publications": []}]),
+        encoding="utf-8",
+    )
+
+    class NoHarmonizer:
+        def harmonize_datasets(self, **kwargs):
+            raise AssertionError("discovery resume must not harmonize")
+
+    result = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=NoHarmonizer(),
+    ).resume(dev_out_dir=str(tmp_path / "trace"))
+
+    assert result["accessions"][0]["datalink_id"] == "GSE1"
+    assert (run_dir / "06_final_atlas.json").exists()
+
+
+def test_create_atlas_passes_checkpoint_store_to_harmonizer(tmp_path) -> None:
+    calls = []
+
+    class CheckpointHarmonizer:
+        def harmonize_datasets(
+            self,
+            datasets,
+            details_out=None,
+            harmonization_options=None,
+            checkpoint_store=None,
+        ):
+            calls.append(checkpoint_store)
+            return datasets, []
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=CheckpointHarmonizer(),
+    ).create_atlas(
+        query=["fibrosis"],
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+    )
+
+    assert calls and calls[0] is not None
+
+
+def test_resume_retries_harmonization_marked_retryable_in_sqlite(tmp_path) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    run_dir = tmp_path / "trace" / "retry-harmonization"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "retry-harmonization",
+                "command": "create-atlas",
+                "theme": None,
+                "review_filter": "none",
+                "harmonization_options": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    datasets = {
+        "accessions": [{"datalink_id": "GSE1", "accession_metadata": {"x": 1}}],
+        "publication_texts": {},
+    }
+    (run_dir / "02_reviewed_datasets.json").write_text(
+        json.dumps(datasets), encoding="utf-8"
+    )
+    (run_dir / "resume_harmonized_datasets.json").write_text(
+        json.dumps({**datasets, "stale": True}), encoding="utf-8"
+    )
+    CheckpointStore(run_dir / "resume_state.sqlite").put(
+        "harmonization",
+        "work-key",
+        1,
+        "retryable_error",
+        error="temporary timeout",
+    )
+    calls = []
+
+    class RetryHarmonizer:
+        def harmonize_datasets(
+            self,
+            datasets,
+            details_out=None,
+            harmonization_options=None,
+            checkpoint_store=None,
+        ):
+            calls.append(datasets)
+            return {**datasets, "retried": True}, []
+
+    result = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=RetryHarmonizer(),
+    ).resume(dev_out_dir=str(tmp_path / "trace"))
+
+    assert calls == [datasets]
+    assert result["retried"] is True
+    assert "stale" not in result
+
+
+def test_resume_ignores_final_output_when_collection_has_retryable_item(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    run_dir = tmp_path / "trace" / "retry-collection"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "retry-collection",
+                "command": "collect-datasets",
+                "query": ["fibrosis"],
+                "theme": None,
+                "review_filter": "none",
+            }
+        ),
+        encoding="utf-8",
+    )
+    stale = {"accessions": [{"datalink_id": "STALE"}], "publication_texts": {}}
+    (run_dir / "06_final_atlas.json").write_text(
+        json.dumps(stale), encoding="utf-8"
+    )
+    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store.put(
+        "geo_metadata",
+        "GSE1",
+        1,
+        "retryable_error",
+        error="temporary timeout",
+    )
+    calls = []
+
+    class RecoveringCollector:
+        def collect_jsons(self, checkpoint_store=None, **kwargs):
+            calls.append(kwargs)
+            checkpoint_store.put(
+                "geo_metadata",
+                "GSE1",
+                1,
+                "available",
+                payload={"records": []},
+            )
+            return [{"datalink_id": "GSE1", "publications": []}]
+
+    result = Atlas(
+        metadata={},
+        collector=RecoveringCollector(),
+        filterer=RecordingFilterer(),
+    ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="retry-collection")
+
+    assert len(calls) == 1
+    assert result["accessions"][0]["datalink_id"] == "GSE1"

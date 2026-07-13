@@ -13,9 +13,10 @@ python3 -m ThematicAtlases.cli_atlas create-atlas --query fibrosis --out atlas.j
 ```
 
 Use `--resume` to select the newest incomplete valid trace, or
-`--resume RUN_ID` to select one explicitly. Resume validates atomic JSON
-checkpoints and skips completed collection, review, harmonization, or final
-output stages as available.
+`--resume RUN_ID` to select one explicitly. Readable JSON stage exports are
+paired with a transactional `resume_state.sqlite` item store. Resume validates
+the run fingerprint, reuses completed items, retries transient failures, and
+skips completed collection, review, harmonization, or final output stages.
 
 `create-atlas` is the preferred end-to-end workflow entrypoint. It collects GEO-filtered, deduplicated accession records with publication provenance and accession metadata, then runs the publication text mapping stage and writes the final atlas object when `--out` is provided.
 
@@ -49,8 +50,6 @@ src/ThematicAtlases/
     ├── epmc.py
     └── geo.py
 
-src/benchmark_ThematicAtlases/
-└── __init__.py
 ```
 
 Root project files:
@@ -75,7 +74,6 @@ docs/memory.md
 docs/burndown.md
 tests/test_atlas.py
 tests/test_ae_wrapper.py
-tests/test_benchmark_package.py
 tests/test_cli_atlas.py
 tests/test_collector.py
 tests/test_epmc_wrapper.py
@@ -99,7 +97,7 @@ tests/test_theme_fibrosis.py
 - Runtime dependencies contain `agentic-curator` from `jaychowcl/agentic_curator`, `google-auth>=2,<3`, `meta-standards-converter` from `jaychowcl/meta_standards_converter`, and `requests>=2.31,<3`. The Git dependencies intentionally track their default branches.
 - The `dev` optional dependency group contains `pytest>=8`.
 - `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`.
-- The distribution uses a `src/` layout with setuptools package discovery for both `ThematicAtlases` and `benchmark_ThematicAtlases`.
+- The package uses a `src/` layout with setuptools package discovery.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
 
 <a id="public-api"></a>
@@ -120,13 +118,6 @@ from agentic_curator import ThematicReviewer
 ```
 
 `ThematicAtlases` depends on `agentic-curator` but does not expose `ThematicAtlases.curator` or a curator CLI. The atlas workflow can call `ThematicReviewer` during `collect_datasets()` when a `theme` is supplied. Without a theme, thematic review is skipped and the publication text enrichment behavior is preserved.
-
-<a id="benchmark-package"></a>
-## Benchmark Package
-
-`src/benchmark_ThematicAtlases/` is a sibling import package in the existing `ThematicAtlases` distribution. It is reserved for future classes and methods that consume atlas results or development-trace artifacts to benchmark workflows and collect statistics.
-
-The package is intentionally empty: its `__init__.py` exports no public API, and it currently provides no modules, commands, dependencies, or runtime behavior.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
@@ -181,7 +172,13 @@ Run it with:
 ```bash
 .env/bin/python run_fibrosis_discovery.py
 .env/bin/python run_fibrosis_discovery.py --generate-query
+.env/bin/python run_fibrosis_discovery.py --resume
+.env/bin/python run_fibrosis_discovery.py --resume RUN_ID
 ```
+
+Both fibrosis scripts enable incremental SQLite checkpoints automatically.
+Library callers opt in by enabling `dev_trace`; untraced calls retain the
+existing in-memory behavior.
 
 <a id="atlas-workflow"></a>
 ### Atlas Workflow
@@ -192,13 +189,13 @@ Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
 - `create_atlas(..., dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
-- `resume(dev_out_dir=".dev", run_id=None, out=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, harmonized datasets, or the final atlas without repeating completed work.
-- `collect_datasets(..., generate_queries=False, max_generated_queries=3)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review.
+- `resume(dev_out_dir=".dev", run_id=None, out=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried.
+- `collect_datasets(..., generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. Direct discovery calls can own a resumable trace without invoking harmonization.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
-`collect_datasets()` does not write development snapshots. When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, it writes a run directory under `dev_out_dir` containing a manifest, collection/review checkpoints, pre/post harmonization metadata, full harmonization targets/details, the final atlas, and the summary.
+When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run directory under `dev_out_dir` containing `resume_state.sqlite`, a manifest, readable collection/review checkpoints, and final output/summary; full atlas traces also include pre/post harmonization metadata and target details. `CheckpointStore` uses WAL mode, full synchronous commits, a configuration fingerprint, and one row per stage/item. Statuses distinguish reusable success/no-data outcomes, non-retryable consumed-call failures, and transient failures that should be attempted again.
 
 Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=True)` invokes `store.cache_all()` once at the beginning of the first `create_atlas()` call, before credentials, query generation, or collection. The upstream cache API directly streams OWL into SQLite, imports an existing legacy JSON cache when available, and supports selective refresh through `store.cache_all(force_frameworks=[...])`; `force=True` still refreshes all active frameworks. Its framework replacement is transactional and temporary staging databases are deleted after success or failure. The result is retained as `atlas.ontology_cache_result`; aggregate cache exceptions propagate and prevent collection. The same store is passed to the default `AtlasHarmonizer` and its lazily created `OntologyHarmonizer`. Supplying a custom harmonizer together with Atlas-managed store/cache options raises `ValueError`.
 
@@ -285,6 +282,11 @@ skipped, failed, full-text, fallback, and missing counts.
 
 The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
 
+With a checkpoint store, each unique metadata/context/options work key is
+committed immediately after harmonization. Successful outcomes and terminal
+consumed-call failures are reused; transient provider/network errors are retried
+on resume. One dataset failure remains isolated from all other work items.
+
 `ThematicAtlases.credentials.GoogleCredentialPreflight` is an optional injected policy. It resolves Google ADC/project configuration and refreshes the token once without generating model content. An injected checker runs before method-owned query generation/thematic review and before eligible LLM-enabled harmonization.
 
 <a id="epmc-wrapper"></a>
@@ -336,7 +338,14 @@ firstPublicationDate
 
 `abstractText` comes directly from the Europe PMC `/search` response for each hit. Europe PMC may omit the field or return it empty; the wrapper normalizes missing values to `abstractText=""` in collected publication provenance. This is independent of datalink collection, so a datalink JSON timeout followed by successful XML fallback can still produce accession records whose publication has an empty `abstractText`.
 
-`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by the dataset collection workflow after accession collection and optional metadata routing. `collect_accessions()` returns deduplicated accession records with:
+`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by the dataset collection workflow after accession collection and optional metadata routing.
+
+During traced workflows, every completed search page, publication datalink
+lookup, and publication full-text/fallback result is committed independently to
+SQLite. A resumed call reconstructs ordered results from these rows and only
+reissues missing or transiently failed requests.
+
+`collect_accessions()` returns deduplicated accession records with:
 
 ```text
 datalink_id
@@ -504,6 +513,10 @@ with `db=gds`, comma-separated UIDs in `id`, and `retmode=json`. When ESearch re
 
 GEO emits INFO-level progress logs while resolving accessions and collecting metadata for each GSE. GEO emits INFO-level stats for resolved records, dropped records, metadata packages, related records, error/unavailable records, deduplicated output rows, publication links, and original datalink links. GEO DEBUG logs include ESearch/ESummary request details, retry status/attempt/delay, `geo2json` calls, and accession routing decisions.
 
+Traced runs checkpoint source-accession-to-GSE resolution and each GSE metadata
+conversion separately. Available, unavailable, and terminal parse outcomes are
+reused; transient fetch/conversion failures are retried on resume.
+
 <a id="cli-atlas"></a>
 ## CLI Atlas
 
@@ -534,12 +547,12 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
+Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
 
 Useful checks:
 
 ```bash
-.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/summary.py src/ThematicAtlases/trace.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/ae.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
+.env/bin/python -m py_compile src/ThematicAtlases/__init__.py src/ThematicAtlases/atlas.py src/ThematicAtlases/checkpoint.py src/ThematicAtlases/cli_atlas.py src/ThematicAtlases/summary.py src/ThematicAtlases/trace.py src/ThematicAtlases/collector/__init__.py src/ThematicAtlases/collector/collector.py src/ThematicAtlases/filterer/__init__.py src/ThematicAtlases/filterer/filterer.py src/ThematicAtlases/filterer/review.py src/ThematicAtlases/harmonizer/__init__.py src/ThematicAtlases/harmonizer/harmonizer.py src/ThematicAtlases/wrappers/__init__.py src/ThematicAtlases/wrappers/ae.py src/ThematicAtlases/wrappers/epmc.py src/ThematicAtlases/wrappers/geo.py
 .env/bin/python -m pytest
 ```
 

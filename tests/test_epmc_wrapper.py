@@ -3,6 +3,7 @@ import logging
 import pytest
 import requests
 
+from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers import epmc as epmc_module
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
@@ -26,6 +27,107 @@ class FakeResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise requests.HTTPError(response=self)
+
+
+def _geo_datalink_response(accession: str) -> dict:
+    return {
+        "dataLinkList": {
+            "Category": [
+                {
+                    "Name": "GEO",
+                    "Section": [
+                        {
+                            "Linklist": {
+                                "Link": [
+                                    {
+                                        "Target": {
+                                            "Identifier": {
+                                                "ID": accession,
+                                                "IDScheme": "GEO",
+                                                "IDURL": f"https://example.org/{accession}",
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+
+def test_collect_publications_resumes_from_completed_search_page(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    wrapper = EuropePMCWrapper(page_limit=3)
+    calls = []
+
+    def interrupting_search(query, cursor):
+        calls.append(cursor)
+        if cursor == "*":
+            return {
+                "hitCount": 2,
+                "nextCursorMark": "page-2",
+                "resultList": {"result": [{"id": "1", "source": "MED"}]},
+            }
+        raise KeyboardInterrupt()
+
+    wrapper._search = interrupting_search
+    with pytest.raises(KeyboardInterrupt):
+        wrapper.collect_publications(["fibrosis"], checkpoint_store=store)
+
+    resumed_calls = []
+
+    def completing_search(query, cursor):
+        resumed_calls.append(cursor)
+        return {
+            "hitCount": 2,
+            "nextCursorMark": None,
+            "resultList": {"result": [{"id": "2", "source": "MED"}]},
+        }
+
+    wrapper._search = completing_search
+    publications = wrapper.collect_publications(
+        ["fibrosis"], checkpoint_store=store
+    )
+
+    assert calls == ["*", "page-2"]
+    assert resumed_calls == ["page-2"]
+    assert [publication["epmc_id"] for publication in publications] == ["1", "2"]
+
+
+def test_collect_datalinks_resumes_after_last_completed_publication(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    publications = [
+        {"query": "fibrosis", "source": "MED", "epmc_id": "1"},
+        {"query": "fibrosis", "source": "MED", "epmc_id": "2"},
+    ]
+    wrapper = EuropePMCWrapper(request_delay=0)
+    calls = []
+
+    def interrupting_datalinks(source, epmc_id):
+        calls.append(epmc_id)
+        if epmc_id == "2":
+            raise KeyboardInterrupt()
+        return _geo_datalink_response("GSE1")
+
+    wrapper._datalinks = interrupting_datalinks
+    with pytest.raises(KeyboardInterrupt):
+        wrapper.collect_datalinks(publications, checkpoint_store=store)
+
+    resumed_calls = []
+
+    def completing_datalinks(source, epmc_id):
+        resumed_calls.append(epmc_id)
+        return _geo_datalink_response("GSE2")
+
+    wrapper._datalinks = completing_datalinks
+    result = wrapper.collect_datalinks(publications, checkpoint_store=store)
+
+    assert calls == ["1", "2"]
+    assert resumed_calls == ["2"]
+    assert [record["datalink_id"] for record in result] == ["GSE1", "GSE2"]
 
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
@@ -513,6 +615,46 @@ def test_collect_publication_texts_uses_pmc_epmc_id_without_pmcid(monkeypatch) -
 
     assert calls == [
         "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML"
+    ]
+
+
+def test_collect_publication_texts_resumes_after_completed_publication(
+    tmp_path, monkeypatch
+) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    calls = []
+    interrupted = True
+
+    def fake_get(url, timeout):
+        nonlocal interrupted
+        calls.append(url)
+        if "PMC2" in url and interrupted:
+            interrupted = False
+            raise KeyboardInterrupt
+        return FakeResponse(
+            {}, text="<article><body><p>Recovered text.</p></body></article>"
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    publications = [
+        {"epmc_id": "1", "pmcid": "PMC1", "abstractText": "one"},
+        {"epmc_id": "2", "pmcid": "PMC2", "abstractText": "two"},
+    ]
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    wrapper = EuropePMCWrapper()
+
+    with pytest.raises(KeyboardInterrupt):
+        wrapper.collect_publication_texts(publications, checkpoint_store=store)
+
+    result = wrapper.collect_publication_texts(publications, checkpoint_store=store)
+
+    assert sum("PMC1" in url for url in calls) == 1
+    assert sum("PMC2" in url for url in calls) == 2
+    assert [publication["full_text_status"] for publication in result] == [
+        "available",
+        "available",
     ]
 
 

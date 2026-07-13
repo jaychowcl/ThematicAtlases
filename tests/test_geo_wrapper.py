@@ -2,6 +2,7 @@ import logging
 
 import requests
 
+from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers import geo as geo_module
 from ThematicAtlases.wrappers.geo import GEOWrapper
 
@@ -30,6 +31,7 @@ class FakeGEOWrapper(GEOWrapper):
     metadata_calls: list[str] = []
     accessions_to_gse: dict[str, str | None] = {
         "GSE1": "GSE1",
+        "GSE2": "GSE2",
         "GSM1": "GSE1",
         "GDS1": "GSE1",
         "GPL1": None,
@@ -55,6 +57,47 @@ class FakeGEOWrapper(GEOWrapper):
     def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
         self.__class__.metadata_calls.append(gse_accession)
         return self.metadata_packages.get(gse_accession, [])
+
+
+def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
+    records = [
+        {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []},
+        {"datalink_id": "GSE2", "datalink_id_scheme": "GEO", "publications": []},
+    ]
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+
+    class InterruptingGeo(FakeGEOWrapper):
+        calls = []
+
+        def _gse_metadata_packages(self, gse_accession):
+            self.__class__.calls.append(gse_accession)
+            if gse_accession == "GSE2":
+                raise KeyboardInterrupt()
+            return [{"series": {"accession": [{"value": gse_accession}]}}]
+
+    try:
+        InterruptingGeo().collect_accession_metadata(
+            records, checkpoint_store=store
+        )
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("test interruption must propagate")
+
+    class CompletingGeo(FakeGEOWrapper):
+        calls = []
+
+        def _gse_metadata_packages(self, gse_accession):
+            self.__class__.calls.append(gse_accession)
+            return [{"series": {"accession": [{"value": gse_accession}]}}]
+
+    result = CompletingGeo().collect_accession_metadata(
+        records, checkpoint_store=store
+    )
+
+    assert InterruptingGeo.calls == ["GSE1", "GSE2"]
+    assert CompletingGeo.calls == ["GSE2"]
+    assert [record["datalink_id"] for record in result] == ["GSE1", "GSE2"]
 
 
 def test_collect_accession_metadata_keeps_gse_and_publications() -> None:

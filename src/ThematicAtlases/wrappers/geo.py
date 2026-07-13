@@ -4,6 +4,8 @@ import time
 from meta_standards_converter.converters.geo2json import geo2json
 import requests
 
+from ThematicAtlases.checkpoint import is_retryable_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +30,11 @@ class GEOWrapper:
         self._base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self._retry_statuses = {429, 500, 502, 503, 504}
 
-    def collect_accession_metadata(self, jsons: list[dict]) -> list[dict]:
+    def collect_accession_metadata(
+        self,
+        jsons: list[dict],
+        checkpoint_store=None,
+    ) -> list[dict]:
         records = []
         dropped_records = 0
 
@@ -44,7 +50,39 @@ class GEOWrapper:
                     index,
                     len(jsons),
                 )
-            gse_accession = self.get_gse(record.get("datalink_id", ""))
+            source_accession = self._normalize_accession(
+                record.get("datalink_id", "")
+            )
+            checkpoint = (
+                checkpoint_store.get("geo_resolution", source_accession)
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint and checkpoint["status"] in {"available", "no_data"}:
+                gse_accession = (checkpoint.get("payload") or {}).get("gse_accession")
+            else:
+                try:
+                    gse_accession = self.get_gse(source_accession)
+                except Exception as error:
+                    if checkpoint_store is not None:
+                        checkpoint_store.put(
+                            "geo_resolution",
+                            source_accession,
+                            index,
+                            "retryable_error"
+                            if is_retryable_error(error)
+                            else "terminal_error",
+                            error=str(error),
+                        )
+                    raise
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "geo_resolution",
+                        source_accession,
+                        index,
+                        "available" if gse_accession else "no_data",
+                        payload={"gse_accession": gse_accession},
+                    )
 
             if gse_accession is None:
                 dropped_records += 1
@@ -64,7 +102,10 @@ class GEOWrapper:
             "GEO accession metadata progress stage=collect-gse-metadata gse_records=%s",
             len(deduplicated_records),
         )
-        result = self._collect_gse_metadata_records(records=deduplicated_records)
+        result = self._collect_gse_metadata_records(
+            records=deduplicated_records,
+            checkpoint_store=checkpoint_store,
+        )
         logger.info(
             "GEO accession metadata stats input_records=%s output_records=%s dropped_records=%s",
             len(jsons),
@@ -245,7 +286,11 @@ class GEOWrapper:
     def _normalize_accession(self, accession: str) -> str:
         return str(accession or "").strip().upper()
 
-    def _collect_gse_metadata_records(self, records: list[dict]) -> list[dict]:
+    def _collect_gse_metadata_records(
+        self,
+        records: list[dict],
+        checkpoint_store=None,
+    ) -> list[dict]:
         metadata_records = []
         packages_returned = 0
         related_records = 0
@@ -260,6 +305,21 @@ class GEOWrapper:
                 len(records),
                 gse_accession,
             )
+            checkpoint = (
+                checkpoint_store.get("geo_metadata", gse_accession)
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint and checkpoint["status"] in {
+                "available",
+                "no_data",
+                "terminal_error",
+            }:
+                metadata_records.extend(
+                    (checkpoint.get("payload") or {}).get("records", [])
+                )
+                continue
+
             try:
                 packages = self._gse_metadata_packages(
                     gse_accession=gse_accession
@@ -271,25 +331,56 @@ class GEOWrapper:
                     gse_accession,
                     type(error).__name__,
                 )
-                metadata_records.append(self._metadata_error_record(record=record))
+                error_record = self._metadata_error_record(record=record)
+                metadata_records.append(error_record)
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "geo_metadata",
+                        gse_accession,
+                        index,
+                        "retryable_error"
+                        if is_retryable_error(error)
+                        else "terminal_error",
+                        payload={"records": [error_record]},
+                        error=str(error),
+                    )
                 continue
 
             if not packages:
                 unavailable_records += 1
-                metadata_records.append(self._metadata_unavailable_record(record=record))
+                unavailable_record = self._metadata_unavailable_record(record=record)
+                metadata_records.append(unavailable_record)
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "geo_metadata",
+                        gse_accession,
+                        index,
+                        "no_data",
+                        payload={"records": [unavailable_record]},
+                    )
                 continue
 
             packages_returned += len(packages)
+            package_records = []
             for package in packages:
                 package_gse = self._package_gse_accession(package=package)
                 if package_gse and package_gse != gse_accession:
                     related_records += 1
-                metadata_records.append(
+                package_records.append(
                     self._metadata_record(
                         record=record,
                         package=package,
                         package_gse=package_gse or record.get("datalink_id", ""),
                     )
+                )
+            metadata_records.extend(package_records)
+            if checkpoint_store is not None:
+                checkpoint_store.put(
+                    "geo_metadata",
+                    gse_accession,
+                    index,
+                    "available",
+                    payload={"records": package_records},
                 )
 
         result = self._deduplicate_gse_jsons(jsons=metadata_records)

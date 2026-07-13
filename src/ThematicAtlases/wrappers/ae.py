@@ -4,7 +4,11 @@ logger = logging.getLogger(__name__)
 
 
 class ArrayExpressWrapper:
-    def collect_accession_metadata(self, jsons: list[dict]) -> list[dict]:
+    def collect_accession_metadata(
+        self,
+        jsons: list[dict],
+        checkpoint_store=None,
+    ) -> list[dict]:
         records = [
             {
                 **record,

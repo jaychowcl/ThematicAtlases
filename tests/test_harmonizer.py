@@ -1,5 +1,6 @@
 import json
 
+from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 
 
@@ -114,6 +115,64 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
         "error": "provider unavailable",
     }
     assert details[1]["status"] == "available"
+
+
+def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
+    tmp_path,
+) -> None:
+    class InterruptingHarmonizer:
+        calls = []
+
+        def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
+            self.__class__.calls.append(miniml_json["value"])
+            if miniml_json["value"] == "two":
+                raise KeyboardInterrupt()
+            return {
+                "miniml_json": {**miniml_json, "harmonized": True},
+                "harmonization_targets": [],
+                "strategy": "websearch",
+                "target_paths": [],
+            }
+
+    datasets = {
+        "accessions": [
+            {"datalink_id": "GSE1", "accession_metadata": {"value": "one"}},
+            {"datalink_id": "GSE2", "accession_metadata": {"value": "two"}},
+        ]
+    }
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+
+    try:
+        AtlasHarmonizer(
+            ontology_harmonizer=InterruptingHarmonizer()
+        ).harmonize_datasets(datasets, checkpoint_store=store)
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("test interruption must propagate")
+
+    class CompletingHarmonizer:
+        calls = []
+
+        def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
+            self.__class__.calls.append(miniml_json["value"])
+            return {
+                "miniml_json": {**miniml_json, "harmonized": True},
+                "harmonization_targets": [],
+                "strategy": "websearch",
+                "target_paths": [],
+            }
+
+    result, _ = AtlasHarmonizer(
+        ontology_harmonizer=CompletingHarmonizer()
+    ).harmonize_datasets(datasets, checkpoint_store=store)
+
+    assert InterruptingHarmonizer.calls == ["one", "two"]
+    assert CompletingHarmonizer.calls == ["two"]
+    assert all(
+        record["accession_metadata"]["harmonized"]
+        for record in result["accessions"]
+    )
 
 
 def test_harmonize_datasets_writes_optional_details_file(tmp_path) -> None:

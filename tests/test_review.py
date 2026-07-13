@@ -231,6 +231,79 @@ def test_review_publication_texts_reports_atomic_progress_after_each_result() ->
     assert snapshots == [["1"], ["1", "2"]]
 
 
+def test_review_publication_texts_resumes_after_completed_publication(tmp_path) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    class InterruptingReviewer:
+        calls = []
+        interrupted = True
+
+        def review_relevancy(self, publication_text, **kwargs):
+            self.calls.append(publication_text)
+            if publication_text == "two" and self.interrupted:
+                self.interrupted = False
+                raise KeyboardInterrupt
+            return FakeReviewer().review_relevancy(
+                publication_text=publication_text, **kwargs
+            )
+
+    reviewer = InterruptingReviewer()
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    publication_texts = {"1": {"text": "one"}, "2": {"text": "two"}}
+
+    with pytest.raises(KeyboardInterrupt):
+        PublicationTextReviewer().review_publication_texts(
+            publication_texts=publication_texts,
+            contexts={},
+            theme="fibrosis",
+            reviewer=reviewer,
+            checkpoint_store=store,
+        )
+
+    result = PublicationTextReviewer().review_publication_texts(
+        publication_texts=publication_texts,
+        contexts={},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+
+    assert reviewer.calls == ["one", "two", "two"]
+    assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+    assert result["2"]["agentic_curator"]["judgement"] == "relevant"
+
+
+def test_review_checkpoint_is_invalidated_when_publication_text_changes(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    FakeReviewer.calls = []
+    reviewer = FakeReviewer()
+    PublicationTextReviewer().review_publication_texts(
+        publication_texts={"1": {"text": "abstract fallback"}},
+        contexts={},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+
+    result = PublicationTextReviewer().review_publication_texts(
+        publication_texts={"1": {"text": "recovered full text"}},
+        contexts={},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "abstract fallback",
+        "recovered full text",
+    ]
+    assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+
+
 def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> None:
     result = PublicationTextReviewer().agentic_curator_review(
         theme="fibrosis",

@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import time
 import xml.etree.ElementTree as ET
 
@@ -52,24 +53,34 @@ class EuropePMCWrapper:
         self,
         queries: list[str],
         max_publications: int | None = None,
+        checkpoint_store=None,
     ) -> list[dict]:
-        publications = self.collect_publications(
-            queries=queries,
-            max_publications=max_publications,
+        publication_options = {
+            "queries": queries,
+            "max_publications": max_publications,
+        }
+        datalink_options = {}
+        if checkpoint_store is not None:
+            publication_options["checkpoint_store"] = checkpoint_store
+            datalink_options["checkpoint_store"] = checkpoint_store
+        publications = self.collect_publications(**publication_options)
+        return self.collect_datalinks(
+            publications=publications,
+            **datalink_options,
         )
-        return self.collect_datalinks(publications=publications)
 
     def collect_publications(
         self,
         queries: list[str],
         max_publications: int | None = None,
+        checkpoint_store=None,
     ) -> list[dict]:
         max_publications = self._normalized_max_publications(
             max_publications=max_publications
         )
         publications = []
 
-        for query in queries:
+        for query_index, query in enumerate(queries):
             if max_publications is not None and len(publications) >= max_publications:
                 break
 
@@ -78,6 +89,46 @@ class EuropePMCWrapper:
             total_hits = None
             collected_hits = 0
             page_limit_reached = False
+
+            query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+            if checkpoint_store is not None:
+                saved_pages = [
+                    item
+                    for item in checkpoint_store.items("search_pages")
+                    if item["key"].startswith(f"{query_hash}:")
+                    and item["status"] == "available"
+                ]
+                for item in saved_pages:
+                    payload = item["payload"] or {}
+                    page_publications = list(payload.get("publications", []))
+                    remaining = (
+                        None
+                        if max_publications is None
+                        else max_publications - len(publications)
+                    )
+                    publications.extend(page_publications[:remaining])
+                    collected_hits += min(
+                        len(page_publications),
+                        len(page_publications) if remaining is None else remaining,
+                    )
+                    page += 1
+                    total_hits = payload.get("total_hits", total_hits)
+                    cursor = payload.get("next_cursor")
+                    if max_publications is not None and len(publications) >= max_publications:
+                        break
+
+                if saved_pages and (
+                    cursor is None
+                    or (max_publications is not None and len(publications) >= max_publications)
+                    or page >= self._request_settings["page_limit"]
+                ):
+                    logger.info(
+                        "EuropePMC search checkpoint reused query=%r pages=%s publications=%s",
+                        query,
+                        page,
+                        collected_hits,
+                    )
+                    continue
 
             while cursor is not None and page < self._request_settings["page_limit"]:
                 logger.debug(
@@ -107,12 +158,30 @@ class EuropePMCWrapper:
                 for hit in page_hits:
                     publications.append(self._publication_from_hit(query=query, hit=hit))
 
+                page_publications = [
+                    self._publication_from_hit(query=query, hit=hit)
+                    for hit in page_hits
+                ]
+
                 collected_hits += len(page_hits)
+                next_cursor = response_data.get("nextCursorMark")
+
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "search_pages",
+                        f"{query_hash}:{page:06d}",
+                        query_index * 1_000_000 + page,
+                        "available",
+                        payload={
+                            "query": query,
+                            "publications": page_publications,
+                            "total_hits": total_hits,
+                            "next_cursor": next_cursor,
+                        },
+                    )
 
                 if max_publications is not None and len(publications) >= max_publications:
                     break
-
-                next_cursor = response_data.get("nextCursorMark")
 
                 if next_cursor == cursor:
                     break
@@ -177,13 +246,36 @@ class EuropePMCWrapper:
 
         return sections
 
-    def collect_publication_texts(self, publications: list[dict]) -> list[dict]:
+    def collect_publication_texts(
+        self,
+        publications: list[dict],
+        checkpoint_store=None,
+    ) -> list[dict]:
         enriched_publications = []
         full_text_available = 0
         abstract_fallbacks = 0
         missing_text = 0
 
         for index, publication in enumerate(publications, start=1):
+            source = str(publication.get("source", ""))
+            epmc_id = str(publication.get("epmc_id", ""))
+            checkpoint_key = f"{source}:{epmc_id}"
+            checkpoint = (
+                checkpoint_store.get("publication_text", checkpoint_key)
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint and checkpoint["status"] in {
+                "available",
+                "no_data",
+                "terminal_error",
+            }:
+                enriched_publication = (checkpoint.get("payload") or {}).get(
+                    "publication", publication
+                )
+                enriched_publications.append(enriched_publication)
+                continue
+
             if _periodic_progress(index, len(publications)):
                 logger.info(
                     "EuropePMC publication text progress publication_index=%s publication_total=%s",
@@ -191,6 +283,8 @@ class EuropePMCWrapper:
                     len(publications),
                 )
             full_text_id = self._full_text_id(publication=publication)
+            checkpoint_status = "available"
+            checkpoint_error = None
 
             if not full_text_id:
                 enriched_publication = self._publication_with_fallback_text(
@@ -220,11 +314,23 @@ class EuropePMCWrapper:
                         publication=publication,
                         full_text_status=full_text_status,
                     )
-                except (requests.RequestException, ET.ParseError):
+                    if status_code != 404:
+                        checkpoint_status = "retryable_error"
+                        checkpoint_error = str(error)
+                except requests.RequestException as error:
                     enriched_publication = self._publication_with_fallback_text(
                         publication=publication,
                         full_text_status="error",
                     )
+                    checkpoint_status = "retryable_error"
+                    checkpoint_error = str(error)
+                except ET.ParseError as error:
+                    enriched_publication = self._publication_with_fallback_text(
+                        publication=publication,
+                        full_text_status="error",
+                    )
+                    checkpoint_status = "terminal_error"
+                    checkpoint_error = str(error)
 
             if enriched_publication["full_text_status"] == "available":
                 full_text_available += 1
@@ -234,6 +340,19 @@ class EuropePMCWrapper:
                 missing_text += 1
 
             enriched_publications.append(enriched_publication)
+            if checkpoint_store is not None:
+                if checkpoint_status == "available" and not enriched_publication.get(
+                    "text"
+                ):
+                    checkpoint_status = "no_data"
+                checkpoint_store.put(
+                    "publication_text",
+                    checkpoint_key,
+                    index,
+                    checkpoint_status,
+                    payload={"publication": enriched_publication},
+                    error=checkpoint_error,
+                )
             time.sleep(self._request_settings["request_delay"])
 
         logger.info(
@@ -246,7 +365,11 @@ class EuropePMCWrapper:
 
         return enriched_publications
 
-    def collect_datalinks(self, publications: list[dict]) -> list[dict]:
+    def collect_datalinks(
+        self,
+        publications: list[dict],
+        checkpoint_store=None,
+    ) -> list[dict]:
         datalinks = []
         failed_publications = 0
         skipped_categories = 0
@@ -256,6 +379,16 @@ class EuropePMCWrapper:
             epmc_id = publication.get("epmc_id", "")
 
             if not source or not epmc_id:
+                continue
+
+            checkpoint_key = f"{source}:{epmc_id}"
+            checkpoint = (
+                checkpoint_store.get("datalinks", checkpoint_key)
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint and checkpoint["status"] in {"available", "no_data"}:
+                datalinks.extend((checkpoint.get("payload") or {}).get("rows", []))
                 continue
 
             if _periodic_progress(index, len(publications)):
@@ -275,6 +408,14 @@ class EuropePMCWrapper:
                 response_data = self._datalinks(source=source, epmc_id=epmc_id)
             except requests.RequestException as error:
                 failed_publications += 1
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "datalinks",
+                        checkpoint_key,
+                        index,
+                        "retryable_error",
+                        error=str(error),
+                    )
                 logger.warning(
                     "EuropePMC datalinks skipped publication source=%r epmc_id=%r error=%r",
                     source,
@@ -292,6 +433,7 @@ class EuropePMCWrapper:
 
             categories = response_data.get("dataLinkList", {}).get("Category", [])
 
+            publication_datalinks = []
             for category in categories:
                 category_name = category.get("Name", "")
 
@@ -299,11 +441,21 @@ class EuropePMCWrapper:
                     skipped_categories += 1
                     continue
 
-                datalinks.extend(
+                publication_datalinks.extend(
                     self._datalinks_from_category(
                         publication=publication,
                         category=category,
                     )
+                )
+
+            datalinks.extend(publication_datalinks)
+            if checkpoint_store is not None:
+                checkpoint_store.put(
+                    "datalinks",
+                    checkpoint_key,
+                    index,
+                    "available" if publication_datalinks else "no_data",
+                    payload={"rows": publication_datalinks},
                 )
 
             time.sleep(self._request_settings["request_delay"])
