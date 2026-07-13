@@ -1,7 +1,8 @@
 import importlib
 
 
-def test_benchmark_package_is_importable_and_has_no_public_api() -> None:
+def test_benchmark_package_exports_thematic_reviewer_benchmark() -> None:
     package = importlib.import_module("benchmark_ThematicAtlases")
 
-    assert [name for name in vars(package) if not name.startswith("_")] == []
+    assert package.__all__ == ["ThematicReviewerBenchmark"]
+    assert package.ThematicReviewerBenchmark.__name__ == "ThematicReviewerBenchmark"

@@ -51,6 +51,10 @@ src/ThematicAtlases/
     ├── epmc.py
     └── geo.py
 
+src/benchmark_ThematicAtlases/
+├── __init__.py
+└── thematic_reviewer.py
+
 ```
 
 Root project files:
@@ -75,6 +79,7 @@ docs/memory.md
 docs/burndown.md
 tests/test_atlas.py
 tests/test_ae_wrapper.py
+tests/test_benchmark_package.py
 tests/test_checkpoint.py
 tests/test_cli_atlas.py
 tests/test_collector.py
@@ -86,6 +91,7 @@ tests/test_review.py
 tests/test_run_fibrosis_atlas.py
 tests/test_summary.py
 tests/test_theme_fibrosis.py
+tests/test_thematic_reviewer_benchmark.py
 ```
 
 <a id="runtime-and-packaging"></a>
@@ -99,7 +105,7 @@ tests/test_theme_fibrosis.py
 - Runtime dependencies contain `agentic-curator` from `jaychowcl/agentic_curator`, `google-auth>=2,<3`, `meta-standards-converter` from `jaychowcl/meta_standards_converter`, and `requests>=2.31,<3`. The Git dependencies intentionally track their default branches.
 - The `dev` optional dependency group contains `pytest>=8`.
 - `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`.
-- The package uses a `src/` layout with setuptools package discovery.
+- The distribution uses a `src/` layout with setuptools package discovery for both `ThematicAtlases` and `benchmark_ThematicAtlases`.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
 
 <a id="public-api"></a>
@@ -120,6 +126,28 @@ from agentic_curator import ThematicReviewer
 ```
 
 `ThematicAtlases` depends on `agentic-curator` but does not expose `ThematicAtlases.curator` or a curator CLI. The atlas workflow can call `ThematicReviewer` during `collect_datasets()` when a `theme` is supplied. Without a theme, thematic review is skipped and the publication text enrichment behavior is preserved.
+
+<a id="benchmark-package"></a>
+## Benchmark Package
+
+`src/benchmark_ThematicAtlases/` is a sibling import package in the existing `ThematicAtlases` distribution. Its first public API compares a structured reference-publication set with thematic-review results:
+
+```python
+from benchmark_ThematicAtlases import ThematicReviewerBenchmark
+
+report = ThematicReviewerBenchmark().benchmark(
+    reference_publications=[
+        {"doi": "10.1038/s41467-024-55325-4", "pmid": "optional"}
+    ],
+    thematic_output=atlas_dict_or_json_path_or_trace_directory,
+)
+```
+
+Each reference requires a DOI, PMID, or both; other fields are preserved in the per-publication report. DOI and PMID matching is normalized, offline, and exact. Duplicate reference rows and repeated publications across accessions collapse into single publication identities. If a reference DOI and PMID resolve to different thematic publications, the row is reported as a conflict rather than matched arbitrarily.
+
+The method accepts an atlas-shaped mapping, an explicit JSON path, or a development-trace directory. Trace loading prefers `resume_review_progress.json`, then `02_reviewed_datasets.json`, then `06_final_atlas.json`. The pre-filter progress artifact gives the strongest discovery-recall evidence. Reports from post-filter or unknown-stage data carry an explicit limitation because removed publications cannot be distinguished from publications that were never discovered.
+
+The JSON-serializable report contains source provenance, unique-reference and duplicate counts, matched/missed/conflict counts, discovery recall, review completion/failure counts, normalized judgement counts, relevant recall, relevant-or-unsure candidate recall, and one detailed row per unique reference. The benchmark has no CLI, network calls, DOI/PMID resolution service, or additional dependency.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
