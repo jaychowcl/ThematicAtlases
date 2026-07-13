@@ -151,11 +151,17 @@ gcloud auth application-default login
 The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
 
 `run_fibrosis_discovery.py` is the pre-harmonization companion entry point. It
-uses the same fibrosis theme, generated-query policy, GEO metadata enrichment,
-compact reviewer metadata context, and `not_relevant` filter, but searches up
-to 5,000 publications and calls `Atlas.collect_datasets()` directly. It never
-constructs `OntoStore`, caches ontologies, calls `create_atlas()`, or invokes
-harmonization. It prints its fixed configuration and writes
+uses an embedded human/fibrosis/transcriptomics Europe PMC query by default,
+while retaining the same fibrosis theme for review, GEO metadata enrichment,
+compact reviewer metadata context, and `not_relevant` filter. The query removes
+generic sclerosis and remodelling-only terms, excludes reviews, and deliberately
+does not exclude mouse/rat mentions because mixed-species publications can still
+contain qualifying human datasets. `--generate-query` replaces the static query
+with the existing LLM theme-to-query workflow. Europe PMC synonym expansion
+remains enabled in both modes. The script searches up to 5,000 publications and
+calls `Atlas.collect_datasets()` directly. It never constructs `OntoStore`,
+caches ontologies, calls `create_atlas()`, or invokes harmonization. It prints
+the resolved query mode and configuration and writes
 `.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and
 `.out/fibrosis_discovery.log`.
 
@@ -163,6 +169,7 @@ Run it with:
 
 ```bash
 .env/bin/python run_fibrosis_discovery.py
+.env/bin/python run_fibrosis_discovery.py --generate-query
 ```
 
 <a id="atlas-workflow"></a>

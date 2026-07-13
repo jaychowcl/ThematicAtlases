@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -23,8 +24,33 @@ MAX_GENERATED_QUERIES = 3
 METADATA_REPOSITORIES = ["geo"]
 REVIEW_FILTER = "not_relevant"
 COLLECT_METADATA = True
-GENERATE_QUERIES = True
 LOG_LEVEL = "DEBUG"
+
+FIBROSIS_DISCOVERY_QUERY = """\
+(
+  TITLE_ABS:(
+    human OR humans OR patient OR patients OR donor OR donors OR "Homo sapiens"
+  )
+  AND TITLE_ABS:(
+    "gene expression" OR "RNA sequencing" OR "RNA-seq" OR transcriptome
+    OR transcriptomic OR "bulk RNA-seq" OR "bulk transcriptomics"
+    OR "single cell RNA-seq" OR scRNA-seq OR "single nucleus RNA-seq"
+    OR snRNA-seq OR "single cell transcriptomics"
+    OR "single nucleus transcriptomics" OR "spatial transcriptomics"
+    OR "spatial RNA-seq" OR "spatial gene expression" OR Visium OR GeoMx
+    OR CosMx OR Xenium OR MERFISH OR seqFISH OR "Slide-seq" OR "Stereo-seq"
+    OR microarray OR "gene chip" OR NanoString
+  )
+  AND TITLE_ABS:(
+    fibrosis OR fibrotic OR fibrosed OR fibrogenesis OR fibrogenic
+    OR cirrhosis OR cirrhotic OR "systemic sclerosis" OR scleroderma
+    OR keloid OR keloids OR "hypertrophic scar" OR "hypertrophic scars"
+    OR "tissue scarring" OR "organ scarring"
+  )
+)
+AND (HAS_DATA:y OR HAS_LABSLINKS:y)
+NOT PUB_TYPE:review
+""".strip()
 
 
 def require_project_venv(
@@ -51,16 +77,32 @@ def configure_logging(path: Path) -> None:
     )
 
 
-def resolved_configuration() -> dict:
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run fibrosis discovery and thematic review without harmonization."
+    )
+    parser.add_argument(
+        "--generate-query",
+        action="store_true",
+        help=(
+            "Generate Europe PMC queries from the fibrosis theme with the LLM "
+            "instead of using the embedded static query."
+        ),
+    )
+    return parser
+
+
+def resolved_configuration(*, generate_query: bool = False) -> dict:
     return {
         "theme_file": str(THEME_FILE),
         "discovery_out": str(OUTPUT_DIR / "fibrosis_discovery.json"),
         "summary_out": str(OUTPUT_DIR / "fibrosis_discovery.summary.json"),
         "log_out": str(OUTPUT_DIR / "fibrosis_discovery.log"),
         "log_level": LOG_LEVEL,
-        "query": None,
+        "query_mode": "generated" if generate_query else "static",
+        "query": None if generate_query else [FIBROSIS_DISCOVERY_QUERY],
         "query_file": None,
-        "generate_queries": GENERATE_QUERIES,
+        "generate_queries": generate_query,
         "max_generated_queries": MAX_GENERATED_QUERIES,
         "metadata_repositories": METADATA_REPOSITORIES,
         "max_publications": MAX_PUBLICATIONS,
@@ -70,10 +112,11 @@ def resolved_configuration() -> dict:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
     require_project_venv(root=ROOT, executable=sys.executable)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    config = resolved_configuration()
+    config = resolved_configuration(generate_query=args.generate_query)
     configure_logging(Path(config["log_out"]))
     print(json.dumps(config, indent=2))
 
@@ -83,7 +126,7 @@ def main() -> int:
         credential_checker=GoogleCredentialPreflight(),
     )
     result = atlas.collect_datasets(
-        query=None,
+        query=config["query"],
         file=None,
         out=config["discovery_out"],
         theme=theme,
@@ -91,7 +134,7 @@ def main() -> int:
         metadata_repositories=METADATA_REPOSITORIES,
         max_publications=MAX_PUBLICATIONS,
         collect_metadata=COLLECT_METADATA,
-        generate_queries=GENERATE_QUERIES,
+        generate_queries=config["generate_queries"],
         max_generated_queries=MAX_GENERATED_QUERIES,
     )
     summary = build_atlas_summary(

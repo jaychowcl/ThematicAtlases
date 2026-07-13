@@ -35,7 +35,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, 5000 publications, no harmonization, --resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, static query, --generate-query, LLM query generation, 5000 publications, no harmonization, --resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
 
 - id: cli-atlas
   title: CLI Atlas

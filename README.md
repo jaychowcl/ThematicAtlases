@@ -78,6 +78,14 @@ to 5,000 publications without loading ontologies or starting harmonization:
 .env/bin/python run_fibrosis_discovery.py
 ```
 
+The default run uses the embedded, human-focused fibrosis transcriptomics query
+and does not spend an LLM call generating search terms. To generate queries from
+the fibrosis theme instead, opt in explicitly:
+
+```bash
+.env/bin/python run_fibrosis_discovery.py --generate-query
+```
+
 This writes `.out/fibrosis_discovery.json`, its summary, and a dedicated DEBUG
 log. The output retains `relevant` and `unsure` datasets and removes reviewed
 `not_relevant` publications.
