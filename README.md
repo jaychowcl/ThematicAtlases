@@ -111,6 +111,30 @@ metadata, thematic reviews, and dataset-level harmonizations are committed
 individually. Resume reuses successful and terminal outcomes, retries transient
 network/provider failures, and validates that the run configuration matches.
 
+While a traced collection is still running, review the publications whose
+datalink calls have already completed with:
+
+```bash
+.env/bin/python run_publication_reviewer.py \
+  .out/dev_trace_discovery/RUN_ID -v
+```
+
+This performs one stable snapshot and exits. Run it again later to review newly
+checkpointed publications; completed full-text fetches and thematic reviews are
+reused. The script reads the theme and repository selection from the run
+manifest. Use `--theme-file PATH` only when the manifest has no theme (or to
+confirm the same theme explicitly). Incremental results are written atomically
+to `resume_review_progress.json`; the shared SQLite checkpoint database remains
+authoritative.
+
+The same workflow is available in Python:
+
+```python
+from ThematicAtlases.filterer import PublicationTextReviewer
+
+snapshot = PublicationTextReviewer().resume(".dev/RUN_ID")
+```
+
 Collect GEO datasets from a query:
 
 ```bash
@@ -294,7 +318,7 @@ Code flow:
 3. When metadata collection is enabled, `GEOWrapper` normalizes GEO rows to GSE-level records, drops GPL or unresolved records, preserves source datalink evidence in `original_datalinks`, deduplicates repeated GSEs, and stores `geo2json` metadata in `accession_metadata`.
 4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
 5. `AtlasFilterer` accepts collected rows or an atlas-shaped object, reuses existing publication text entries, fetches missing full text or abstract fallback text through `EuropePMCWrapper`, attaches `publication_text_ref`, and returns the final object with `accessions` and `publication_texts`.
-6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested.
+6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested. Its `resume()` method can independently review the current completed-datalink snapshot from an actively growing trace; later calls add newly discovered publications without repeating completed LLM work.
 7. `AtlasHarmonizer` builds publication context from nested titles and abstracts, calls `OntologyHarmonizer.harmonize_miniml_json()`, replaces successful `accession_metadata`, annotates unavailable/error outcomes, and optionally writes detailed target/strategy results.
 
 Major components:
@@ -305,7 +329,7 @@ Major components:
 - `EuropePMCWrapper`: publication search, datalink collection, full-text/abstract text enrichment, retry handling, and datalink XML fallback.
 - `GEOWrapper`: GEO accession normalization to GSE and `geo2json` metadata enrichment.
 - `ArrayExpressWrapper`: placeholder ArrayExpress metadata enrichment.
-- `PublicationTextReviewer`: thematic review integration, compact 500-character MINiML context construction, review reuse, judgement parsing, and review-filter application. Full accession metadata remains stored but is not sent to the thematic-review LLM.
+- `PublicationTextReviewer`: thematic review integration, incremental trace resume, compact 500-character MINiML context construction, review reuse, judgement parsing, and review-filter application. Full accession metadata remains stored but is not sent to the thematic-review LLM.
 
 Python logging is library-style: modules define loggers but do not configure global logging. Applications should configure logging themselves. The CLI configures logging from `-v`, `-vv`, and `--log-file`.
 

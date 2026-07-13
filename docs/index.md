@@ -72,7 +72,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: filterer
   title: Filterer
   anchor: filterer
-  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, 500 characters, PublicationTextReviewer, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
+  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, 500 characters, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
 
 - id: harmonizer
   title: Harmonizer

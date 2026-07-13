@@ -41,6 +41,7 @@ src/ThematicAtlases/
 ├── filterer/
 │   ├── __init__.py
 │   ├── filterer.py
+│   ├── resume.py
 │   └── review.py
 ├── harmonizer/
 │   ├── __init__.py
@@ -63,6 +64,7 @@ Root project files:
 pyproject.toml
 requirements.txt
 run_fibrosis_atlas.py
+run_publication_reviewer.py
 README.md
 LICENSE
 .gitignore
@@ -89,6 +91,7 @@ tests/test_geo_wrapper.py
 tests/test_harmonizer.py
 tests/test_review.py
 tests/test_run_fibrosis_atlas.py
+tests/test_run_publication_reviewer.py
 tests/test_summary.py
 tests/test_theme_fibrosis.py
 tests/test_thematic_reviewer_benchmark.py
@@ -317,12 +320,15 @@ skipped, failed, full-text, fallback, and missing counts.
 `filter_jsons()` remains the internal filterer pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object. Public callers use `Atlas.collect_datasets()`.
 
 - `ThematicAtlases.filterer.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
+- `PublicationTextReviewer.resume(trace_dir, theme=None, reviewer=None)` delegates to the injectable `TracePublicationReviewResumer`. It snapshots completed `datalinks` checkpoint rows from an active trace, reconstructs and repository-filters accessions, collects missing publication text, reviews unique texts, atomically writes `resume_review_progress.json`, and returns that unfiltered atlas-shaped snapshot. Repeated calls discover newly checkpointed datalinks and reuse completed text/review items.
+- The trace resumer uses the manifest theme and repository selection by default. An explicit non-empty theme is allowed when the manifest has none; a conflicting theme is rejected. Only `available` datalink items present when the call begins belong to that invocation, so the method does not poll or wait for collection completion.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly. The first accession/publication context for a text ref supplies the title and a deterministic compact metadata string built by `build_miniml_metadata_context(...)`: first series title plus unique source, molecule, organism, and characteristic values, capped at 500 characters. Full MINiML, protocol, and platform sections are not sent to the reviewer, while the original `accession_metadata` remains unchanged in the atlas and development checkpoints.
 - Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
 - Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
 - The review output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, parsed `evidences`, parsed final judge fields `judgement`, `reasoning`, and `confidence`, plus `raw_evidences` and `raw_judgement`. Parsed fields match the `agentic_curator` response schemas: evidence items use `evidence`, `judgement`, `confidence`, and `reason`; judge output uses `judgement`, `reasoning`, and `confidence`.
-- Existing `agentic_curator` reviews are reused when their stored `theme` matches the requested theme.
-- Each thematic review is checkpointed atomically during initial and resumed traced runs. A publication-level exception is stored with `review_status="failed"`, retained as unreviewed regardless of `review_filter`, and does not terminate later reviews. Invalid or truncated consumed LLM responses are not retried; Europe PMC/network fetching retains its bounded transient retry behavior.
+- Existing `agentic_curator` reviews are reused when their stored `theme` matches the requested theme. Checkpoint identity includes theme, publication text, and title but excludes metadata context, so a metadata-free review started during collection remains final when MINiML metadata arrives later; changed text, title, or theme triggers a new review.
+- Each thematic review is checkpointed atomically during initial and resumed traced runs. Per-publication filesystem locks coordinate processes sharing the checkpoint database so the incremental runner and main Atlas workflow do not duplicate an LLM call. A publication-level exception is stored with `review_status="failed"`, retained as unreviewed regardless of `review_filter`, and does not terminate later reviews. Invalid or truncated consumed LLM responses are not retried; Europe PMC/network fetching retains its bounded transient retry behavior.
+- Root `run_publication_reviewer.py TRACE_DIR [--theme-file PATH] [-v|-vv]` checks project ADC, runs one `PublicationTextReviewer.resume()` snapshot, prints counts, and exits so it can be invoked again as collection advances.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
 - `review_filter != "none"` without a `theme` raises `ValueError`.
