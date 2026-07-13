@@ -153,7 +153,7 @@ The script requires working Google Application Default Credentials and quota. Te
 `run_fibrosis_discovery.py` is the pre-harmonization companion entry point. It
 uses the same fibrosis theme, generated-query policy, GEO metadata enrichment,
 compact reviewer metadata context, and `not_relevant` filter, but searches up
-to 100 publications and calls `Atlas.collect_datasets()` directly. It never
+to 1,000 publications and calls `Atlas.collect_datasets()` directly. It never
 constructs `OntoStore`, caches ontologies, calls `create_atlas()`, or invokes
 harmonization. It prints its fixed configuration and writes
 `.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and

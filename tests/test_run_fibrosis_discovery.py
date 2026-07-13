@@ -71,7 +71,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
         "theme": "fibrosis theme",
         "review_filter": "not_relevant",
         "metadata_repositories": ["geo"],
-        "max_publications": 100,
+        "max_publications": 1000,
         "collect_metadata": True,
         "generate_queries": True,
         "max_generated_queries": 3,
@@ -86,6 +86,6 @@ def test_discovery_runs_search_and_review_without_harmonization(
         "publication_texts": 0,
     }
     displayed = json.loads(capsys.readouterr().out)
-    assert displayed["max_publications"] == 100
+    assert displayed["max_publications"] == 1000
     assert displayed["harmonization"] is False
     assert displayed["collect_metadata"] is True

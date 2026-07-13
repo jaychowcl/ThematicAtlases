@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent
 THEME_FILE = ROOT / "docs" / "theme_fibrosis.txt"
 OUTPUT_DIR = ROOT / ".out"
 
-MAX_PUBLICATIONS = 100
+MAX_PUBLICATIONS = 1000
 MAX_GENERATED_QUERIES = 3
 METADATA_REPOSITORIES = ["geo"]
 REVIEW_FILTER = "not_relevant"
