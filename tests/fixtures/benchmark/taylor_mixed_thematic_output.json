@@ -1,0 +1,102 @@
+{
+  "accessions": [
+    {
+      "datalink_id": "META-TAYLOR",
+      "publications": [
+        {
+          "doi": "10.1053/j.gastro.2020.01.043",
+          "title": "Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis",
+          "publication_text_ref": "taylor"
+        }
+      ]
+    },
+    {
+      "datalink_id": "BHALA-1",
+      "publications": [
+        {
+          "doi": "10.1002/hep.24491",
+          "title": "The natural history of nonalcoholic fatty liver disease with advanced fibrosis or cirrhosis: An international collaborative study",
+          "publication_text_ref": "bhala"
+        }
+      ]
+    },
+    {
+      "datalink_id": "BHALA-2",
+      "publications": [
+        {
+          "doi": "DOI: 10.1002/HEP.24491",
+          "title": "The natural history of nonalcoholic fatty liver disease with advanced fibrosis or cirrhosis: An international collaborative study",
+          "publication_text_ref": "bhala"
+        }
+      ]
+    },
+    {
+      "datalink_id": "DAVID",
+      "publications": [
+        {
+          "doi": "10.1002/hep.22868",
+          "title": "Quality of life in adults with nonalcoholic fatty liver disease",
+          "publication_text_ref": "david"
+        }
+      ]
+    },
+    {
+      "datalink_id": "HAGSTROM-MORTALITY",
+      "publications": [
+        {
+          "doi": "10.1016/j.jhep.2017.07.027",
+          "title": "Fibrosis stage but not NASH predicts mortality",
+          "publication_text_ref": "hagstrom-mortality"
+        }
+      ]
+    },
+    {
+      "datalink_id": "HAGSTROM-LEAN",
+      "publications": [
+        {
+          "doi": "10.1002/hep4.1124",
+          "title": "Risk for development of severe liver disease in lean patients",
+          "publication_text_ref": "hagstrom-lean"
+        }
+      ]
+    },
+    {
+      "datalink_id": "HUBER",
+      "publications": [
+        {
+          "doi": "10.1016/j.cgh.2018.12.016",
+          "title": "Health-related quality of life in NAFLD",
+          "publication_text_ref": "huber"
+        }
+      ]
+    }
+  ],
+  "publication_texts": {
+    "taylor": {
+      "agentic_curator": {
+        "judgement": "relevant"
+      }
+    },
+    "bhala": {
+      "agentic_curator": {
+        "judgement": "Relevant"
+      }
+    },
+    "david": {
+      "agentic_curator": {
+        "judgement": "UNSURE"
+      }
+    },
+    "hagstrom-mortality": {
+      "agentic_curator": {
+        "judgement": "not relevant"
+      }
+    },
+    "hagstrom-lean": {
+      "agentic_curator": {
+        "review_status": "failed"
+      }
+    },
+    "huber": {}
+  }
+}
