@@ -1,4 +1,5 @@
 import json
+from importlib import resources
 
 import pytest
 
@@ -7,6 +8,46 @@ from benchmark_ThematicAtlases import ThematicReviewerBenchmark
 
 WATSON_DOI = "10.1038/s41467-024-55325-4"
 REICHART_DOI = "10.1126/science.abo1984"
+
+LEONIE_DOIS = [
+    "10.64898/2026.03.09.709232",
+    "10.1038/s41467-024-55325-4",
+    "10.1126/science.abo1984",
+    "10.1164/rccm.201712-2410oc",
+    "10.1126/sciadv.aba1972",
+    "10.1038/s41467-020-17358-3",
+    "10.1126/sciadv.aba1983",
+    "10.1038/s41467-020-15647-5",
+    "10.1016/j.celrep.2023.112086",
+    "10.1038/s41586-022-04817-8",
+    "10.1038/s44161-022-00028-6",
+    "10.1038/s41586-022-05060-x",
+    "10.1038/s41586-023-05769-3",
+    "10.1101/2025.09.12.25335572",
+    "10.1038/s41588-024-01802-x",
+    "10.1038/s41467-022-34255-z",
+    "10.1016/j.cmet.2024.02.015",
+    "10.1038/s41467-022-32972-z",
+    "10.1038/s41586-019-1631-3",
+    "10.1038/s41586-024-07465-2",
+    "10.1016/j.jhep.2021.12.036",
+]
+
+
+def benchmark_references(references: list[dict], thematic_output) -> dict:
+    benchmark = ThematicReviewerBenchmark()
+    benchmark._load_reference_set = lambda _name: {
+        "schema_version": "1.0",
+        "id": "test-references",
+        "name": "Test references",
+        "description": "Synthetic unit-test references.",
+        "source": {"doi": "10.0000/test"},
+        "reference_publications": references,
+    }
+    return benchmark.benchmark_reference_publication_recall(
+        reference_set="test-references",
+        thematic_output=thematic_output,
+    )
 
 
 def reviewed_output() -> dict:
@@ -58,17 +99,27 @@ def reviewed_output() -> dict:
 
 
 def test_benchmark_reports_discovery_and_judgement_recall() -> None:
-    report = ThematicReviewerBenchmark().benchmark(
-        reference_publications=[
+    report = benchmark_references(
+        [
             {"doi": f"https://doi.org/{WATSON_DOI}", "source_row": 15},
             {"doi": f"DOI: {WATSON_DOI.upper()}", "source_row": "duplicate"},
             {"pmid": 37700002, "source_row": 16},
             {"doi": REICHART_DOI, "source_row": 17},
         ],
-        thematic_output=reviewed_output(),
+        reviewed_output(),
     )
 
-    assert report["schema_version"] == "1.0"
+    assert report["schema_version"] == "1.1"
+    assert report["benchmark"] == {
+        "method": "reference_publication_recall",
+        "reference_set": {
+            "id": "test-references",
+            "name": "Test references",
+            "description": "Synthetic unit-test references.",
+            "source": {"doi": "10.0000/test"},
+            "publication_count": 4,
+        },
+    }
     assert report["source"] == {
         "kind": "object",
         "artifact": None,
@@ -134,7 +185,7 @@ def test_benchmark_reports_identifier_conflicts_without_choosing_a_match() -> No
         },
     }
 
-    report = ThematicReviewerBenchmark().benchmark(
+    report = benchmark_references(
         [{"doi": WATSON_DOI, "pmid": "37700002"}],
         output,
     )
@@ -167,7 +218,7 @@ def test_benchmark_classifies_failed_unreviewed_and_other_reviews() -> None:
         },
     }
 
-    report = ThematicReviewerBenchmark().benchmark(
+    report = benchmark_references(
         [{"pmid": value} for value in (1, 2, 3, 4)],
         output,
     )
@@ -195,7 +246,7 @@ def test_benchmark_trace_directory_prefers_pre_filter_review_progress(tmp_path) 
         json.dumps(filtered), encoding="utf-8"
     )
 
-    report = ThematicReviewerBenchmark().benchmark(
+    report = benchmark_references(
         [{"doi": WATSON_DOI}],
         trace,
     )
@@ -214,7 +265,7 @@ def test_benchmark_loads_explicit_post_filter_json_with_limitation(tmp_path) -> 
     output = tmp_path / "02_reviewed_datasets.json"
     output.write_text(json.dumps(reviewed_output()), encoding="utf-8")
 
-    report = ThematicReviewerBenchmark().benchmark(
+    report = benchmark_references(
         [{"doi": WATSON_DOI}],
         output,
     )
@@ -238,7 +289,7 @@ def test_benchmark_rejects_invalid_reference_publications(
     references, message
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        ThematicReviewerBenchmark().benchmark(references, reviewed_output())
+        benchmark_references(references, reviewed_output())
 
 
 def test_benchmark_rejects_output_without_atlas_shape(tmp_path) -> None:
@@ -246,9 +297,88 @@ def test_benchmark_rejects_output_without_atlas_shape(tmp_path) -> None:
     invalid.write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="accessions.*publication_texts"):
-        ThematicReviewerBenchmark().benchmark([{"pmid": "1"}], invalid)
+        benchmark_references([{"pmid": "1"}], invalid)
 
 
 def test_benchmark_trace_requires_a_supported_json_artifact(tmp_path) -> None:
     with pytest.raises(FileNotFoundError, match="review artifact"):
-        ThematicReviewerBenchmark().benchmark([{"pmid": "1"}], tmp_path)
+        benchmark_references([{"pmid": "1"}], tmp_path)
+
+
+def test_leonie_reference_set_is_packaged_and_complete() -> None:
+    data_file = resources.files(
+        "benchmark_ThematicAtlases.thematic_reviewer"
+    ).joinpath("data", "leonie_2026_fibrosis.json")
+    assert data_file.is_file()
+
+    reference_set = ThematicReviewerBenchmark()._load_reference_set(
+        "leonie_2026_fibrosis"
+    )
+    publications = reference_set["reference_publications"]
+
+    assert reference_set["id"] == "leonie_2026_fibrosis"
+    assert reference_set["source"]["doi"] == "10.64898/2026.03.09.709232"
+    assert [publication["doi"] for publication in publications] == LEONIE_DOIS
+    assert publications[0]["relationship"] == "source_meta_study"
+    assert publications[0]["source_reference_number"] is None
+    assert [
+        publication["source_reference_number"] for publication in publications[1:]
+    ] == list(range(15, 35))
+    assert all(
+        {
+            "source_reference_number",
+            "relationship",
+            "doi",
+            "title",
+            "authors_as_cited",
+            "journal",
+            "year",
+            "citation",
+        }
+        <= publication.keys()
+        for publication in publications
+    )
+    assert len({publication["doi"] for publication in publications}) == 21
+    json.dumps(reference_set)
+
+
+def test_named_reference_set_benchmarks_all_publications() -> None:
+    accessions = []
+    publication_texts = {}
+    for index, doi in enumerate(LEONIE_DOIS):
+        publication_ref = f"publication-{index}"
+        accessions.append(
+            {
+                "datalink_id": f"GSE{index}",
+                "publications": [
+                    {"doi": doi, "publication_text_ref": publication_ref}
+                ],
+            }
+        )
+        publication_texts[publication_ref] = {
+            "agentic_curator": {"judgement": "relevant"}
+        }
+
+    report = ThematicReviewerBenchmark().benchmark_reference_publication_recall(
+        reference_set="leonie_2026_fibrosis",
+        thematic_output={
+            "accessions": accessions,
+            "publication_texts": publication_texts,
+        },
+    )
+
+    assert report["benchmark"]["reference_set"]["publication_count"] == 21
+    assert report["summary"]["matched_count"] == 21
+    assert report["summary"]["relevant_recall"] == 1
+
+
+def test_named_reference_set_rejects_unknown_name() -> None:
+    with pytest.raises(ValueError, match="unknown.*leonie_2026_fibrosis"):
+        ThematicReviewerBenchmark().benchmark_reference_publication_recall(
+            reference_set="missing",
+            thematic_output=reviewed_output(),
+        )
+
+
+def test_old_generic_benchmark_method_is_removed() -> None:
+    assert not hasattr(ThematicReviewerBenchmark(), "benchmark")
