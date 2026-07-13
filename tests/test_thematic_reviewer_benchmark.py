@@ -35,6 +35,24 @@ LEONIE_DOIS = [
     "10.1016/j.jhep.2021.12.036",
 ]
 
+TAYLOR_DOIS = [
+    "10.1053/j.gastro.2020.01.043",
+    "10.1002/hep.24491",
+    "10.1002/hep.22868",
+    "10.1016/j.jhep.2017.07.027",
+    "10.1002/hep4.1124",
+    "10.1016/j.cgh.2018.12.016",
+    "10.1111/jgh.14448",
+    "10.1002/hep.28697",
+    "10.1371/journal.pone.0202393",
+    "10.1371/journal.pone.0128774",
+    "10.1111/hepr.12407",
+    "10.1053/j.gastro.2018.04.034",
+    "10.1002/hep.24268",
+    "10.1002/hep4.1054",
+    "10.1111/liv.13706",
+]
+
 
 def benchmark_references(references: list[dict], thematic_output) -> dict:
     benchmark = ThematicReviewerBenchmark()
@@ -384,6 +402,84 @@ def test_named_reference_set_rejects_unknown_name() -> None:
 
 def test_old_generic_benchmark_method_is_removed() -> None:
     assert not hasattr(ThematicReviewerBenchmark(), "benchmark")
+
+
+def test_available_reference_sets_include_leonie_and_taylor() -> None:
+    assert ThematicReviewerBenchmark.available_reference_sets() == (
+        "leonie_2026_fibrosis",
+        "taylor_2020_nafld_fibrosis",
+    )
+
+
+def test_taylor_reference_set_is_packaged_and_complete() -> None:
+    data_file = resources.files(
+        "benchmark_ThematicAtlases.thematic_reviewer"
+    ).joinpath("data", "taylor_2020_nafld_fibrosis.json")
+    assert data_file.is_file()
+
+    reference_set = ThematicReviewerBenchmark()._load_reference_set(
+        "taylor_2020_nafld_fibrosis"
+    )
+    publications = reference_set["reference_publications"]
+
+    assert reference_set["source"]["doi"] == "10.1053/j.gastro.2020.01.043"
+    assert [publication["doi"] for publication in publications] == TAYLOR_DOIS
+    assert publications[0]["relationship"] == "source_meta_study"
+    assert publications[0]["source_reference_number"] is None
+    assert [item["source_reference_number"] for item in publications[1:]] == list(
+        range(18, 32)
+    )
+    assert len({publication["doi"] for publication in publications}) == 15
+
+
+def test_benchmark_loads_reference_set_from_file(tmp_path) -> None:
+    reference_file = tmp_path / "custom.json"
+    reference_file.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "id": "custom_fibrosis",
+                "name": "Custom fibrosis references",
+                "description": "One custom publication.",
+                "source": {"doi": "10.1000/source"},
+                "reference_publications": [{"doi": WATSON_DOI}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = ThematicReviewerBenchmark().benchmark_reference_publication_recall(
+        reference_set_file=reference_file,
+        thematic_output=reviewed_output(),
+    )
+
+    assert report["benchmark"]["reference_set"]["id"] == "custom_fibrosis"
+    assert report["summary"]["matched_count"] == 1
+
+
+def test_benchmark_requires_exactly_one_reference_set_source(tmp_path) -> None:
+    benchmark = ThematicReviewerBenchmark()
+    with pytest.raises(ValueError, match="exactly one"):
+        benchmark.benchmark_reference_publication_recall(
+            thematic_output=reviewed_output()
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        benchmark.benchmark_reference_publication_recall(
+            reference_set="leonie_2026_fibrosis",
+            reference_set_file=tmp_path / "custom.json",
+            thematic_output=reviewed_output(),
+        )
+
+
+def test_file_reference_set_rejects_invalid_schema(tmp_path) -> None:
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text('{"id": "incomplete"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid reference set"):
+        ThematicReviewerBenchmark().benchmark_reference_publication_recall(
+            reference_set_file=invalid,
+            thematic_output=reviewed_output(),
+        )
 
 
 def test_leonie_mixed_example_matches_complete_expected_report() -> None:
