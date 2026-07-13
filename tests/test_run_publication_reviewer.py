@@ -21,11 +21,19 @@ def test_runner_reviews_one_snapshot_of_existing_trace(
             calls["credential_check"] = True
 
     class RecordingReviewer:
-        def resume(self, trace_dir, *, theme=None, strategy="direct"):
+        def resume(
+            self,
+            trace_dir,
+            *,
+            theme=None,
+            strategy="direct",
+            allow_theme_override=False,
+        ):
             calls["resume"] = {
                 "trace_dir": trace_dir,
                 "theme": theme,
                 "strategy": strategy,
+                "allow_theme_override": allow_theme_override,
             }
             return {
                 "accessions": [{"datalink_id": "GSE1"}],
@@ -50,6 +58,7 @@ def test_runner_reviews_one_snapshot_of_existing_trace(
             "trace_dir": trace_dir,
             "theme": "fibrosis theme",
             "strategy": "direct",
+            "allow_theme_override": False,
         },
     }
     assert json.loads(capsys.readouterr().out) == {
@@ -64,7 +73,8 @@ def test_runner_can_select_legacy_review_strategy(tmp_path, monkeypatch) -> None
     calls = {}
 
     class RecordingReviewer:
-        def resume(self, trace_dir, *, theme=None, strategy="direct"):
+        def resume(self, trace_dir, **kwargs):
+            strategy = kwargs.get("strategy", "direct")
             calls["strategy"] = strategy
             return {"accessions": [], "publication_texts": {}}
 
@@ -79,3 +89,30 @@ def test_runner_can_select_legacy_review_strategy(tmp_path, monkeypatch) -> None
         [str(tmp_path / "trace"), "--strategy", "evidence_then_judgement"]
     ) == 0
     assert calls["strategy"] == "evidence_then_judgement"
+
+
+def test_runner_can_explicitly_override_manifest_theme(tmp_path, monkeypatch) -> None:
+    calls = {}
+
+    class RecordingReviewer:
+        def resume(self, trace_dir, **kwargs):
+            calls.update(kwargs)
+            return {"accessions": [], "publication_texts": {}}
+
+    theme_file = tmp_path / "theme.txt"
+    theme_file.write_text("current fibrosis theme", encoding="utf-8")
+    monkeypatch.setattr(script, "PublicationTextReviewer", RecordingReviewer)
+    monkeypatch.setattr(script, "GoogleCredentialPreflight", lambda: type(
+        "Preflight", (), {"check": lambda self: None}
+    )())
+    monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
+    monkeypatch.setattr(script, "configure_logging", lambda verbosity: None)
+
+    assert script.main([
+        str(tmp_path / "trace"),
+        "--theme-file",
+        str(theme_file),
+        "--allow-theme-override",
+    ]) == 0
+    assert calls["theme"] == "current fibrosis theme"
+    assert calls["allow_theme_override"] is True

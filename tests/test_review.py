@@ -763,6 +763,16 @@ def test_resume_requires_theme_and_rejects_manifest_conflict(tmp_path) -> None:
             reviewer=FakeReviewer(),
         )
 
+    result = PublicationTextReviewer().resume(
+        trace_dir,
+        theme="current fibrosis theme",
+        allow_theme_override=True,
+        reviewer=FakeReviewer(),
+    )
+    assert result["publication_texts"]["1"]["agentic_curator"]["theme"] == (
+        "current fibrosis theme"
+    )
+
 
 def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> None:
     result = PublicationTextReviewer().agentic_curator_review(
