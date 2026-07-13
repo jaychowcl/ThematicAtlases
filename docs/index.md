@@ -30,7 +30,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: benchmark-package
   title: Benchmark Package
   anchor: benchmark-package
-  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, leonie_2026_fibrosis, run_leonie_reference_publication_recall.py, packaged JSON, reference set, publication recall, golden example, complete input output, mixed outcomes, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
+  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, available_reference_sets, leonie_2026_fibrosis, taylor_2020_nafld_fibrosis, run_reference_publication_recall.py, aggregate report, reference-set-file, custom reference set, packaged JSON, reference set, publication recall, golden example, complete input output, mixed outcomes, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
 
 - id: fibrosis-curation-theme
   title: Fibrosis Curation Theme

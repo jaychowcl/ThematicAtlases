@@ -143,25 +143,26 @@ report = ThematicReviewerBenchmark().benchmark_reference_publication_recall(
 )
 ```
 
-`thematic_reviewer/data/leonie_2026_fibrosis.json` is the first named set. It contains the Küchenhoff et al. 2026 source meta-study plus its references 15-34: 21 ordered target publications with source relationship, DOI, title, authors as cited, journal, year, and citation metadata. New collections are added as packaged JSON files and registered by stable name in the thematic-reviewer benchmark module. Setuptools includes `data/*.json` in installed distributions.
+Two named sets are packaged: `leonie_2026_fibrosis` contains the Küchenhoff et al. 2026 source meta-study plus references 15-34 (21 targets), and `taylor_2020_nafld_fibrosis` contains the Taylor et al. 2020 NAFLD systematic review plus references 18-31 (15 targets). Each ordered publication records its source relationship, DOI, title, authors as cited, journal, year, and citation. `ThematicReviewerBenchmark.available_reference_sets()` returns packaged names in execution order. New collections are added as packaged JSON files and registered by stable name; setuptools includes `data/*.json` in distributions.
 
-Each reference requires a DOI, PMID, or both; other fields are preserved in the per-publication report. DOI and PMID matching is normalized, offline, and exact. Duplicate reference rows and repeated publications across accessions collapse into single publication identities. If a reference DOI and PMID resolve to different thematic publications, the row is reported as a conflict rather than matched arbitrarily. Unknown reference-set names fail with an error listing the available names.
+Each reference requires a DOI, PMID, or both; other fields are preserved in the per-publication report. DOI and PMID matching is normalized, offline, and exact. Duplicate reference rows and repeated publications across accessions collapse into single publication identities. If a reference DOI and PMID resolve to different thematic publications, the row is reported as a conflict rather than matched arbitrarily. Unknown names fail with available names. Callers select exactly one packaged `reference_set` or `reference_set_file`; custom files use the same single-set schema and are validated before benchmarking.
 
 The method accepts an atlas-shaped mapping, an explicit JSON path, or a development-trace directory. Trace loading prefers `resume_review_progress.json`, then `02_reviewed_datasets.json`, then `06_final_atlas.json`. The pre-filter progress artifact gives the strongest discovery-recall evidence. Reports from post-filter or unknown-stage data carry an explicit limitation because removed publications cannot be distinguished from publications that were never discovered.
 
 Schema `1.1` reports contain the benchmark method and reference-set provenance, thematic-output provenance, unique-reference and duplicate counts, matched/missed/conflict counts, discovery recall, review completion/failure counts, normalized judgement counts, relevant recall, relevant-or-unsure candidate recall, and one detailed row per unique reference. The benchmark makes no network calls and has no DOI/PMID resolution service or additional dependency.
 
-The root runner scores an existing atlas JSON or development trace with the Leonie set and writes the full report without running discovery or review:
+The root runner scores an existing atlas JSON or development trace against every packaged set, optionally adds repeated custom files, and writes one aggregate report without running discovery or review:
 
 ```bash
-.env/bin/python run_leonie_reference_publication_recall.py \
+.env/bin/python run_reference_publication_recall.py \
   .out/dev_trace_discovery/<run-id> \
-  --out .out/leonie_2026_reference_publication_recall.json
+  --reference-set-file custom_fibrosis.json \
+  --out .out/reference_publication_recall.json
 ```
 
-Without `--out`, the report path defaults to `.out/leonie_2026_reference_publication_recall.json`. The runner prints its resolved configuration and the report summary.
+Without `--out`, the path defaults to `.out/reference_publication_recall.json`. Aggregate schema `1.0` records the thematic input and an ordered `reports` object keyed by collection ID; each value is an unchanged schema `1.1` benchmark report. Packaged sets run first, followed by custom files in argument order. Duplicate IDs fail without writing a partial output. The runner prints its resolved configuration and per-set summaries.
 
-`tests/fixtures/benchmark/` contains the canonical complete input/output example. `leonie_mixed_thematic_output.json` supplies six discovered Leonie references across relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession cases; the remaining 15 references are missed. `leonie_mixed_expected_report.json` records the complete 21-row schema `1.1` report. The end-to-end method test substitutes only the machine-specific input artifact path, independently checks the expected summary, then compares the entire report for exact equality.
+`tests/fixtures/benchmark/` contains complete mixed input/output examples for both sets. The Leonie fixture records a complete 21-row report with 6 matches and 15 misses; the Taylor fixture records a complete 15-row report with 6 matches and 9 misses. Both cover relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession behavior. End-to-end method tests substitute only the machine-specific artifact path, independently verify summaries, then compare entire reports exactly. A real runner integration test also verifies both packaged reports are produced together.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
