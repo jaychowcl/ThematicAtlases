@@ -58,6 +58,11 @@ def _geo_datalink_response(accession: str) -> dict:
     }
 
 
+def test_default_request_delay_is_gentle_and_can_be_overridden() -> None:
+    assert EuropePMCWrapper()._request_settings["request_delay"] == 0.5
+    assert EuropePMCWrapper(request_delay=0)._request_settings["request_delay"] == 0
+
+
 def test_collect_publications_resumes_from_completed_search_page(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume_state.sqlite")
     wrapper = EuropePMCWrapper(page_limit=3)
