@@ -163,6 +163,136 @@ class CheckpointStore:
         with self._lock, self._connection() as connection:
             return connection.execute(query, params).fetchone() is not None
 
+    def archive_stage(
+        self,
+        stage: str,
+        archive_path: str | Path,
+        *,
+        archive_id: str,
+        metadata: dict | None = None,
+    ) -> dict:
+        """Atomically move one checkpoint stage into a comparison archive."""
+        normalized_stage = str(stage).strip()
+        normalized_archive_id = str(archive_id).strip()
+        if not normalized_stage:
+            raise ValueError("stage must be non-empty")
+        if not normalized_archive_id:
+            raise ValueError("archive_id must be non-empty")
+
+        destination = Path(archive_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.resolve() == self.path.resolve():
+            raise ValueError("archive database must differ from the live database")
+
+        metadata_json = self._json(metadata or {})
+        with self._lock:
+            connection = self._connect()
+            attached = False
+            try:
+                connection.execute(
+                    "ATTACH DATABASE ? AS checkpoint_archive",
+                    (str(destination),),
+                )
+                attached = True
+                connection.execute("BEGIN IMMEDIATE")
+                connection.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS checkpoint_archive.checkpoint_archive_meta (
+                        archive_id TEXT PRIMARY KEY,
+                        source_path TEXT NOT NULL,
+                        stage TEXT NOT NULL,
+                        item_count INTEGER NOT NULL,
+                        metadata TEXT NOT NULL,
+                        archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS checkpoint_archive.checkpoint_archive_items (
+                        archive_id TEXT NOT NULL,
+                        stage TEXT NOT NULL,
+                        item_key TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        payload TEXT,
+                        error TEXT,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (archive_id, stage, item_key)
+                    );
+                    CREATE INDEX IF NOT EXISTS checkpoint_archive.checkpoint_archive_stage_order
+                        ON checkpoint_archive_items(archive_id, stage, ordinal, item_key);
+                    """
+                )
+                if connection.execute(
+                    "SELECT 1 FROM checkpoint_archive.checkpoint_archive_meta "
+                    "WHERE archive_id = ?",
+                    (normalized_archive_id,),
+                ).fetchone() is not None:
+                    raise ValueError(
+                        f"archive_id already exists: {normalized_archive_id!r}"
+                    )
+
+                source_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM checkpoint_items WHERE stage = ?",
+                        (normalized_stage,),
+                    ).fetchone()[0]
+                )
+                connection.execute(
+                    """
+                    INSERT INTO checkpoint_archive.checkpoint_archive_meta(
+                        archive_id, source_path, stage, item_count, metadata
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        normalized_archive_id,
+                        str(self.path),
+                        normalized_stage,
+                        source_count,
+                        metadata_json,
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO checkpoint_archive.checkpoint_archive_items(
+                        archive_id, stage, item_key, ordinal, status, payload,
+                        error, updated_at
+                    )
+                    SELECT ?, stage, item_key, ordinal, status, payload, error,
+                           updated_at
+                    FROM checkpoint_items WHERE stage = ?
+                    """,
+                    (normalized_archive_id, normalized_stage),
+                )
+                archived_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM "
+                        "checkpoint_archive.checkpoint_archive_items "
+                        "WHERE archive_id = ? AND stage = ?",
+                        (normalized_archive_id, normalized_stage),
+                    ).fetchone()[0]
+                )
+                if archived_count != source_count:
+                    raise RuntimeError(
+                        "checkpoint archive count did not match the live stage"
+                    )
+                connection.execute(
+                    "DELETE FROM checkpoint_items WHERE stage = ?",
+                    (normalized_stage,),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                if attached:
+                    connection.execute("DETACH DATABASE checkpoint_archive")
+                connection.close()
+
+        return {
+            "archive_id": normalized_archive_id,
+            "stage": normalized_stage,
+            "item_count": source_count,
+            "archive_path": str(destination),
+        }
+
     @contextmanager
     def item_lock(self, stage: str, key: str):
         """Serialize expensive work for one checkpoint item across processes."""

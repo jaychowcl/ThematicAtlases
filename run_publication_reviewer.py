@@ -62,6 +62,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="direct",
         help="review contract to run; direct is the default",
     )
+    parser.add_argument(
+        "--allow-theme-override",
+        action="store_true",
+        help=(
+            "allow --theme-file to override the historical manifest theme for "
+            "this reviewer invocation without changing the collector manifest"
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser.parse_args(argv)
 
@@ -80,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         args.trace_dir,
         theme=theme,
         strategy=args.strategy,
+        allow_theme_override=args.allow_theme_override,
     )
     print(
         json.dumps(

@@ -40,6 +40,7 @@ class PublicationTextReviewer:
         theme: str | None = None,
         reviewer=None,
         strategy: str = "direct",
+        allow_theme_override: bool = False,
     ) -> dict:
         """Review the current publication snapshot in an evolving trace."""
         return self._resume_orchestrator().resume(
@@ -47,6 +48,7 @@ class PublicationTextReviewer:
             theme=theme,
             reviewer=reviewer,
             strategy=strategy,
+            allow_theme_override=allow_theme_override,
         )
 
     def validate_options(

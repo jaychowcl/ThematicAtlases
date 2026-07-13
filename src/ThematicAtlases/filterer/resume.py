@@ -33,10 +33,15 @@ class TracePublicationReviewResumer:
         theme: str | None = None,
         strategy: str = "direct",
         reviewer=None,
+        allow_theme_override: bool = False,
     ) -> dict:
         directory = Path(trace_dir)
         manifest = self._read_manifest(directory)
-        resolved_theme = self._resolved_theme(theme=theme, manifest=manifest)
+        resolved_theme = self._resolved_theme(
+            theme=theme,
+            manifest=manifest,
+            allow_theme_override=allow_theme_override,
+        )
         store = CheckpointStore(directory / "resume_state.sqlite")
 
         datalink_rows = [
@@ -108,7 +113,11 @@ class TracePublicationReviewResumer:
         return manifest
 
     @staticmethod
-    def _resolved_theme(theme: str | None, manifest: dict) -> str:
+    def _resolved_theme(
+        theme: str | None,
+        manifest: dict,
+        allow_theme_override: bool = False,
+    ) -> str:
         manifest_theme = str(manifest.get("theme") or "")
         explicit_theme = None if theme is None else str(theme)
         if (
@@ -116,9 +125,14 @@ class TracePublicationReviewResumer:
             and explicit_theme.strip()
             and manifest_theme.strip()
             and explicit_theme.strip() != manifest_theme.strip()
+            and not allow_theme_override
         ):
             raise ValueError("requested theme does not match the trace manifest theme")
-        resolved = manifest_theme if manifest_theme.strip() else explicit_theme
+        resolved = (
+            explicit_theme
+            if allow_theme_override and explicit_theme and explicit_theme.strip()
+            else manifest_theme if manifest_theme.strip() else explicit_theme
+        )
         if resolved is None or not resolved.strip():
             raise ValueError("incremental publication review requires a non-empty theme")
         return resolved
