@@ -130,24 +130,36 @@ from agentic_curator import ThematicReviewer
 <a id="benchmark-package"></a>
 ## Benchmark Package
 
-`src/benchmark_ThematicAtlases/` is a sibling import package in the existing `ThematicAtlases` distribution. Its first public API compares a structured reference-publication set with thematic-review results:
+`src/benchmark_ThematicAtlases/` is a sibling import package in the existing `ThematicAtlases` distribution. Benchmark implementations are separated by concern: `thematic_reviewer/` contains publication-discovery and curation benchmarks, while `ontology_harmonizer/` is the reserved namespace for future ontology-harmonization benchmarks. `ThematicReviewerBenchmark` remains exported from the package root and its subpackage.
+
+The named reference-publication recall workflow loads a version-controlled reference set from the thematic-reviewer package data and compares it with thematic-review output:
 
 ```python
 from benchmark_ThematicAtlases import ThematicReviewerBenchmark
 
-report = ThematicReviewerBenchmark().benchmark(
-    reference_publications=[
-        {"doi": "10.1038/s41467-024-55325-4", "pmid": "optional"}
-    ],
+report = ThematicReviewerBenchmark().benchmark_reference_publication_recall(
+    reference_set="leonie_2026_fibrosis",
     thematic_output=atlas_dict_or_json_path_or_trace_directory,
 )
 ```
 
-Each reference requires a DOI, PMID, or both; other fields are preserved in the per-publication report. DOI and PMID matching is normalized, offline, and exact. Duplicate reference rows and repeated publications across accessions collapse into single publication identities. If a reference DOI and PMID resolve to different thematic publications, the row is reported as a conflict rather than matched arbitrarily.
+`thematic_reviewer/data/leonie_2026_fibrosis.json` is the first named set. It contains the Küchenhoff et al. 2026 source meta-study plus its references 15-34: 21 ordered target publications with source relationship, DOI, title, authors as cited, journal, year, and citation metadata. New collections are added as packaged JSON files and registered by stable name in the thematic-reviewer benchmark module. Setuptools includes `data/*.json` in installed distributions.
+
+Each reference requires a DOI, PMID, or both; other fields are preserved in the per-publication report. DOI and PMID matching is normalized, offline, and exact. Duplicate reference rows and repeated publications across accessions collapse into single publication identities. If a reference DOI and PMID resolve to different thematic publications, the row is reported as a conflict rather than matched arbitrarily. Unknown reference-set names fail with an error listing the available names.
 
 The method accepts an atlas-shaped mapping, an explicit JSON path, or a development-trace directory. Trace loading prefers `resume_review_progress.json`, then `02_reviewed_datasets.json`, then `06_final_atlas.json`. The pre-filter progress artifact gives the strongest discovery-recall evidence. Reports from post-filter or unknown-stage data carry an explicit limitation because removed publications cannot be distinguished from publications that were never discovered.
 
-The JSON-serializable report contains source provenance, unique-reference and duplicate counts, matched/missed/conflict counts, discovery recall, review completion/failure counts, normalized judgement counts, relevant recall, relevant-or-unsure candidate recall, and one detailed row per unique reference. The benchmark has no CLI, network calls, DOI/PMID resolution service, or additional dependency.
+Schema `1.1` reports contain the benchmark method and reference-set provenance, thematic-output provenance, unique-reference and duplicate counts, matched/missed/conflict counts, discovery recall, review completion/failure counts, normalized judgement counts, relevant recall, relevant-or-unsure candidate recall, and one detailed row per unique reference. The benchmark makes no network calls and has no DOI/PMID resolution service or additional dependency.
+
+The root runner scores an existing atlas JSON or development trace with the Leonie set and writes the full report without running discovery or review:
+
+```bash
+.env/bin/python run_leonie_reference_publication_recall.py \
+  .out/dev_trace_discovery/<run-id> \
+  --out .out/leonie_2026_reference_publication_recall.json
+```
+
+Without `--out`, the report path defaults to `.out/leonie_2026_reference_publication_recall.json`. The runner prints its resolved configuration and the report summary.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
