@@ -161,6 +161,8 @@ The root runner scores an existing atlas JSON or development trace with the Leon
 
 Without `--out`, the report path defaults to `.out/leonie_2026_reference_publication_recall.json`. The runner prints its resolved configuration and the report summary.
 
+`tests/fixtures/benchmark/` contains the canonical complete input/output example. `leonie_mixed_thematic_output.json` supplies six discovered Leonie references across relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession cases; the remaining 15 references are missed. `leonie_mixed_expected_report.json` records the complete 21-row schema `1.1` report. The end-to-end method test substitutes only the machine-specific input artifact path, independently checks the expected summary, then compares the entire report for exact equality.
+
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
 
@@ -597,7 +599,7 @@ Live code should not import from `oldd/`. If behavior is restored from the archi
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, review-before-metadata ordering/resume, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, and GEO-to-GSE resolution. Network/provider access is mocked.
+Live tests cover atlas orchestration, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, review-before-metadata ordering/resume, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, GEO-to-GSE resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network/provider access is mocked.
 
 Useful checks:
 

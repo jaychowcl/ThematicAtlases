@@ -30,7 +30,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: benchmark-package
   title: Benchmark Package
   anchor: benchmark-package
-  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, leonie_2026_fibrosis, run_leonie_reference_publication_recall.py, packaged JSON, reference set, publication recall, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
+  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, leonie_2026_fibrosis, run_leonie_reference_publication_recall.py, packaged JSON, reference set, publication recall, golden example, complete input output, mixed outcomes, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
 
 - id: fibrosis-curation-theme
   title: Fibrosis Curation Theme
@@ -55,7 +55,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: test-and-verification-status
   title: Test And Verification Status
   anchor: test-and-verification-status
-  keywords: tests, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, query generator, query ordering, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
+  keywords: tests, fixtures, golden report, complete benchmark example, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, query generator, query ordering, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
 
 ## API Sections
 
