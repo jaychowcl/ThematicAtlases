@@ -1,11 +1,13 @@
 import json
 from importlib import resources
+from pathlib import Path
 
 import pytest
 
 from benchmark_ThematicAtlases import ThematicReviewerBenchmark
 
 
+BENCHMARK_FIXTURES = Path(__file__).parent / "fixtures" / "benchmark"
 WATSON_DOI = "10.1038/s41467-024-55325-4"
 REICHART_DOI = "10.1126/science.abo1984"
 
@@ -382,3 +384,38 @@ def test_named_reference_set_rejects_unknown_name() -> None:
 
 def test_old_generic_benchmark_method_is_removed() -> None:
     assert not hasattr(ThematicReviewerBenchmark(), "benchmark")
+
+
+def test_leonie_mixed_example_matches_complete_expected_report() -> None:
+    thematic_output = BENCHMARK_FIXTURES / "leonie_mixed_thematic_output.json"
+    expected_path = BENCHMARK_FIXTURES / "leonie_mixed_expected_report.json"
+    expected = json.loads(expected_path.read_text(encoding="utf-8"))
+    assert expected["source"]["artifact"] == "<THEMATIC_OUTPUT_PATH>"
+    expected["source"]["artifact"] = str(thematic_output)
+
+    report = ThematicReviewerBenchmark().benchmark_reference_publication_recall(
+        reference_set="leonie_2026_fibrosis",
+        thematic_output=thematic_output,
+    )
+
+    assert report["summary"] == {
+        "input_record_count": 21,
+        "reference_publication_count": 21,
+        "duplicate_record_count": 0,
+        "matched_count": 6,
+        "missed_count": 15,
+        "conflict_count": 0,
+        "discovery_recall": 6 / 21,
+        "review_completed_count": 4,
+        "review_failed_count": 1,
+        "unreviewed_count": 1,
+        "judgement_counts": {
+            "relevant": 2,
+            "unsure": 1,
+            "not_relevant": 1,
+            "other": 0,
+        },
+        "relevant_recall": 2 / 21,
+        "candidate_recall": 3 / 21,
+    }
+    assert report == expected

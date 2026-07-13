@@ -1,0 +1,107 @@
+{
+  "accessions": [
+    {
+      "datalink_id": "META-STUDY",
+      "publications": [
+        {
+          "doi": "https://doi.org/10.64898/2026.03.09.709232",
+          "title": "Shared and organ-specific gene expression programs of fibrotic diseases",
+          "publication_text_ref": "meta-study"
+        }
+      ]
+    },
+    {
+      "datalink_id": "GSE-WATSON-1",
+      "publications": [
+        {
+          "doi": "10.1038/S41467-024-55325-4",
+          "title": "Spatial transcriptomics of healthy and fibrotic human liver at single-cell resolution",
+          "publication_text_ref": "watson"
+        }
+      ]
+    },
+    {
+      "datalink_id": "GSE-WATSON-2",
+      "publications": [
+        {
+          "doi": "10.1038/s41467-024-55325-4",
+          "title": "Spatial transcriptomics of healthy and fibrotic human liver at single-cell resolution",
+          "publication_text_ref": "watson"
+        }
+      ]
+    },
+    {
+      "datalink_id": "GSE-REICHART",
+      "publications": [
+        {
+          "doi": "DOI: 10.1126/science.abo1984",
+          "title": "Pathogenic variants damage cell composition and single cell transcription in cardiomyopathies",
+          "publication_text_ref": "reichart"
+        }
+      ]
+    },
+    {
+      "datalink_id": "GSE-REYFMAN",
+      "publications": [
+        {
+          "doi": "10.1164/rccm.201712-2410OC",
+          "title": "Single-Cell Transcriptomic Analysis of Human Lung Provides Insights into the Pathobiology of Pulmonary Fibrosis",
+          "publication_text_ref": "reyfman"
+        }
+      ]
+    },
+    {
+      "datalink_id": "GSE-HABERMANN",
+      "publications": [
+        {
+          "doi": "10.1126/sciadv.aba1972",
+          "title": "Single-cell RNA sequencing reveals profibrotic roles of distinct epithelial and mesenchymal lineages in pulmonary fibrosis",
+          "publication_text_ref": "habermann"
+        }
+      ]
+    },
+    {
+      "datalink_id": "GSE-STRUNZ",
+      "publications": [
+        {
+          "doi": "10.1038/s41467-020-17358-3",
+          "title": "Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis",
+          "publication_text_ref": "strunz"
+        }
+      ]
+    }
+  ],
+  "publication_texts": {
+    "meta-study": {
+      "agentic_curator": {
+        "theme": "fibrosis",
+        "judgement": "Relevant"
+      }
+    },
+    "watson": {
+      "agentic_curator": {
+        "theme": "fibrosis",
+        "judgement": "relevant"
+      }
+    },
+    "reichart": {
+      "agentic_curator": {
+        "theme": "fibrosis",
+        "judgement": "UNSURE"
+      }
+    },
+    "reyfman": {
+      "agentic_curator": {
+        "theme": "fibrosis",
+        "judgement": "not relevant"
+      }
+    },
+    "habermann": {
+      "agentic_curator": {
+        "theme": "fibrosis",
+        "review_status": "failed"
+      }
+    },
+    "strunz": {}
+  }
+}
