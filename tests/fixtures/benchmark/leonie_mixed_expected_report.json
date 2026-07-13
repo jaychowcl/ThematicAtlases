@@ -1,0 +1,754 @@
+{
+  "schema_version": "1.1",
+  "benchmark": {
+    "method": "reference_publication_recall",
+    "reference_set": {
+      "id": "leonie_2026_fibrosis",
+      "name": "Küchenhoff 2026 shared and organ-specific fibrosis studies",
+      "description": "The source meta-study and the 20 human fibrosis transcriptomics studies cited as references 15 through 34.",
+      "source": {
+        "doi": "10.64898/2026.03.09.709232",
+        "title": "Shared and organ-specific gene expression programs of fibrotic diseases",
+        "authors_as_cited": "Leonie Küchenhoff, Gahyun Kim, Jan D. Lanzer, Matthias Kretzler, Ricardo O. Ramirez Flores, Julio Saez-Rodriguez",
+        "journal": "bioRxiv",
+        "year": 2026,
+        "citation": "Küchenhoff L, Kim G, Lanzer JD, Kretzler M, Ramirez Flores RO, Saez-Rodriguez J. Shared and organ-specific gene expression programs of fibrotic diseases. bioRxiv. 2026. doi:10.64898/2026.03.09.709232"
+      },
+      "publication_count": 21
+    }
+  },
+  "source": {
+    "kind": "json",
+    "artifact": "<THEMATIC_OUTPUT_PATH>",
+    "view": "unknown",
+    "complete": null,
+    "limitations": [
+      "The source stage is unknown; publications removed by review filtering may be indistinguishable from publications that were never discovered."
+    ]
+  },
+  "summary": {
+    "input_record_count": 21,
+    "reference_publication_count": 21,
+    "duplicate_record_count": 0,
+    "matched_count": 6,
+    "missed_count": 15,
+    "conflict_count": 0,
+    "discovery_recall": 0.2857142857142857,
+    "review_completed_count": 4,
+    "review_failed_count": 1,
+    "unreviewed_count": 1,
+    "judgement_counts": {
+      "relevant": 2,
+      "unsure": 1,
+      "not_relevant": 1,
+      "other": 0
+    },
+    "relevant_recall": 0.09523809523809523,
+    "candidate_recall": 0.14285714285714285
+  },
+  "publications": [
+    {
+      "reference_indices": [
+        0
+      ],
+      "references": [
+        {
+          "source_reference_number": null,
+          "relationship": "source_meta_study",
+          "doi": "10.64898/2026.03.09.709232",
+          "title": "Shared and organ-specific gene expression programs of fibrotic diseases",
+          "authors_as_cited": "Leonie Küchenhoff, Gahyun Kim, Jan D. Lanzer, Matthias Kretzler, Ricardo O. Ramirez Flores, Julio Saez-Rodriguez",
+          "journal": "bioRxiv",
+          "year": 2026,
+          "citation": "Küchenhoff L, Kim G, Lanzer JD, Kretzler M, Ramirez Flores RO, Saez-Rodriguez J. Shared and organ-specific gene expression programs of fibrotic diseases. bioRxiv. 2026. doi:10.64898/2026.03.09.709232"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.64898/2026.03.09.709232"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.64898/2026.03.09.709232"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "meta-study"
+        ],
+        "titles": [
+          "Shared and organ-specific gene expression programs of fibrotic diseases"
+        ],
+        "accession_ids": [
+          "META-STUDY"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "relevant"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        1
+      ],
+      "references": [
+        {
+          "source_reference_number": 15,
+          "relationship": "included_study",
+          "doi": "10.1038/s41467-024-55325-4",
+          "title": "Spatial transcriptomics of healthy and fibrotic human liver at single-cell resolution",
+          "authors_as_cited": "Watson BR, Paul B, Rahman RU, et al.",
+          "journal": "Nature Communications",
+          "year": 2025,
+          "citation": "Watson BR, Paul B, Rahman RU, et al. Spatial transcriptomics of healthy and fibrotic human liver at single-cell resolution. Nat Commun. 2025;16(1):319. doi:10.1038/s41467-024-55325-4"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41467-024-55325-4"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1038/s41467-024-55325-4"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "watson"
+        ],
+        "titles": [
+          "Spatial transcriptomics of healthy and fibrotic human liver at single-cell resolution"
+        ],
+        "accession_ids": [
+          "GSE-WATSON-1",
+          "GSE-WATSON-2"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "relevant"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        2
+      ],
+      "references": [
+        {
+          "source_reference_number": 16,
+          "relationship": "included_study",
+          "doi": "10.1126/science.abo1984",
+          "title": "Pathogenic variants damage cell composition and single cell transcription in cardiomyopathies",
+          "authors_as_cited": "Reichart D, Lindberg E, Maatz H, et al.",
+          "journal": "Science",
+          "year": 2022,
+          "citation": "Reichart D, Lindberg E, Maatz H, et al. Pathogenic variants damage cell composition and single cell transcription in cardiomyopathies. Science. 2022;377(6606):eabo1984. doi:10.1126/science.abo1984"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1126/science.abo1984"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1126/science.abo1984"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "reichart"
+        ],
+        "titles": [
+          "Pathogenic variants damage cell composition and single cell transcription in cardiomyopathies"
+        ],
+        "accession_ids": [
+          "GSE-REICHART"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "unsure"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        3
+      ],
+      "references": [
+        {
+          "source_reference_number": 17,
+          "relationship": "included_study",
+          "doi": "10.1164/rccm.201712-2410oc",
+          "title": "Single-Cell Transcriptomic Analysis of Human Lung Provides Insights into the Pathobiology of Pulmonary Fibrosis",
+          "authors_as_cited": "Reyfman PA, Walter JM, Joshi N, et al.",
+          "journal": "American Journal of Respiratory and Critical Care Medicine",
+          "year": 2019,
+          "citation": "Reyfman PA, Walter JM, Joshi N, et al. Single-Cell Transcriptomic Analysis of Human Lung Provides Insights into the Pathobiology of Pulmonary Fibrosis. Am J Respir Crit Care Med. 2019;199(12):1517-1536. doi:10.1164/rccm.201712-2410OC"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1164/rccm.201712-2410oc"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1164/rccm.201712-2410oc"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "reyfman"
+        ],
+        "titles": [
+          "Single-Cell Transcriptomic Analysis of Human Lung Provides Insights into the Pathobiology of Pulmonary Fibrosis"
+        ],
+        "accession_ids": [
+          "GSE-REYFMAN"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "not_relevant"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        4
+      ],
+      "references": [
+        {
+          "source_reference_number": 18,
+          "relationship": "included_study",
+          "doi": "10.1126/sciadv.aba1972",
+          "title": "Single-cell RNA sequencing reveals profibrotic roles of distinct epithelial and mesenchymal lineages in pulmonary fibrosis",
+          "authors_as_cited": "Habermann AC, Gutierrez AJ, Bui LT, et al.",
+          "journal": "Science Advances",
+          "year": 2020,
+          "citation": "Habermann AC, Gutierrez AJ, Bui LT, et al. Single-cell RNA sequencing reveals profibrotic roles of distinct epithelial and mesenchymal lineages in pulmonary fibrosis. Sci Adv. 2020;6(28):eaba1972. doi:10.1126/sciadv.aba1972"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1126/sciadv.aba1972"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1126/sciadv.aba1972"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "habermann"
+        ],
+        "titles": [
+          "Single-cell RNA sequencing reveals profibrotic roles of distinct epithelial and mesenchymal lineages in pulmonary fibrosis"
+        ],
+        "accession_ids": [
+          "GSE-HABERMANN"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "failed",
+        "judgement": null
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        5
+      ],
+      "references": [
+        {
+          "source_reference_number": 19,
+          "relationship": "included_study",
+          "doi": "10.1038/s41467-020-17358-3",
+          "title": "Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis",
+          "authors_as_cited": "Strunz M, Simon LM, Ansari M, et al.",
+          "journal": "Nature Communications",
+          "year": 2020,
+          "citation": "Strunz M, Simon LM, Ansari M, et al. Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis. Nat Commun. 2020;11(1):3559. doi:10.1038/s41467-020-17358-3"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41467-020-17358-3"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1038/s41467-020-17358-3"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "strunz"
+        ],
+        "titles": [
+          "Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis"
+        ],
+        "accession_ids": [
+          "GSE-STRUNZ"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "unreviewed",
+        "judgement": null
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        6
+      ],
+      "references": [
+        {
+          "source_reference_number": 20,
+          "relationship": "included_study",
+          "doi": "10.1126/sciadv.aba1983",
+          "title": "Single-cell RNA-seq reveals ectopic and aberrant lung-resident cell populations in idiopathic pulmonary fibrosis",
+          "authors_as_cited": "Adams TS, Schupp JC, Poli S, et al.",
+          "journal": "Science Advances",
+          "year": 2020,
+          "citation": "Adams TS, Schupp JC, Poli S, et al. Single-cell RNA-seq reveals ectopic and aberrant lung-resident cell populations in idiopathic pulmonary fibrosis. Sci Adv. 2020;6(28):eaba1983. doi:10.1126/sciadv.aba1983"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1126/sciadv.aba1983"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        7
+      ],
+      "references": [
+        {
+          "source_reference_number": 21,
+          "relationship": "included_study",
+          "doi": "10.1038/s41467-020-15647-5",
+          "title": "Collagen-producing lung cell atlas identifies multiple subsets with distinct localization and relevance to fibrosis",
+          "authors_as_cited": "Tsukui T, Sun KH, Wetter JB, et al.",
+          "journal": "Nature Communications",
+          "year": 2020,
+          "citation": "Tsukui T, Sun KH, Wetter JB, et al. Collagen-producing lung cell atlas identifies multiple subsets with distinct localization and relevance to fibrosis. Nat Commun. 2020;11(1):1920. doi:10.1038/s41467-020-15647-5"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41467-020-15647-5"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        8
+      ],
+      "references": [
+        {
+          "source_reference_number": 22,
+          "relationship": "included_study",
+          "doi": "10.1016/j.celrep.2023.112086",
+          "title": "Single-nucleus RNA sequencing in ischemic cardiomyopathy reveals common transcriptional profile underlying end-stage heart failure",
+          "authors_as_cited": "Simonson B, Chaffin M, Hill M, et al.",
+          "journal": "Cell Reports",
+          "year": 2023,
+          "citation": "Simonson B, Chaffin M, Hill M, et al. Single-nucleus RNA sequencing in ischemic cardiomyopathy reveals common transcriptional profile underlying end-stage heart failure. Cell Rep. 2023;42(2):112086. doi:10.1016/j.celrep.2023.112086"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1016/j.celrep.2023.112086"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        9
+      ],
+      "references": [
+        {
+          "source_reference_number": 23,
+          "relationship": "included_study",
+          "doi": "10.1038/s41586-022-04817-8",
+          "title": "Single-nucleus profiling of human dilated and hypertrophic cardiomyopathy",
+          "authors_as_cited": "Chaffin M, Papangeli I, Simonson B, et al.",
+          "journal": "Nature",
+          "year": 2022,
+          "citation": "Chaffin M, Papangeli I, Simonson B, et al. Single-nucleus profiling of human dilated and hypertrophic cardiomyopathy. Nature. 2022;608(7921):174-180. doi:10.1038/s41586-022-04817-8"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41586-022-04817-8"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        10
+      ],
+      "references": [
+        {
+          "source_reference_number": 24,
+          "relationship": "included_study",
+          "doi": "10.1038/s44161-022-00028-6",
+          "title": "Single-cell transcriptomics reveals cell-type-specific diversification in human heart failure",
+          "authors_as_cited": "Koenig AL, Shchukina I, Amrute J, et al.",
+          "journal": "Nature Cardiovascular Research",
+          "year": 2022,
+          "citation": "Koenig AL, Shchukina I, Amrute J, et al. Single-cell transcriptomics reveals cell-type-specific diversification in human heart failure. Nat Cardiovasc Res. 2022;1(3):263-280. doi:10.1038/s44161-022-00028-6"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s44161-022-00028-6"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        11
+      ],
+      "references": [
+        {
+          "source_reference_number": 25,
+          "relationship": "included_study",
+          "doi": "10.1038/s41586-022-05060-x",
+          "title": "Spatial multi-omic map of human myocardial infarction",
+          "authors_as_cited": "Kuppe C, Ramirez Flores RO, Li Z, et al.",
+          "journal": "Nature",
+          "year": 2022,
+          "citation": "Kuppe C, Ramirez Flores RO, Li Z, et al. Spatial multi-omic map of human myocardial infarction. Nature. 2022;608(7924):766-777. doi:10.1038/s41586-022-05060-x"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41586-022-05060-x"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        12
+      ],
+      "references": [
+        {
+          "source_reference_number": 26,
+          "relationship": "included_study",
+          "doi": "10.1038/s41586-023-05769-3",
+          "title": "An atlas of healthy and injured cell states and niches in the human kidney",
+          "authors_as_cited": "Lake BB, Menon R, Winfree S, et al.",
+          "journal": "Nature",
+          "year": 2023,
+          "citation": "Lake BB, Menon R, Winfree S, et al. An atlas of healthy and injured cell states and niches in the human kidney. Nature. 2023;619(7970):585-594. doi:10.1038/s41586-023-05769-3"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41586-023-05769-3"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        13
+      ],
+      "references": [
+        {
+          "source_reference_number": 27,
+          "relationship": "included_study",
+          "doi": "10.1101/2025.09.12.25335572",
+          "title": "A Human Glomerular Disease Atlas defines the APOL1-JAK-STAT feed forward loop in focal segmental glomerulosclerosis",
+          "authors_as_cited": "McCown PJ, Boys C, Datta S, et al.",
+          "journal": "medRxiv",
+          "year": 2025,
+          "citation": "McCown PJ, Boys C, Datta S, et al. A Human Glomerular Disease Atlas defines the APOL1-JAK-STAT feed forward loop in focal segmental glomerulosclerosis. medRxiv. 2025:2025.09.12.25335572. doi:10.1101/2025.09.12.25335572"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1101/2025.09.12.25335572"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        14
+      ],
+      "references": [
+        {
+          "source_reference_number": 28,
+          "relationship": "included_study",
+          "doi": "10.1038/s41588-024-01802-x",
+          "title": "Single-cell multi-omic and spatial profiling of human kidneys implicates the fibrotic microenvironment in kidney disease progression",
+          "authors_as_cited": "Abedini A, Levinsohn J, Klötzer KA, et al.",
+          "journal": "Nature Genetics",
+          "year": 2024,
+          "citation": "Abedini A, Levinsohn J, Klötzer KA, et al. Single-cell multi-omic and spatial profiling of human kidneys implicates the fibrotic microenvironment in kidney disease progression. Nat Genet. 2024;56(8):1712-1724. doi:10.1038/s41588-024-01802-x"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41588-024-01802-x"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        15
+      ],
+      "references": [
+        {
+          "source_reference_number": 29,
+          "relationship": "included_study",
+          "doi": "10.1038/s41467-022-34255-z",
+          "title": "Defining cellular complexity in human autosomal dominant polycystic kidney disease by multimodal single cell analysis",
+          "authors_as_cited": "Muto Y, Dixon EE, Yoshimura Y, et al.",
+          "journal": "Nature Communications",
+          "year": 2022,
+          "citation": "Muto Y, Dixon EE, Yoshimura Y, et al. Defining cellular complexity in human autosomal dominant polycystic kidney disease by multimodal single cell analysis. Nat Commun. 2022;13(1):6497. doi:10.1038/s41467-022-34255-z"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41467-022-34255-z"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        16
+      ],
+      "references": [
+        {
+          "source_reference_number": 30,
+          "relationship": "included_study",
+          "doi": "10.1016/j.cmet.2024.02.015",
+          "title": "Transcriptomic, epigenomic, and spatial metabolomic cell profiling redefines regional human kidney anatomy",
+          "authors_as_cited": "Li H, Li D, Ledru N, et al.",
+          "journal": "Cell Metabolism",
+          "year": 2024,
+          "citation": "Li H, Li D, Ledru N, et al. Transcriptomic, epigenomic, and spatial metabolomic cell profiling redefines regional human kidney anatomy. Cell Metab. 2024;36(5):1105-1125.e10. doi:10.1016/j.cmet.2024.02.015"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1016/j.cmet.2024.02.015"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        17
+      ],
+      "references": [
+        {
+          "source_reference_number": 31,
+          "relationship": "included_study",
+          "doi": "10.1038/s41467-022-32972-z",
+          "title": "Multimodal single cell sequencing implicates chromatin accessibility and genetic background in diabetic kidney disease progression",
+          "authors_as_cited": "Wilson PC, Muto Y, Wu H, Karihaloo A, Waikar SS, Humphreys BD",
+          "journal": "Nature Communications",
+          "year": 2022,
+          "citation": "Wilson PC, Muto Y, Wu H, Karihaloo A, Waikar SS, Humphreys BD. Multimodal single cell sequencing implicates chromatin accessibility and genetic background in diabetic kidney disease progression. Nat Commun. 2022;13(1):5253. doi:10.1038/s41467-022-32972-z"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41467-022-32972-z"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        18
+      ],
+      "references": [
+        {
+          "source_reference_number": 32,
+          "relationship": "included_study",
+          "doi": "10.1038/s41586-019-1631-3",
+          "title": "Resolving the fibrotic niche of human liver cirrhosis at single-cell level",
+          "authors_as_cited": "Ramachandran P, Dobie R, Wilson-Kanamori JR, et al.",
+          "journal": "Nature",
+          "year": 2019,
+          "citation": "Ramachandran P, Dobie R, Wilson-Kanamori JR, et al. Resolving the fibrotic niche of human liver cirrhosis at single-cell level. Nature. 2019;575(7783):512-518. doi:10.1038/s41586-019-1631-3"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41586-019-1631-3"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        19
+      ],
+      "references": [
+        {
+          "source_reference_number": 33,
+          "relationship": "included_study",
+          "doi": "10.1038/s41586-024-07465-2",
+          "title": "Acquisition of epithelial plasticity in human chronic liver disease",
+          "authors_as_cited": "Gribben C, Galanakis V, Calderwood A, et al.",
+          "journal": "Nature",
+          "year": 2024,
+          "citation": "Gribben C, Galanakis V, Calderwood A, et al. Acquisition of epithelial plasticity in human chronic liver disease. Nature. 2024;630(8015):166-173. doi:10.1038/s41586-024-07465-2"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1038/s41586-024-07465-2"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        20
+      ],
+      "references": [
+        {
+          "source_reference_number": 34,
+          "relationship": "included_study",
+          "doi": "10.1016/j.jhep.2021.12.036",
+          "title": "Liver stromal cells restrict macrophage maturation and stromal IL-6 limits the differentiation of cirrhosis-linked macrophages",
+          "authors_as_cited": "Buonomo EL, Mei S, Guinn SR, et al.",
+          "journal": "Journal of Hepatology",
+          "year": 2022,
+          "citation": "Buonomo EL, Mei S, Guinn SR, et al. Liver stromal cells restrict macrophage maturation and stromal IL-6 limits the differentiation of cirrhosis-linked macrophages. J Hepatol. 2022;76(5):1127-1137. doi:10.1016/j.jhep.2021.12.036"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1016/j.jhep.2021.12.036"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    }
+  ]
+}
