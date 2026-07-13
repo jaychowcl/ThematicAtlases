@@ -52,6 +52,12 @@ def test_runner_reviews_one_snapshot_of_existing_trace(
             "strategy": "direct",
         },
     }
+    assert json.loads(capsys.readouterr().out) == {
+        "trace_dir": str(trace_dir),
+        "accessions": 1,
+        "publication_texts": 1,
+        "progress_artifact": str(trace_dir / "resume_review_progress.json"),
+    }
 
 
 def test_runner_can_select_legacy_review_strategy(tmp_path, monkeypatch) -> None:
@@ -73,9 +79,3 @@ def test_runner_can_select_legacy_review_strategy(tmp_path, monkeypatch) -> None
         [str(tmp_path / "trace"), "--strategy", "evidence_then_judgement"]
     ) == 0
     assert calls["strategy"] == "evidence_then_judgement"
-    assert json.loads(capsys.readouterr().out) == {
-        "trace_dir": str(trace_dir),
-        "accessions": 1,
-        "publication_texts": 1,
-        "progress_artifact": str(trace_dir / "resume_review_progress.json"),
-    }

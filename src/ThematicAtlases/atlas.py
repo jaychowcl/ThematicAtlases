@@ -79,6 +79,7 @@ class Atlas:
         out: str | None = None,
         theme: str | None = None,
         review_filter: str = "none",
+        review_strategy: str = "direct",
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
         reviewer=None,
@@ -117,6 +118,7 @@ class Atlas:
                     "query_file": file,
                     "theme": theme,
                     "review_filter": review_filter,
+                    "review_strategy": review_strategy,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
                     "collect_metadata": collect_metadata,
@@ -134,6 +136,7 @@ class Atlas:
             out=None,
             theme=theme,
             review_filter=review_filter,
+            review_strategy=review_strategy,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
             reviewer=reviewer,
@@ -306,6 +309,7 @@ class Atlas:
                         jsons=review_input,
                         theme=manifest.get("theme"),
                         review_filter=manifest.get("review_filter", "none"),
+                        review_strategy=manifest.get("review_strategy", "direct"),
                         _review_progress_callback=lambda texts: trace.write(
                             "resume_review_progress.json",
                             {"accessions": self._filterer.accessions_with_publication_text_refs(accessions, texts), "publication_texts": texts},
@@ -320,6 +324,7 @@ class Atlas:
                         file=manifest.get("query_file"),
                         theme=manifest.get("theme"),
                         review_filter=manifest.get("review_filter", "none"),
+                        review_strategy=manifest.get("review_strategy", "direct"),
                         metadata_repositories=manifest.get("metadata_repositories"),
                         max_publications=manifest.get("max_publications"),
                         collect_metadata=manifest.get("collect_metadata", True),
@@ -373,6 +378,7 @@ class Atlas:
         out: str | None = None,
         theme: str | None = None,
         review_filter: str = "none",
+        review_strategy: str = "direct",
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
         reviewer=None,
@@ -410,6 +416,7 @@ class Atlas:
                     "query_file": file,
                     "theme": theme,
                     "review_filter": review_filter,
+                    "review_strategy": review_strategy,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
                     "collect_metadata": collect_metadata,
@@ -451,6 +458,10 @@ class Atlas:
                 "max_publications": max_publications,
                 "collect_metadata": collect_metadata,
             }
+            # Preserve compatibility with traces created before review strategies
+            # existed while still separating explicitly selected legacy runs.
+            if review_strategy != "direct":
+                fingerprint_configuration["review_strategy"] = review_strategy
             if review_before_metadata:
                 fingerprint_configuration["review_before_metadata"] = True
             checkpoint_store.validate_fingerprint(fingerprint_configuration)
@@ -486,6 +497,7 @@ class Atlas:
             jsons=accessions,
             theme=theme,
             review_filter=review_filter,
+            review_strategy=review_strategy,
             reviewer=reviewer,
             _review_progress_callback=review_progress_callback,
             _checkpoint_store=checkpoint_store,
@@ -610,6 +622,7 @@ class Atlas:
         file: str | None = None,
         theme: str | None = None,
         review_filter: str = "none",
+        review_strategy: str = "direct",
         reviewer=None,
         _review_progress_callback=None,
         _checkpoint_store=None,
@@ -619,6 +632,7 @@ class Atlas:
             file=file,
             theme=theme,
             review_filter=review_filter,
+            review_strategy=review_strategy,
             reviewer=reviewer,
         )
         if _review_progress_callback is not None:

@@ -23,6 +23,7 @@ MAX_PUBLICATIONS = 5000
 MAX_GENERATED_QUERIES = 3
 METADATA_REPOSITORIES = ["geo"]
 REVIEW_FILTER = "not_relevant"
+REVIEW_STRATEGY = "direct"
 COLLECT_METADATA = True
 DEV_TRACE = True
 REVIEW_BEFORE_METADATA = True
@@ -118,6 +119,7 @@ def resolved_configuration(*, generate_query: bool = False) -> dict:
         "max_publications": MAX_PUBLICATIONS,
         "collect_metadata": COLLECT_METADATA,
         "review_filter": REVIEW_FILTER,
+        "review_strategy": REVIEW_STRATEGY,
         "harmonization": False,
         "dev_trace": DEV_TRACE,
         "dev_out_dir": str(OUTPUT_DIR / "dev_trace_discovery"),
@@ -151,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         out=config["discovery_out"],
         theme=theme,
         review_filter=REVIEW_FILTER,
+        review_strategy=REVIEW_STRATEGY,
         metadata_repositories=METADATA_REPOSITORIES,
         max_publications=MAX_PUBLICATIONS,
         collect_metadata=COLLECT_METADATA,

@@ -1,6 +1,8 @@
 import json
 import logging
 import hashlib
+import inspect
+import re
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -19,6 +21,8 @@ REVIEW_FILTERS = {
     "not_relevant",
     "not_relevant_and_unsure",
 }
+REVIEW_STRATEGIES = {"direct", "evidence_then_judgement"}
+REVIEW_CONTRACT_VERSION = 2
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +39,22 @@ class PublicationTextReviewer:
         *,
         theme: str | None = None,
         reviewer=None,
+        strategy: str = "direct",
     ) -> dict:
         """Review the current publication snapshot in an evolving trace."""
         return self._resume_orchestrator().resume(
             trace_dir=trace_dir,
             theme=theme,
             reviewer=reviewer,
+            strategy=strategy,
         )
 
-    def validate_options(self, theme: str | None, review_filter: str) -> None:
+    def validate_options(
+        self,
+        theme: str | None,
+        review_filter: str,
+        strategy: str = "direct",
+    ) -> None:
         if review_filter not in REVIEW_FILTERS:
             raise ValueError(
                 f"Unsupported review_filter: {review_filter!r}. "
@@ -52,6 +63,11 @@ class PublicationTextReviewer:
 
         if theme is None and review_filter != "none":
             raise ValueError("review_filter requires a theme.")
+        if strategy not in REVIEW_STRATEGIES:
+            raise ValueError(
+                f"Unsupported review_strategy: {strategy!r}. Expected one of: "
+                f"{', '.join(sorted(REVIEW_STRATEGIES))}."
+            )
 
     def review_and_filter(
         self,
@@ -60,6 +76,7 @@ class PublicationTextReviewer:
         theme: str | None,
         review_filter: str,
         reviewer=None,
+        strategy: str = "direct",
     ) -> tuple[list[dict], dict]:
         if theme is None:
             return accessions, publication_texts
@@ -69,6 +86,7 @@ class PublicationTextReviewer:
             contexts=self.publication_review_contexts(accessions=accessions),
             theme=theme,
             reviewer=reviewer,
+            strategy=strategy,
         )
         return self.filtered_result(
             accessions=accessions,
@@ -83,15 +101,27 @@ class PublicationTextReviewer:
             for publication in record.get(PUBLICATIONS, []):
                 publication_ref = publication.get(PUBLICATION_TEXT_REF, "")
 
-                if not publication_ref or publication_ref in contexts:
+                if not publication_ref:
                     continue
 
-                contexts[publication_ref] = {
-                    "title": publication.get("title", ""),
-                    "metadata": build_miniml_metadata_context(
-                        record.get("accession_metadata")
-                    ),
-                }
+                context = contexts.setdefault(
+                    publication_ref,
+                    {"title": "", "metadata": [], "accessions": []},
+                )
+                if not context["title"] and publication.get("title"):
+                    context["title"] = publication.get("title", "")
+                accession = str(record.get("datalink_id", "")).strip()
+                if re.fullmatch(r"GSE\d+", accession, flags=re.IGNORECASE):
+                    accession = accession.upper()
+                    if accession not in context["accessions"]:
+                        context["accessions"].append(accession)
+                metadata = build_miniml_metadata_context(
+                    record.get("accession_metadata")
+                )
+                if metadata:
+                    metadata_entry = {"accession": accession, "context": metadata}
+                    if metadata_entry not in context["metadata"]:
+                        context["metadata"].append(metadata_entry)
 
         return contexts
 
@@ -103,7 +133,9 @@ class PublicationTextReviewer:
         reviewer=None,
         progress_callback=None,
         checkpoint_store=None,
+        strategy: str = "direct",
     ) -> dict:
+        self.validate_options(theme=theme, review_filter="none", strategy=strategy)
         reviewer = reviewer or self._reviewer()
         reviewed_publication_texts = {}
         reviewed_count = 0
@@ -127,14 +159,19 @@ class PublicationTextReviewer:
                 publication_text=publication_text,
                 context=context,
                 theme=theme,
+                strategy=strategy,
             )
             identity_hash = self._review_identity_hash(
                 publication_text=publication_text,
                 context=context,
                 theme=theme,
+                strategy=strategy,
             )
             item_lock = (
-                checkpoint_store.item_lock("thematic_review", publication_ref)
+                checkpoint_store.item_lock(
+                    "thematic_review",
+                    self._review_checkpoint_key(strategy, publication_ref),
+                )
                 if checkpoint_store is not None
                 else nullcontext()
             )
@@ -149,6 +186,7 @@ class PublicationTextReviewer:
                     index=index,
                     input_hash=input_hash,
                     identity_hash=identity_hash,
+                    strategy=strategy,
                 )
             reviewed_publication_texts[publication_ref] = outcome["publication_text"]
             reviewed_count += outcome["reviewed"]
@@ -178,9 +216,11 @@ class PublicationTextReviewer:
         index: int,
         input_hash: str,
         identity_hash: str,
+        strategy: str,
     ) -> dict:
+        checkpoint_key = self._review_checkpoint_key(strategy, publication_ref)
         checkpoint = (
-            checkpoint_store.get("thematic_review", publication_ref)
+            checkpoint_store.get("thematic_review", checkpoint_key)
             if checkpoint_store is not None
             else None
         )
@@ -197,7 +237,11 @@ class PublicationTextReviewer:
             )
 
         existing_review = publication_text.get(AGENTIC_CURATOR)
-        if isinstance(existing_review, dict) and existing_review.get("theme") == theme:
+        if (
+            isinstance(existing_review, dict)
+            and existing_review.get("theme") == theme
+            and existing_review.get("strategy") == strategy
+        ):
             return {
                 "publication_text": publication_text,
                 "reviewed": 0,
@@ -206,11 +250,27 @@ class PublicationTextReviewer:
             }
 
         try:
+            review_options = {
+                "publication_text": publication_text.get("text", ""),
+                "theme": theme,
+                "metadata": context.get("metadata"),
+                "title": context.get("title"),
+                "accessions": context.get("accessions", []),
+                "strategy": strategy,
+            }
+            signature = inspect.signature(reviewer.review_relevancy)
+            accepts_kwargs = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            )
+            if not accepts_kwargs:
+                review_options = {
+                    key: value
+                    for key, value in review_options.items()
+                    if key in signature.parameters
+                }
             review = reviewer.review_relevancy(
-                publication_text=publication_text.get("text", ""),
-                theme=theme,
-                metadata=context.get("metadata"),
-                title=context.get("title"),
+                **review_options
             )
         except Exception as error:
             logger.exception(
@@ -219,6 +279,7 @@ class PublicationTextReviewer:
             )
             publication_text[AGENTIC_CURATOR] = {
                 "theme": theme,
+                "strategy": strategy,
                 "review_status": "failed",
                 "error_type": type(error).__name__,
                 "error": str(error),
@@ -226,13 +287,16 @@ class PublicationTextReviewer:
             if checkpoint_store is not None:
                 checkpoint_store.put(
                     "thematic_review",
-                    publication_ref,
+                    checkpoint_key,
                     index,
                     "terminal_error",
                     payload={
                         "publication_text": publication_text,
                         "input_hash": input_hash,
                         "identity_hash": identity_hash,
+                        "review_contract_version": REVIEW_CONTRACT_VERSION,
+                        "strategy": strategy,
+                        "publication_ref": publication_ref,
                     },
                     error=str(error),
                 )
@@ -246,17 +310,21 @@ class PublicationTextReviewer:
         publication_text[AGENTIC_CURATOR] = self.agentic_curator_review(
             theme=theme,
             review=review,
+            strategy=strategy,
         )
         if checkpoint_store is not None:
             checkpoint_store.put(
                 "thematic_review",
-                publication_ref,
+                checkpoint_key,
                 index,
                 "available",
                 payload={
                     "publication_text": publication_text,
                     "input_hash": input_hash,
                     "identity_hash": identity_hash,
+                    "review_contract_version": REVIEW_CONTRACT_VERSION,
+                    "strategy": strategy,
+                    "publication_ref": publication_ref,
                 },
             )
         return {
@@ -267,12 +335,19 @@ class PublicationTextReviewer:
         }
 
     @staticmethod
-    def _review_input_hash(publication_text: dict, context: dict, theme: str) -> str:
+    def _review_input_hash(
+        publication_text: dict,
+        context: dict,
+        theme: str,
+        strategy: str = "direct",
+    ) -> str:
         value = json.dumps(
             {
                 "text": publication_text.get("text", ""),
                 "theme": theme,
                 "context": context,
+                "strategy": strategy,
+                "review_contract_version": REVIEW_CONTRACT_VERSION,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -285,12 +360,16 @@ class PublicationTextReviewer:
         publication_text: dict,
         context: dict,
         theme: str,
+        strategy: str = "direct",
     ) -> str:
         value = json.dumps(
             {
                 "text": publication_text.get("text", ""),
                 "theme": theme,
                 "title": context.get("title", ""),
+                "accessions": context.get("accessions", []),
+                "strategy": strategy,
+                "review_contract_version": REVIEW_CONTRACT_VERSION,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -350,7 +429,33 @@ class PublicationTextReviewer:
         )
         return filtered_accessions, filtered_publication_texts
 
-    def agentic_curator_review(self, theme: str, review: dict) -> dict:
+    @staticmethod
+    def _review_checkpoint_key(strategy: str, publication_ref: str) -> str:
+        return f"{strategy}:{publication_ref}"
+
+    def agentic_curator_review(
+        self,
+        theme: str,
+        review: dict,
+        strategy: str = "direct",
+    ) -> dict:
+        direct_judgement = " ".join(
+            str(review.get("judgement", "")).lower().replace("_", " ").split()
+        )
+        if direct_judgement in {"relevant", "not relevant", "unsure"}:
+            removals = review.get("accessions_to_remove", [])
+            if not isinstance(removals, list):
+                removals = []
+            return {
+                "theme": theme,
+                "strategy": str(review.get("strategy", strategy)),
+                "evidences": review.get("evidences", []),
+                "judgement": str(review.get("judgement", "")),
+                "reasoning": str(review.get("reasoning", "")),
+                "confidence": str(review.get("confidence", "")),
+                "accessions_to_remove": removals,
+                "raw_review": review,
+            }
         raw_evidences = review.get("evidences", "")
         raw_judgement = review.get("judgement", "")
         evidence_object = self.json_object(raw_evidences)
@@ -362,12 +467,16 @@ class PublicationTextReviewer:
 
         return {
             "theme": theme,
+            "strategy": strategy,
             "evidences": evidences,
             "judgement": str(judgement_object.get("judgement", "")),
             "reasoning": str(judgement_object.get("reasoning", "")),
             "confidence": str(judgement_object.get("confidence", "")),
             "raw_evidences": raw_evidences,
             "raw_judgement": raw_judgement,
+            "accessions_to_remove": judgement_object.get(
+                "accessions_to_remove", []
+            ),
         }
 
     def json_object(self, value) -> dict:

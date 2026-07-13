@@ -56,6 +56,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="optional theme file; otherwise use the theme stored in the manifest",
     )
+    parser.add_argument(
+        "--strategy",
+        choices=("direct", "evidence_then_judgement"),
+        default="direct",
+        help="review contract to run; direct is the default",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser.parse_args(argv)
 
@@ -73,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     result = PublicationTextReviewer().resume(
         args.trace_dir,
         theme=theme,
+        strategy=args.strategy,
     )
     print(
         json.dumps(

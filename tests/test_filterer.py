@@ -45,9 +45,9 @@ def _reviewed_atlas_object() -> dict:
             },
         ],
         "publication_texts": {
-            "1": {"text": "Relevant text", "agentic_curator": {"theme": "fibrosis", "judgement": "relevant"}},
-            "2": {"text": "Not relevant text", "agentic_curator": {"theme": "fibrosis", "judgement": "not relevant"}},
-            "3": {"text": "Unsure text", "agentic_curator": {"theme": "fibrosis", "judgement": "unsure"}},
+            "1": {"text": "Relevant text", "agentic_curator": {"theme": "fibrosis", "strategy": "direct", "judgement": "relevant"}},
+            "2": {"text": "Not relevant text", "agentic_curator": {"theme": "fibrosis", "strategy": "direct", "judgement": "not relevant"}},
+            "3": {"text": "Unsure text", "agentic_curator": {"theme": "fibrosis", "strategy": "direct", "judgement": "unsure"}},
         },
     }
 
@@ -262,10 +262,15 @@ def test_filter_jsons_reviews_publication_texts_with_agentic_curator_namespace(
         {
             "publication_text": "Text 1",
             "theme": "fibrosis",
-            "metadata": (
-                "Study: Series metadata | source=fibrotic lung; "
-                "organism=Homo sapiens"
-            ),
+            "metadata": [
+                {
+                    "accession": "GSE1",
+                    "context": (
+                        "Study: Series metadata | source=fibrotic lung; "
+                        "organism=Homo sapiens"
+                    ),
+                }
+            ],
             "title": "Fibrosis atlas publication",
         }
     ]
@@ -296,6 +301,7 @@ def test_filter_jsons_reuses_existing_agentic_curator_review() -> None:
                     "text": "Existing full text",
                     "agentic_curator": {
                         "theme": "fibrosis",
+                        "strategy": "direct",
                         "judgement": "relevant",
                     },
                 }

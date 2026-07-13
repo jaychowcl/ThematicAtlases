@@ -9,6 +9,7 @@ from pathlib import Path
 from ThematicAtlases.atlas import Atlas
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
+REVIEW_STRATEGY_CHOICES = ("direct", "evidence_then_judgement")
 METADATA_REPOSITORY_CHOICES = ("geo", "arrayexpress")
 
 
@@ -91,6 +92,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=REVIEW_FILTER_CHOICES,
         default="none",
     )
+    collect.add_argument(
+        "--review-strategy",
+        choices=REVIEW_STRATEGY_CHOICES,
+        default="direct",
+    )
 
     create = subparsers.add_parser(
         "create-atlas",
@@ -125,6 +131,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--review-filter",
         choices=REVIEW_FILTER_CHOICES,
         default="none",
+    )
+    create.add_argument(
+        "--review-strategy",
+        choices=REVIEW_STRATEGY_CHOICES,
+        default="direct",
     )
 
     harmonize = subparsers.add_parser(
@@ -206,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
             theme=theme,
             review_filter=_review_filter(args.review_filter),
+            review_strategy=args.review_strategy,
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,
@@ -221,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
             theme=theme,
             review_filter=_review_filter(args.review_filter),
+            review_strategy=args.review_strategy,
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,

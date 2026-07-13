@@ -31,6 +31,7 @@ class TracePublicationReviewResumer:
         trace_dir: str | Path,
         *,
         theme: str | None = None,
+        strategy: str = "direct",
         reviewer=None,
     ) -> dict:
         directory = Path(trace_dir)
@@ -82,6 +83,7 @@ class TracePublicationReviewResumer:
                 accessions=accessions_with_refs
             ),
             theme=resolved_theme,
+            strategy=strategy,
             reviewer=reviewer,
             progress_callback=write_progress,
             checkpoint_store=store,

@@ -30,6 +30,7 @@ class AtlasFilterer:
         file: str | None = None,
         theme: str | None = None,
         review_filter: str = "none",
+        review_strategy: str = "direct",
         reviewer=None,
         _review_progress_callback=None,
         _checkpoint_store=None,
@@ -37,6 +38,7 @@ class AtlasFilterer:
         self._publication_text_reviewer.validate_options(
             theme=theme,
             review_filter=review_filter,
+            strategy=review_strategy,
         )
         accession_records, publication_texts = self.filter_inputs(
             jsons=jsons,
@@ -60,6 +62,7 @@ class AtlasFilterer:
                 publication_texts=publication_texts,
                 theme=theme,
                 review_filter=review_filter,
+                review_strategy=review_strategy,
                 reviewer=reviewer,
                 progress_callback=_review_progress_callback,
                 checkpoint_store=_checkpoint_store,
@@ -276,6 +279,7 @@ class AtlasFilterer:
         publication_texts: dict,
         theme: str,
         review_filter: str,
+        review_strategy: str = "direct",
         reviewer=None,
         progress_callback=None,
         checkpoint_store=None,
@@ -287,6 +291,7 @@ class AtlasFilterer:
                 accessions=accessions
             ),
             theme=theme,
+            strategy=review_strategy,
             reviewer=reviewer,
             progress_callback=progress_callback,
         )

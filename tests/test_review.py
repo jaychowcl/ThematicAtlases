@@ -239,6 +239,7 @@ def test_review_publication_texts_parses_agentic_curator_schema() -> None:
     ]
     assert result["1"]["agentic_curator"] == {
         "theme": "fibrosis",
+        "strategy": "direct",
         "evidences": [
             {
                 "evidence": "fibrotic tissue",
@@ -269,6 +270,7 @@ def test_review_publication_texts_parses_agentic_curator_schema() -> None:
                 "confidence": "theme directly mentioned",
             }
         ),
+        "accessions_to_remove": [],
     }
 
 
@@ -278,6 +280,7 @@ def test_review_publication_texts_reuses_matching_theme() -> None:
             "text": "Full text",
             "agentic_curator": {
                 "theme": "fibrosis",
+                "strategy": "direct",
                 "judgement": "relevant",
             },
         }
@@ -313,6 +316,7 @@ def test_review_publication_texts_isolates_and_retains_failed_publication(caplog
 
     assert result["bad"]["agentic_curator"] == {
         "theme": "fibrosis",
+        "strategy": "direct",
         "review_status": "failed",
         "error_type": "ValueError",
         "error": "LLM response was not valid JSON.",
@@ -749,12 +753,14 @@ def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> No
 
     assert result == {
         "theme": "fibrosis",
+        "strategy": "direct",
         "evidences": [],
         "judgement": "",
         "reasoning": "",
         "confidence": "",
         "raw_evidences": "not json evidence",
         "raw_judgement": "not json judgement",
+        "accessions_to_remove": [],
     }
 
 

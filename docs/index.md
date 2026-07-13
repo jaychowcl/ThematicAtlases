@@ -45,7 +45,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: cli-atlas
   title: CLI Atlas
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, query-generator, max-generated-queries, method-owned generation, out, create-atlas, collect-datasets, harmonize-datasets, metadata-repository, theme, review-filter, dev-trace, summary, logging
+  keywords: cli_atlas, argparse, query, file, query-generator, max-generated-queries, method-owned generation, out, create-atlas, collect-datasets, harmonize-datasets, metadata-repository, theme, review-filter, review-strategy, direct, evidence_then_judgement, dev-trace, summary, logging
 
 - id: archive-reference
   title: Archive Reference
@@ -72,7 +72,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: filterer
   title: Filterer
   anchor: filterer
-  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, 500 characters, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
+  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, GSE accessions, direct review, evidence_then_judgement, review_strategy, accession exclusions, trace only, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, strategy checkpoint, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
 
 - id: harmonizer
   title: Harmonizer
