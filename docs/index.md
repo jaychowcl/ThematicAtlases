@@ -72,7 +72,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: filterer
   title: Filterer
   anchor: filterer
-  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, GSE accessions, direct review, evidence_then_judgement, review_strategy, accession exclusions, trace only, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, strategy checkpoint, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
+  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, GSE accessions, direct review, accession assessments, human samples, transcriptomics assay, established fibrosis, accession linkage, derived judgement, contract version 3, evidence_then_judgement, review_strategy, accession exclusions, trace only, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, strategy checkpoint, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
 
 - id: harmonizer
   title: Harmonizer
