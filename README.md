@@ -72,7 +72,7 @@ Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atla
 ### Fibrosis discovery without harmonization
 
 Run publication discovery, GEO metadata collection, and thematic review for up
-to 1,000 publications without loading ontologies or starting harmonization:
+to 5,000 publications without loading ontologies or starting harmonization:
 
 ```bash
 .env/bin/python run_fibrosis_discovery.py
