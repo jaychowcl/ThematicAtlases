@@ -1,8 +1,12 @@
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
 from ThematicAtlases.filterer.review import PublicationTextReviewer
+from ThematicAtlases.checkpoint import CheckpointStore
 
 
 class FakeReviewer:
@@ -49,6 +53,74 @@ class FakeReviewer:
 class FailingReviewer:
     def review_relevancy(self, **kwargs):
         raise AssertionError("review should not be called")
+
+
+def traced_publication(
+    trace_dir: Path,
+    *,
+    epmc_id: str,
+    datalink_id: str,
+    scheme: str = "GEO",
+    text: str,
+) -> CheckpointStore:
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = trace_dir / "00_run_manifest.json"
+    if not manifest_path.exists():
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "run_id": trace_dir.name,
+                    "theme": "fibrosis",
+                    "metadata_repositories": ["geo"],
+                    "review_before_metadata": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+    store = CheckpointStore(trace_dir / "resume_state.sqlite")
+    ordinal = len(store.items("datalinks")) + 1
+    publication = {
+        "query": "fibrosis",
+        "source": "MED",
+        "epmc_id": epmc_id,
+        "pmid": epmc_id,
+        "pmcid": "",
+        "doi": "",
+        "title": f"Publication {epmc_id}",
+        "abstractText": text,
+    }
+    store.put(
+        "datalinks",
+        f"MED:{epmc_id}",
+        ordinal,
+        "available",
+        payload={
+            "rows": [
+                {
+                    **publication,
+                    "datalink_id": datalink_id,
+                    "datalink_id_scheme": scheme,
+                    "datalink_url": "",
+                    "datalink_category": "GEO",
+                }
+            ]
+        },
+    )
+    store.put(
+        "publication_text",
+        f"MED:{epmc_id}",
+        ordinal,
+        "available",
+        payload={
+            "publication": {
+                **publication,
+                "text": text,
+                "text_source": "abstractText",
+                "full_text_status": "unavailable",
+            }
+        },
+    )
+    return store
 
 
 def reviewed_atlas_parts() -> tuple[list[dict], dict]:
@@ -302,6 +374,173 @@ def test_review_checkpoint_is_invalidated_when_publication_text_changes(
         "recovered full text",
     ]
     assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+
+
+def test_review_checkpoint_is_reused_when_only_metadata_context_changes(
+    tmp_path,
+) -> None:
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    FakeReviewer.calls = []
+    reviewer = FakeReviewer()
+    review = PublicationTextReviewer()
+
+    review.review_publication_texts(
+        publication_texts={"1": {"text": "stable full text"}},
+        contexts={"1": {"title": "Stable title", "metadata": "early"}},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+    result = review.review_publication_texts(
+        publication_texts={"1": {"text": "stable full text"}},
+        contexts={"1": {"title": "Stable title", "metadata": "later metadata"}},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+
+    assert len(FakeReviewer.calls) == 1
+    assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+
+
+def test_review_checkpoint_lock_prevents_duplicate_concurrent_calls(tmp_path) -> None:
+    store_path = tmp_path / "resume.sqlite"
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    class SlowReviewer:
+        def review_relevancy(self, publication_text, **kwargs):
+            calls.append(publication_text)
+            started.set()
+            assert release.wait(timeout=5)
+            return FakeReviewer().review_relevancy(
+                publication_text=publication_text, **kwargs
+            )
+
+    def run_review():
+        return PublicationTextReviewer().review_publication_texts(
+            publication_texts={"1": {"text": "one"}},
+            contexts={},
+            theme="fibrosis",
+            reviewer=SlowReviewer(),
+            checkpoint_store=CheckpointStore(store_path),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(run_review)
+        assert started.wait(timeout=5)
+        second = executor.submit(run_review)
+        release.set()
+        assert first.result()["1"]["agentic_curator"]["judgement"] == "relevant"
+        assert second.result()["1"]["agentic_curator"]["judgement"] == "relevant"
+
+    assert calls == ["one"]
+
+
+def test_resume_reviews_current_datalink_checkpoint_snapshot(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="first abstract",
+    )
+    FakeReviewer.calls = []
+
+    result = PublicationTextReviewer().resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+    )
+
+    assert [record["datalink_id"] for record in result["accessions"]] == ["GSE1"]
+    assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == "relevant"
+    assert json.loads(
+        (trace_dir / "resume_review_progress.json").read_text(encoding="utf-8")
+    ) == result
+
+
+def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="first abstract",
+    )
+    FakeReviewer.calls = []
+    reviewer = FakeReviewer()
+    review = PublicationTextReviewer()
+    review.resume(trace_dir, reviewer=reviewer)
+
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="second abstract",
+    )
+    result = review.resume(trace_dir, reviewer=reviewer)
+
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "first abstract",
+        "second abstract",
+    ]
+    assert [record["datalink_id"] for record in result["accessions"]] == [
+        "GSE1",
+        "GSE2",
+    ]
+    assert set(result["publication_texts"]) == {"1", "2"}
+
+
+def test_resume_applies_manifest_repository_selection(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="geo abstract",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="E-MTAB-2",
+        scheme="ArrayExpress",
+        text="arrayexpress abstract",
+    )
+    FakeReviewer.calls = []
+
+    result = PublicationTextReviewer().resume(trace_dir, reviewer=FakeReviewer())
+
+    assert [record["datalink_id"] for record in result["accessions"]] == ["GSE1"]
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "geo abstract"
+    ]
+
+
+def test_resume_requires_theme_and_rejects_manifest_conflict(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="abstract",
+    )
+    manifest_path = trace_dir / "00_run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["theme"] = None
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="non-empty theme"):
+        PublicationTextReviewer().resume(trace_dir, reviewer=FakeReviewer())
+
+    manifest["theme"] = "fibrosis"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match"):
+        PublicationTextReviewer().resume(
+            trace_dir,
+            theme="cancer",
+            reviewer=FakeReviewer(),
+        )
 
 
 def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> None:
