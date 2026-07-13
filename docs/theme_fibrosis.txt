@@ -78,6 +78,13 @@ exclude:
     referenced dataset.
 
 evidence_requirements:
+  - An accession identifier alone provides no biological evidence. Treat it only
+    as a label for associating supplied publication and metadata evidence.
+  - Do not use remembered or external knowledge about an accession. Judge only
+    from the supplied publication and accession-associated metadata context.
+  - Do not transfer evidence between accessions, cohorts, experiments, or
+    datasets unless the supplied context explicitly establishes that they
+    contain the same profiled samples.
   - Extract evidence about both the assay and the fibrosis status of the
     actually profiled samples.
   - Do not infer sample-level fibrosis from general background statements.
