@@ -21,8 +21,12 @@ def test_runner_reviews_one_snapshot_of_existing_trace(
             calls["credential_check"] = True
 
     class RecordingReviewer:
-        def resume(self, trace_dir, *, theme=None):
-            calls["resume"] = {"trace_dir": trace_dir, "theme": theme}
+        def resume(self, trace_dir, *, theme=None, strategy="direct"):
+            calls["resume"] = {
+                "trace_dir": trace_dir,
+                "theme": theme,
+                "strategy": strategy,
+            }
             return {
                 "accessions": [{"datalink_id": "GSE1"}],
                 "publication_texts": {"1": {"text": "reviewed"}},
@@ -42,8 +46,33 @@ def test_runner_reviews_one_snapshot_of_existing_trace(
 
     assert calls == {
         "credential_check": True,
-        "resume": {"trace_dir": trace_dir, "theme": "fibrosis theme"},
+        "resume": {
+            "trace_dir": trace_dir,
+            "theme": "fibrosis theme",
+            "strategy": "direct",
+        },
     }
+
+
+def test_runner_can_select_legacy_review_strategy(tmp_path, monkeypatch) -> None:
+    calls = {}
+
+    class RecordingReviewer:
+        def resume(self, trace_dir, *, theme=None, strategy="direct"):
+            calls["strategy"] = strategy
+            return {"accessions": [], "publication_texts": {}}
+
+    monkeypatch.setattr(script, "PublicationTextReviewer", RecordingReviewer)
+    monkeypatch.setattr(script, "GoogleCredentialPreflight", lambda: type(
+        "Preflight", (), {"check": lambda self: None}
+    )())
+    monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
+    monkeypatch.setattr(script, "configure_logging", lambda verbosity: None)
+
+    assert script.main(
+        [str(tmp_path / "trace"), "--strategy", "evidence_then_judgement"]
+    ) == 0
+    assert calls["strategy"] == "evidence_then_judgement"
     assert json.loads(capsys.readouterr().out) == {
         "trace_dir": str(trace_dir),
         "accessions": 1,

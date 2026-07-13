@@ -19,6 +19,8 @@ class FakeReviewer:
         theme=None,
         metadata=None,
         title=None,
+        accessions=None,
+        strategy="direct",
     ):
         self.__class__.calls.append(
             {
@@ -48,6 +50,43 @@ class FakeReviewer:
                     "confidence": "theme directly mentioned",
                 }
             ),
+        }
+
+
+class DirectReviewer:
+    calls: list[dict] = []
+
+    def review_relevancy(
+        self,
+        publication_text=None,
+        theme=None,
+        metadata=None,
+        title=None,
+        accessions=None,
+        strategy="direct",
+    ):
+        self.__class__.calls.append(
+            {
+                "publication_text": publication_text,
+                "theme": theme,
+                "metadata": metadata,
+                "title": title,
+                "accessions": accessions,
+                "strategy": strategy,
+            }
+        )
+        return {
+            "judgement": "relevant",
+            "reasoning": "GSE1 contains human fibrosis samples.",
+            "confidence": "high",
+            "accessions_to_remove": [
+                {
+                    "accession": "GSE2",
+                    "reason": "Mouse-only dataset.",
+                    "confidence": "high",
+                }
+            ],
+            "strategy": strategy,
         }
 
 
@@ -402,6 +441,97 @@ def test_review_checkpoint_is_reused_when_only_metadata_context_changes(
 
     assert len(FakeReviewer.calls) == 1
     assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+
+
+def test_publication_context_aggregates_every_gse_for_shared_publication() -> None:
+    publication = {
+        "publication_text_ref": "1",
+        "title": "Shared publication",
+    }
+    contexts = PublicationTextReviewer().publication_review_contexts(
+        accessions=[
+            {"datalink_id": "GSE1", "publications": [publication]},
+            {"datalink_id": "GSE2", "publications": [publication]},
+            {"datalink_id": "GSM3", "publications": [publication]},
+        ]
+    )
+
+    assert contexts["1"]["title"] == "Shared publication"
+    assert contexts["1"]["accessions"] == ["GSE1", "GSE2"]
+
+
+def test_direct_review_traces_accession_removals_without_filtering_them(
+    tmp_path,
+) -> None:
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    DirectReviewer.calls = []
+    review = PublicationTextReviewer()
+    accessions = [
+        {
+            "datalink_id": accession,
+            "publications": [{"publication_text_ref": "1", "title": "Study"}],
+        }
+        for accession in ("GSE1", "GSE2")
+    ]
+    texts = review.review_publication_texts(
+        publication_texts={"1": {"text": "GSE1 human; GSE2 mouse"}},
+        contexts=review.publication_review_contexts(accessions),
+        theme="fibrosis",
+        reviewer=DirectReviewer(),
+        strategy="direct",
+        checkpoint_store=store,
+    )
+
+    trace = texts["1"]["agentic_curator"]
+    assert trace["accessions_to_remove"] == [
+        {
+            "accession": "GSE2",
+            "reason": "Mouse-only dataset.",
+            "confidence": "high",
+        }
+    ]
+    filtered, _ = review.filtered_result(
+        accessions=accessions,
+        publication_texts=texts,
+        review_filter="not_relevant",
+    )
+    assert [record["datalink_id"] for record in filtered] == ["GSE1", "GSE2"]
+
+
+def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(
+    tmp_path,
+) -> None:
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    store.put(
+        "thematic_review",
+        "1",
+        1,
+        "available",
+        payload={"publication_text": {"text": "legacy"}},
+    )
+    DirectReviewer.calls = []
+    review = PublicationTextReviewer()
+    options = {
+        "publication_texts": {"1": {"text": "text"}},
+        "contexts": {"1": {"title": "Title", "accessions": ["GSE1"]}},
+        "theme": "fibrosis",
+        "reviewer": DirectReviewer(),
+        "checkpoint_store": store,
+    }
+
+    review.review_publication_texts(**options, strategy="direct")
+    review.review_publication_texts(**options, strategy="evidence_then_judgement")
+    review.review_publication_texts(**options, strategy="direct")
+
+    assert [call["strategy"] for call in DirectReviewer.calls] == [
+        "direct",
+        "evidence_then_judgement",
+    ]
+    assert store.get("thematic_review", "direct:1")["status"] == "available"
+    assert (
+        store.get("thematic_review", "evidence_then_judgement:1")["status"]
+        == "available"
+    )
 
 
 def test_review_checkpoint_lock_prevents_duplicate_concurrent_calls(tmp_path) -> None:

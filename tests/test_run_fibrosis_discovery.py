@@ -70,6 +70,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
         "out": str(tmp_path / ".out" / "fibrosis_discovery.json"),
         "theme": "fibrosis theme",
         "review_filter": "not_relevant",
+        "review_strategy": "direct",
         "metadata_repositories": ["geo"],
         "max_publications": 5000,
         "collect_metadata": True,
@@ -94,6 +95,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
     assert displayed["collect_metadata"] is True
     assert displayed["dev_trace"] is True
     assert displayed["review_before_metadata"] is True
+    assert displayed["review_strategy"] == "direct"
 
 
 def test_static_query_has_narrowed_mandatory_concepts() -> None:
