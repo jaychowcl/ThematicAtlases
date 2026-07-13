@@ -1,8 +1,12 @@
 import json
+from pathlib import Path
 
 import pytest
 
 import run_reference_publication_recall as runner
+
+
+BENCHMARK_FIXTURES = Path(__file__).parent / "fixtures" / "benchmark"
 
 
 class RecordingBenchmark:
@@ -134,3 +138,24 @@ def test_resolved_configuration_lists_packaged_and_custom_sets(tmp_path):
         "packaged_reference_sets": ["one", "two"],
         "reference_set_files": [str(tmp_path / "custom.json")],
     }
+
+
+def test_real_runner_benchmarks_both_packaged_sets(tmp_path, capsys):
+    thematic_output = BENCHMARK_FIXTURES / "taylor_mixed_thematic_output.json"
+    output = tmp_path / "aggregate.json"
+
+    result = runner.main([str(thematic_output), "--out", str(output)])
+
+    assert result == 0
+    aggregate = json.loads(output.read_text(encoding="utf-8"))
+    assert list(aggregate["reports"]) == [
+        "leonie_2026_fibrosis",
+        "taylor_2020_nafld_fibrosis",
+    ]
+    assert aggregate["reports"]["leonie_2026_fibrosis"]["summary"][
+        "matched_count"
+    ] == 0
+    assert aggregate["reports"]["taylor_2020_nafld_fibrosis"]["summary"][
+        "matched_count"
+    ] == 6
+    capsys.readouterr()
