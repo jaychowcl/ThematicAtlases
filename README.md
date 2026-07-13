@@ -122,10 +122,14 @@ datalink calls have already completed with:
 This performs one stable snapshot and exits. Run it again later to review newly
 checkpointed publications; completed full-text fetches and thematic reviews are
 reused. The script reads the theme and repository selection from the run
-manifest. Use `--theme-file PATH` only when the manifest has no theme (or to
-confirm the same theme explicitly). Incremental results are written atomically
-to `resume_review_progress.json`; the shared SQLite checkpoint database remains
-authoritative.
+manifest. Use `--theme-file PATH` when the manifest has no theme or to confirm
+the same theme. To intentionally review a historical collector snapshot with a
+newer theme, combine it with `--allow-theme-override`; this reviewer-only
+override leaves the collector manifest and fingerprint unchanged. Incremental
+results are written atomically to `resume_review_progress.json`; the shared
+SQLite checkpoint database remains authoritative. Historical reviewer rows can
+first be moved into a separate comparison database with
+`CheckpointStore.archive_stage(...)` without touching collector stages.
 
 The same workflow is available in Python:
 

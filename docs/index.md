@@ -62,7 +62,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, resume, review_before_metadata, resume_metadata_enriched_datasets, resume_state.sqlite, CheckpointStore, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
+  keywords: Atlas, resume, review_before_metadata, resume_metadata_enriched_datasets, resume_state.sqlite, CheckpointStore, archive_stage, comparison archive, archive id, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector
@@ -72,7 +72,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: filterer
   title: Filterer
   anchor: filterer
-  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, GSE accessions, direct review, accession assessments, human samples, transcriptomics assay, established fibrosis, accession linkage, derived judgement, contract version 3, evidence_then_judgement, review_strategy, accession exclusions, trace only, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, strategy checkpoint, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
+  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, build_miniml_metadata_context, GSE accessions, direct review, accession assessments, human samples, transcriptomics assay, established fibrosis, accession linkage, derived judgement, contract version 3, evidence_then_judgement, review_strategy, theme override, allow_theme_override, allow-theme-override, accession exclusions, trace only, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, strategy checkpoint, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
 
 - id: harmonizer
   title: Harmonizer
