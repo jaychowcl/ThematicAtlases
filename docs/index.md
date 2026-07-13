@@ -87,7 +87,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: rate-handling
   title: Rate Handling
   anchor: rate-handling
-  keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay
+  keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay, 0.5-second cadence, explicit override
 
 - id: arrayexpress-wrapper
   title: ArrayExpress Wrapper

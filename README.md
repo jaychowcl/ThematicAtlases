@@ -309,6 +309,10 @@ Major components:
 
 Python logging is library-style: modules define loggers but do not configure global logging. Applications should configure logging themselves. The CLI configures logging from `-v`, `-vv`, and `--log-file`.
 
+Europe PMC requests use a conservative 0.5-second delay by default. Callers may
+set `request_delay` explicitly when constructing `EuropePMCWrapper`; retry
+backoff and `Retry-After` handling remain separate from this base cadence.
+
 ## More information
 
 - [Codebase handoff](docs/codebase.md)

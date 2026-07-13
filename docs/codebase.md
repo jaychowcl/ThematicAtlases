@@ -482,10 +482,10 @@ Each accession deduplication pass logs one INFO-level stats message with input d
 - `page_limit=5`
 - `page_size=1000`
 - `timeout=30`
-- `request_delay=0.1`
+- `request_delay=0.5`
 - `max_retries=3`
 
-These request tuning values are stored together in an internal settings dictionary. Transient response statuses `429`, `500`, `502`, `503`, and `504` are retried. `Retry-After` is honored when present; otherwise retry delay uses short exponential backoff. Pagination is sequential, with no parallel requests.
+These request tuning values are stored together in an internal settings dictionary. The base delay can be overridden explicitly by a caller, including with zero for controlled tests. Transient response statuses `429`, `500`, `502`, `503`, and `504` are retried. `Retry-After` is honored when present; otherwise retry delay uses short exponential backoff. Pagination is sequential, with no parallel requests.
 
 <a id="arrayexpress-wrapper"></a>
 ### ArrayExpress Wrapper
