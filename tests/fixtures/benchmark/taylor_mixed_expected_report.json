@@ -1,0 +1,586 @@
+{
+  "schema_version": "1.1",
+  "benchmark": {
+    "method": "reference_publication_recall",
+    "reference_set": {
+      "id": "taylor_2020_nafld_fibrosis",
+      "name": "Taylor 2020 NAFLD fibrosis outcomes studies",
+      "description": "The source systematic review and the 14 NAFLD fibrosis outcome publications cited as references 18 through 31.",
+      "source": {
+        "doi": "10.1053/j.gastro.2020.01.043",
+        "title": "Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis",
+        "authors_as_cited": "Rod S. Taylor, Rebecca J. Taylor, Sue Bayliss, Hannes Hagström, Patrik Nasr, Jorn M. Schattenberg, Masatoshi Ishigami, Hidenori Toyoda, Vincent Wai-Sun Wong, Noam Peleg, Amir Shlomai, Giada Sebastiani, Yuya Seko, Neeraj Bhala, Zobair M. Younossi, Quentin M. Anstee, Stuart McPherson, Philip N. Newsome",
+        "journal": "Gastroenterology",
+        "year": 2020,
+        "citation": "Taylor RS, Taylor RJ, Bayliss S, et al. Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis. Gastroenterology. 2020;158(6):1611-1625.e12. doi:10.1053/j.gastro.2020.01.043"
+      },
+      "publication_count": 15
+    }
+  },
+  "source": {
+    "kind": "json",
+    "artifact": "<THEMATIC_OUTPUT_PATH>",
+    "view": "unknown",
+    "complete": null,
+    "limitations": [
+      "The source stage is unknown; publications removed by review filtering may be indistinguishable from publications that were never discovered."
+    ]
+  },
+  "summary": {
+    "input_record_count": 15,
+    "reference_publication_count": 15,
+    "duplicate_record_count": 0,
+    "matched_count": 6,
+    "missed_count": 9,
+    "conflict_count": 0,
+    "discovery_recall": 0.4,
+    "review_completed_count": 4,
+    "review_failed_count": 1,
+    "unreviewed_count": 1,
+    "judgement_counts": {
+      "relevant": 2,
+      "unsure": 1,
+      "not_relevant": 1,
+      "other": 0
+    },
+    "relevant_recall": 0.13333333333333333,
+    "candidate_recall": 0.2
+  },
+  "publications": [
+    {
+      "reference_indices": [
+        0
+      ],
+      "references": [
+        {
+          "source_reference_number": null,
+          "relationship": "source_meta_study",
+          "doi": "10.1053/j.gastro.2020.01.043",
+          "title": "Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis",
+          "authors_as_cited": "Rod S. Taylor, Rebecca J. Taylor, Sue Bayliss, Hannes Hagström, Patrik Nasr, Jorn M. Schattenberg, Masatoshi Ishigami, Hidenori Toyoda, Vincent Wai-Sun Wong, Noam Peleg, Amir Shlomai, Giada Sebastiani, Yuya Seko, Neeraj Bhala, Zobair M. Younossi, Quentin M. Anstee, Stuart McPherson, Philip N. Newsome",
+          "journal": "Gastroenterology",
+          "year": 2020,
+          "citation": "Taylor RS, Taylor RJ, Bayliss S, et al. Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis. Gastroenterology. 2020;158(6):1611-1625.e12. doi:10.1053/j.gastro.2020.01.043"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1053/j.gastro.2020.01.043"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1053/j.gastro.2020.01.043"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "taylor"
+        ],
+        "titles": [
+          "Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis"
+        ],
+        "accession_ids": [
+          "META-TAYLOR"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "relevant"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        1
+      ],
+      "references": [
+        {
+          "source_reference_number": 18,
+          "relationship": "included_study",
+          "doi": "10.1002/hep.24491",
+          "title": "The natural history of nonalcoholic fatty liver disease with advanced fibrosis or cirrhosis: An international collaborative study",
+          "authors_as_cited": "Bhala N, Angulo P, van der Poorten D, et al.",
+          "journal": "Hepatology",
+          "year": 2011,
+          "citation": "Bhala N, Angulo P, van der Poorten D, et al. The natural history of nonalcoholic fatty liver disease with advanced fibrosis or cirrhosis: an international collaborative study. Hepatology. 2011;54:1208-1216. doi:10.1002/hep.24491"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1002/hep.24491"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1002/hep.24491"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "bhala"
+        ],
+        "titles": [
+          "The natural history of nonalcoholic fatty liver disease with advanced fibrosis or cirrhosis: An international collaborative study"
+        ],
+        "accession_ids": [
+          "BHALA-1",
+          "BHALA-2"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "relevant"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        2
+      ],
+      "references": [
+        {
+          "source_reference_number": 19,
+          "relationship": "included_study",
+          "doi": "10.1002/hep.22868",
+          "title": "Quality of life in adults with nonalcoholic fatty liver disease: Baseline data from the nonalcoholic steatohepatitis clinical research network",
+          "authors_as_cited": "David K, Kowdley KV, Unalp A, et al.",
+          "journal": "Hepatology",
+          "year": 2009,
+          "citation": "David K, Kowdley KV, Unalp A, et al. Quality of life in adults with nonalcoholic fatty liver disease: baseline data from the nonalcoholic steatohepatitis clinical research network. Hepatology. 2009;49:1904-1912. doi:10.1002/hep.22868"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1002/hep.22868"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1002/hep.22868"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "david"
+        ],
+        "titles": [
+          "Quality of life in adults with nonalcoholic fatty liver disease"
+        ],
+        "accession_ids": [
+          "DAVID"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "unsure"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        3
+      ],
+      "references": [
+        {
+          "source_reference_number": 20,
+          "relationship": "included_study",
+          "doi": "10.1016/j.jhep.2017.07.027",
+          "title": "Fibrosis stage but not NASH predicts mortality and time to development of severe liver disease in biopsy-proven NAFLD",
+          "authors_as_cited": "Hagström H, Nasr P, Ekstedt M, et al.",
+          "journal": "Journal of Hepatology",
+          "year": 2017,
+          "citation": "Hagström H, Nasr P, Ekstedt M, et al. Fibrosis stage but not NASH predicts mortality and time to development of severe liver disease in biopsy-proven NAFLD. J Hepatol. 2017;67:1265-1273. doi:10.1016/j.jhep.2017.07.027"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1016/j.jhep.2017.07.027"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1016/j.jhep.2017.07.027"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "hagstrom-mortality"
+        ],
+        "titles": [
+          "Fibrosis stage but not NASH predicts mortality"
+        ],
+        "accession_ids": [
+          "HAGSTROM-MORTALITY"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "completed",
+        "judgement": "not_relevant"
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        4
+      ],
+      "references": [
+        {
+          "source_reference_number": 21,
+          "relationship": "included_study",
+          "doi": "10.1002/hep4.1124",
+          "title": "Risk for development of severe liver disease in lean patients with nonalcoholic fatty liver disease: A long-term follow-up study",
+          "authors_as_cited": "Hagström H, Nasr P, Ekstedt M, et al.",
+          "journal": "Hepatology Communications",
+          "year": 2017,
+          "citation": "Hagström H, Nasr P, Ekstedt M, et al. Risk for development of severe liver disease in lean patients with nonalcoholic fatty liver disease: a long-term follow-up study. Hepatol Commun. 2017;2:48-57. doi:10.1002/hep4.1124"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1002/hep4.1124"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1002/hep4.1124"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "hagstrom-lean"
+        ],
+        "titles": [
+          "Risk for development of severe liver disease in lean patients"
+        ],
+        "accession_ids": [
+          "HAGSTROM-LEAN"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "failed",
+        "judgement": null
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        5
+      ],
+      "references": [
+        {
+          "source_reference_number": 22,
+          "relationship": "included_study",
+          "doi": "10.1016/j.cgh.2018.12.016",
+          "title": "Health-related Quality of Life in Nonalcoholic Fatty Liver Disease Associates With Hepatic Inflammation",
+          "authors_as_cited": "Huber Y, Boyle M, Hallsworth K, et al.",
+          "journal": "Clinical Gastroenterology and Hepatology",
+          "year": 2019,
+          "citation": "Huber Y, Boyle M, Hallsworth K, et al. Health-related quality of life in non-alcoholic fatty liver disease associates with hepatic inflammation. Clin Gastroenterol Hepatol. 2019;17:2085-2092. doi:10.1016/j.cgh.2018.12.016"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1016/j.cgh.2018.12.016"
+        ],
+        "pmids": []
+      },
+      "matched_by": [
+        "doi"
+      ],
+      "matched_publication": {
+        "dois": [
+          "10.1016/j.cgh.2018.12.016"
+        ],
+        "pmids": [],
+        "publication_text_refs": [
+          "huber"
+        ],
+        "titles": [
+          "Health-related quality of life in NAFLD"
+        ],
+        "accession_ids": [
+          "HUBER"
+        ]
+      },
+      "conflicting_publications": [],
+      "review": {
+        "status": "unreviewed",
+        "judgement": null
+      },
+      "status": "matched"
+    },
+    {
+      "reference_indices": [
+        6
+      ],
+      "references": [
+        {
+          "source_reference_number": 23,
+          "relationship": "included_study",
+          "doi": "10.1111/jgh.14448",
+          "title": "Utility and limitations of noninvasive fibrosis markers for predicting prognosis in biopsy-proven Japanese non-alcoholic fatty liver disease patients",
+          "authors_as_cited": "Ito T, Ishigami M, Ishizu Y, et al.",
+          "journal": "Journal of Gastroenterology and Hepatology",
+          "year": 2019,
+          "citation": "Ito T, Ishigami M, Ishizu Y, et al. Utility and limitations of noninvasive fibrosis markers for predicting prognosis in biopsy-proven Japanese non-alcoholic fatty liver disease patients. J Gastroenterol Hepatol. 2019;34:207-214. doi:10.1111/jgh.14448"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1111/jgh.14448"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        7
+      ],
+      "references": [
+        {
+          "source_reference_number": 24,
+          "relationship": "included_study",
+          "doi": "10.1002/hep.28697",
+          "title": "Histological severity and clinical outcomes of nonalcoholic fatty liver disease in nonobese patients",
+          "authors_as_cited": "Leung JC, Loong TC, Wei JL, et al.",
+          "journal": "Hepatology",
+          "year": 2017,
+          "citation": "Leung JC, Loong TC, Wei JL, et al. Histological severity and clinical outcomes of nonalcoholic fatty liver disease in nonobese patients. Hepatology. 2017;65:54-64. doi:10.1002/hep.28697"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1002/hep.28697"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        8
+      ],
+      "references": [
+        {
+          "source_reference_number": 25,
+          "relationship": "included_study",
+          "doi": "10.1371/journal.pone.0202393",
+          "title": "Noninvasive scoring systems predict hepatic and extra-hepatic cancers in patients with nonalcoholic fatty liver disease",
+          "authors_as_cited": "Peleg N, Sneh Arbib O, Issachar A, et al.",
+          "journal": "PLOS ONE",
+          "year": 2018,
+          "citation": "Peleg N, Sneh Arbib O, Issachar A, et al. Noninvasive scoring systems predict hepatic and extra-hepatic cancers in patients with nonalcoholic fatty liver disease. PLoS One. 2018;13(8):e0202393. doi:10.1371/journal.pone.0202393"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1371/journal.pone.0202393"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        9
+      ],
+      "references": [
+        {
+          "source_reference_number": 26,
+          "relationship": "included_study",
+          "doi": "10.1371/journal.pone.0128774",
+          "title": "Prognostic Value of Non-Invasive Fibrosis and Steatosis Tools, Hepatic Venous Pressure Gradient (HVPG) and Histology in Nonalcoholic Steatohepatitis",
+          "authors_as_cited": "Sebastiani G, Alshaalan R, Wong P, et al.",
+          "journal": "PLOS ONE",
+          "year": 2015,
+          "citation": "Sebastiani G, Alshaalan R, Wong P, et al. Prognostic value of non-invasive fibrosis and steatosis tools, hepatic venous pressure gradient (HVPG) and histology in nonalcoholic steatohepatitis. PLoS One. 2015;10(6):e0128774. doi:10.1371/journal.pone.0128774"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1371/journal.pone.0128774"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        10
+      ],
+      "references": [
+        {
+          "source_reference_number": 27,
+          "relationship": "included_study",
+          "doi": "10.1111/hepr.12407",
+          "title": "Predictors of malignancies and overall mortality in Japanese patients with biopsy-proven non-alcoholic fatty liver disease",
+          "authors_as_cited": "Seko Y, Sumida Y, Tanaka S, et al.",
+          "journal": "Hepatology Research",
+          "year": 2015,
+          "citation": "Seko Y, Sumida Y, Tanaka S, et al. Predictors of malignancies and overall mortality in Japanese patients with biopsy-proven non-alcoholic fatty liver disease. Hepatol Res. 2015;45:728-738. doi:10.1111/hepr.12407"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1111/hepr.12407"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        11
+      ],
+      "references": [
+        {
+          "source_reference_number": 28,
+          "relationship": "included_study",
+          "doi": "10.1053/j.gastro.2018.04.034",
+          "title": "Fibrosis Severity as a Determinant of Cause-Specific Mortality in Patients With Advanced Nonalcoholic Fatty Liver Disease: A Multi-National Cohort Study",
+          "authors_as_cited": "Vilar-Gomez E, Calzadilla-Bertot L, Wai-Sun Wong V, et al.",
+          "journal": "Gastroenterology",
+          "year": 2018,
+          "citation": "Vilar-Gomez E, Calzadilla-Bertot L, Wai-Sun Wong V, et al. Fibrosis severity as a determinant of cause-specific mortality in patients with advanced nonalcoholic fatty liver disease: a multi-national cohort study. Gastroenterology. 2018;155:443-457. doi:10.1053/j.gastro.2018.04.034"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1053/j.gastro.2018.04.034"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        12
+      ],
+      "references": [
+        {
+          "source_reference_number": 29,
+          "relationship": "included_study",
+          "doi": "10.1002/hep.24268",
+          "title": "Pathologic criteria for nonalcoholic steatohepatitis: Interprotocol agreement and ability to predict liver-related mortality",
+          "authors_as_cited": "Younossi ZM, Stepanova M, Rafiq N, et al.",
+          "journal": "Hepatology",
+          "year": 2011,
+          "citation": "Younossi ZM, Stepanova M, Rafiq N, et al. Pathologic criteria for nonalcoholic steatohepatitis: interprotocol agreement and ability to predict liver-related mortality. Hepatology. 2011;53:1874-1882. doi:10.1002/hep.24268"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1002/hep.24268"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        13
+      ],
+      "references": [
+        {
+          "source_reference_number": 30,
+          "relationship": "included_study",
+          "doi": "10.1002/hep4.1054",
+          "title": "Nonalcoholic steatofibrosis independently predicts mortality in nonalcoholic fatty liver disease",
+          "authors_as_cited": "Younossi ZM, Stepanova M, Rafiq N, et al.",
+          "journal": "Hepatology Communications",
+          "year": 2017,
+          "citation": "Younossi ZM, Stepanova M, Rafiq N, et al. Nonalcoholic steatofibrosis independently predicts mortality in nonalcoholic fatty liver disease. Hepatol Commun. 2017;1:421-428. doi:10.1002/hep4.1054"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1002/hep4.1054"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    },
+    {
+      "reference_indices": [
+        14
+      ],
+      "references": [
+        {
+          "source_reference_number": 31,
+          "relationship": "included_study",
+          "doi": "10.1111/liv.13706",
+          "title": "Improvement of hepatic fibrosis and patient-reported outcomes in non-alcoholic steatohepatitis treated with selonsertib",
+          "authors_as_cited": "Younossi ZM, Stepanova M, Lawitz E, et al.",
+          "journal": "Liver International",
+          "year": 2018,
+          "citation": "Younossi ZM, Stepanova M, Lawitz E, et al. Improvement of hepatic fibrosis and patient-reported outcomes in non-alcoholic steatohepatitis treated with selonsertib. Liver Int. 2018;38:1849-1859. doi:10.1111/liv.13706"
+        }
+      ],
+      "normalized_identifiers": {
+        "dois": [
+          "10.1111/liv.13706"
+        ],
+        "pmids": []
+      },
+      "matched_by": [],
+      "matched_publication": null,
+      "conflicting_publications": [],
+      "review": null,
+      "status": "missed"
+    }
+  ]
+}
