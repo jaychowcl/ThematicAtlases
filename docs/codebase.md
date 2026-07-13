@@ -31,6 +31,7 @@ Live package files:
 src/ThematicAtlases/
 ├── __init__.py
 ├── atlas.py
+├── checkpoint.py
 ├── cli_atlas.py
 ├── summary.py
 ├── trace.py
@@ -74,6 +75,7 @@ docs/memory.md
 docs/burndown.md
 tests/test_atlas.py
 tests/test_ae_wrapper.py
+tests/test_checkpoint.py
 tests/test_cli_atlas.py
 tests/test_collector.py
 tests/test_epmc_wrapper.py
