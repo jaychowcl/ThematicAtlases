@@ -25,7 +25,7 @@ def test_configure_logging_enables_debug_console_and_file(tmp_path) -> None:
     )
 
 
-def test_discovery_runs_search_and_review_without_harmonization(
+def test_discovery_collects_publications_without_review_or_harmonization(
     tmp_path, monkeypatch, capsys
 ) -> None:
     calls = {}
@@ -79,6 +79,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
         "dev_trace": True,
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
         "review_before_metadata": True,
+        "stop_before_review": True,
     }
     assert not hasattr(calls["atlas"]["credential_checker"], "ontology_frameworks")
     summary = json.loads(
@@ -96,6 +97,7 @@ def test_discovery_runs_search_and_review_without_harmonization(
     assert displayed["dev_trace"] is True
     assert displayed["review_before_metadata"] is True
     assert displayed["review_strategy"] == "direct"
+    assert displayed["stop_before_review"] is True
 
 
 def test_static_query_has_narrowed_mandatory_concepts() -> None:
@@ -174,4 +176,5 @@ def test_discovery_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
         "run_id": "discovery-run",
         "out": str(tmp_path / ".out" / "fibrosis_discovery.json"),
+        "stop_before_review": True,
     }

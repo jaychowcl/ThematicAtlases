@@ -883,6 +883,133 @@ def test_collect_datasets_can_review_before_collecting_metadata() -> None:
     assert result["publication_texts"] == {"keep": {"text": "relevant"}}
 
 
+def test_collect_datasets_can_stop_after_publication_text_before_review(tmp_path) -> None:
+    events = []
+    raw = [{"datalink_id": "GSE1", "publications": [{"pmid": "1"}]}]
+
+    class CollectionOnlyCollector:
+        def collect_jsons(self, collect_metadata=True, **kwargs):
+            events.append(("collect", collect_metadata))
+            return raw
+
+        def collect_accession_metadata(self, **kwargs):
+            raise AssertionError("metadata must remain deferred")
+
+    class PublicationTextOnlyFilterer:
+        def filter_jsons(self, jsons=None, theme=None, review_filter=None, **kwargs):
+            events.append(("publication_text", theme, review_filter))
+            assert jsons == raw
+            return {
+                "accessions": [
+                    {
+                        **raw[0],
+                        "publications": [
+                            {**raw[0]["publications"][0], "publication_text_ref": "1"}
+                        ],
+                    }
+                ],
+                "publication_texts": {"1": {"text": "publication body"}},
+            }
+
+        def accessions_with_publication_text_refs(self, accessions, publication_texts):
+            return accessions
+
+    class NoCredentials:
+        def check(self):
+            raise AssertionError("static collection-only mode must not preflight LLM credentials")
+
+    result = Atlas(
+        metadata={},
+        collector=CollectionOnlyCollector(),
+        filterer=PublicationTextOnlyFilterer(),
+        credential_checker=NoCredentials(),
+    ).collect_datasets(
+        query=["fibrosis"],
+        theme="fibrosis theme",
+        review_filter="not_relevant",
+        review_before_metadata=True,
+        stop_before_review=True,
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+        run_id="collection-only",
+    )
+
+    assert events == [("collect", False), ("publication_text", None, "none")]
+    assert result["publication_texts"]["1"]["text"] == "publication body"
+    run_dir = tmp_path / "collection-only"
+    manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
+    assert manifest["stop_before_review"] is True
+    assert json.loads((run_dir / "resume_publication_collection.json").read_text()) == result
+    assert not (run_dir / "02_reviewed_datasets.json").exists()
+    assert not (run_dir / "resume_metadata_enriched_datasets.json").exists()
+    assert not (run_dir / "06_final_atlas.json").exists()
+
+
+def test_resume_can_override_old_trace_to_stop_before_review(tmp_path) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    run_dir = tmp_path / "trace" / "existing"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "existing",
+                "command": "collect-datasets",
+                "query": ["fibrosis"],
+                "theme": "fibrosis theme",
+                "review_filter": "not_relevant",
+                "review_before_metadata": True,
+                "collect_metadata": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store.put(
+        "thematic_review",
+        "direct:1",
+        1,
+        "available",
+        payload={"publication_text": {"agentic_curator": {"judgement": "relevant"}}},
+    )
+    before = store.get("thematic_review", "direct:1")
+
+    class ResumeCollector:
+        def collect_jsons(self, collect_metadata=True, checkpoint_store=None, **kwargs):
+            assert collect_metadata is False
+            assert checkpoint_store is not None
+            return [{"datalink_id": "GSE1", "publications": [{"pmid": "1"}]}]
+
+    class ResumeFilterer:
+        def filter_jsons(self, jsons=None, theme=None, review_filter=None, **kwargs):
+            assert theme is None
+            assert review_filter == "none"
+            return {"accessions": list(jsons), "publication_texts": {"1": {"text": "body"}}}
+
+        def accessions_with_publication_text_refs(self, accessions, publication_texts):
+            return accessions
+
+    class NoCredentials:
+        def check(self):
+            raise AssertionError("collection-only resume must not preflight LLM credentials")
+
+    result = Atlas(
+        metadata={},
+        collector=ResumeCollector(),
+        filterer=ResumeFilterer(),
+        credential_checker=NoCredentials(),
+    ).resume(
+        dev_out_dir=str(tmp_path / "trace"),
+        run_id="existing",
+        stop_before_review=True,
+    )
+
+    assert result["publication_texts"] == {"1": {"text": "body"}}
+    assert store.get("thematic_review", "direct:1") == before
+    assert (run_dir / "resume_publication_collection.json").exists()
+    assert not (run_dir / "02_reviewed_datasets.json").exists()
+
+
 def test_review_before_metadata_requires_theme() -> None:
     with pytest.raises(ValueError, match="requires a theme"):
         Atlas(metadata={}).collect_datasets(
