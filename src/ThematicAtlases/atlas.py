@@ -212,6 +212,7 @@ class Atlas:
         dev_out_dir: str = ".dev",
         run_id: str | None = None,
         out: str | None = None,
+        stop_before_review: bool = False,
     ) -> dict:
         """Resume an incomplete development trace from its latest valid stage."""
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
@@ -219,6 +220,39 @@ class Atlas:
         trace = DevTraceWriter.existing(run_dir)
         checkpoint_store = trace.checkpoint_store
         output_path = out if out is not None else manifest.get("atlas_out")
+        if stop_before_review:
+            logger.info(
+                "Atlas resume progress stage=collection-only run_id=%s",
+                run_dir.name,
+            )
+            result = self.collect_datasets(
+                query=manifest.get("query"),
+                file=manifest.get("query_file"),
+                out=output_path,
+                theme=manifest.get("theme"),
+                review_filter=manifest.get("review_filter", "none"),
+                review_strategy=manifest.get("review_strategy", "direct"),
+                metadata_repositories=manifest.get("metadata_repositories"),
+                max_publications=manifest.get("max_publications"),
+                collect_metadata=manifest.get("collect_metadata", True),
+                generate_queries=manifest.get("generate_queries", False),
+                max_generated_queries=manifest.get("max_generated_queries", 3),
+                review_before_metadata=manifest.get("review_before_metadata", False),
+                stop_before_review=True,
+                _trace_writer=trace,
+            )
+            summary = build_atlas_summary(atlas=result, atlas_path=output_path)
+            if output_path is not None:
+                self._write_json(result=summary, out=str(summary_path(output_path)))
+            trace.write("resume_publication_collection.summary.json", summary)
+            logger.info(
+                "Atlas resume stats run_id=%s workflow=collection-only "
+                "accessions=%s publication_texts=%s",
+                run_dir.name,
+                len(result.get("accessions", [])),
+                len(result.get("publication_texts", {})),
+            )
+            return result
         self._prepare_ontology_cache()
         if manifest.get("theme") is not None:
             self._preflight_credentials()
@@ -389,6 +423,7 @@ class Atlas:
         dev_out_dir: str = ".dev",
         run_id: str | None = None,
         review_before_metadata: bool = False,
+        stop_before_review: bool = False,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
         if review_before_metadata and theme is None:
@@ -407,6 +442,8 @@ class Atlas:
                         "00_run_manifest.json",
                         "resume_state.sqlite",
                         "01_collected_accessions.json",
+                        "resume_publication_collection.json",
+                        "resume_publication_collection.summary.json",
                         "02_reviewed_datasets.json",
                         "resume_metadata_enriched_datasets.json",
                         "06_final_atlas.json",
@@ -423,12 +460,13 @@ class Atlas:
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
                     "review_before_metadata": review_before_metadata,
+                    "stop_before_review": stop_before_review,
                 },
             )
         checkpoint_store = (
             _trace_writer.checkpoint_store if _trace_writer is not None else None
         )
-        if generate_queries or theme is not None:
+        if generate_queries or (theme is not None and not stop_before_review):
             self._preflight_credentials()
         if generate_queries:
             resolved_queries = (
@@ -495,13 +533,38 @@ class Atlas:
             )
         result = self._filter_jsons(
             jsons=accessions,
-            theme=theme,
-            review_filter=review_filter,
+            theme=None if stop_before_review else theme,
+            review_filter="none" if stop_before_review else review_filter,
             review_strategy=review_strategy,
             reviewer=reviewer,
             _review_progress_callback=review_progress_callback,
             _checkpoint_store=checkpoint_store,
         )
+        if stop_before_review:
+            if _trace_writer is not None:
+                _trace_writer.write("resume_publication_collection.json", result)
+            final_accessions = result.get("accessions", [])
+            publication_texts = result.get("publication_texts", {})
+            if out is not None:
+                logger.info(
+                    "Atlas collect_datasets progress stage=write-collection-output "
+                    "output_path=%s",
+                    out,
+                )
+                self._write_json(result=result, out=out)
+            if owned_trace and _trace_writer is not None:
+                summary = build_atlas_summary(atlas=result, atlas_path=out)
+                _trace_writer.write(
+                    "resume_publication_collection.summary.json", summary
+                )
+            logger.info(
+                "Atlas collect_datasets stats workflow=collection-only "
+                "accessions=%s publication_texts=%s output_path=%s",
+                len(final_accessions),
+                len(publication_texts),
+                out,
+            )
+            return result
         if _trace_writer is not None:
             _trace_writer.write("02_reviewed_datasets.json", result)
         if review_before_metadata and collect_metadata:

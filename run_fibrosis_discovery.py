@@ -27,6 +27,7 @@ REVIEW_STRATEGY = "direct"
 COLLECT_METADATA = True
 DEV_TRACE = True
 REVIEW_BEFORE_METADATA = True
+STOP_BEFORE_REVIEW = True
 LOG_LEVEL = "DEBUG"
 
 FIBROSIS_DISCOVERY_QUERY = """\
@@ -124,6 +125,7 @@ def resolved_configuration(*, generate_query: bool = False) -> dict:
         "dev_trace": DEV_TRACE,
         "dev_out_dir": str(OUTPUT_DIR / "dev_trace_discovery"),
         "review_before_metadata": REVIEW_BEFORE_METADATA,
+        "stop_before_review": STOP_BEFORE_REVIEW,
     }
 
 
@@ -145,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             dev_out_dir=config["dev_out_dir"],
             run_id=args.resume or None,
             out=config["discovery_out"],
+            stop_before_review=STOP_BEFORE_REVIEW,
         )
         return 0
     result = atlas.collect_datasets(
@@ -162,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         dev_trace=DEV_TRACE,
         dev_out_dir=config["dev_out_dir"],
         review_before_metadata=REVIEW_BEFORE_METADATA,
+        stop_before_review=STOP_BEFORE_REVIEW,
     )
     summary = build_atlas_summary(
         atlas=result,
