@@ -12,15 +12,16 @@ import sys
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.credentials import GoogleCredentialPreflight
+from ThematicAtlases.query_catalog import load_query_catalog
 from ThematicAtlases.summary import build_atlas_summary
 
 
 ROOT = Path(__file__).resolve().parent
 THEME_FILE = ROOT / "docs" / "theme_fibrosis.txt"
 OUTPUT_DIR = ROOT / ".out"
+QUERY_CATALOG_FILE = ROOT / "config" / "fibrosis_discovery_queries.json"
 
 MAX_PUBLICATIONS = None
-MAX_PUBLICATIONS_PER_QUERY = [5000, 15000, 15000, 15000]
 MAX_GENERATED_QUERIES = 3
 METADATA_REPOSITORIES = ["geo"]
 REVIEW_FILTER = "not_relevant"
@@ -31,111 +32,19 @@ REVIEW_BEFORE_METADATA = True
 STOP_BEFORE_REVIEW = True
 LOG_LEVEL = "DEBUG"
 
-FIBROSIS_DISCOVERY_QUERY = """\
-(
-  TITLE_ABS:(
-    human OR humans OR patient OR patients OR donor OR donors OR "Homo sapiens"
-  )
-  AND TITLE_ABS:(
-    "gene expression" OR "RNA sequencing" OR "RNA-seq" OR transcriptome
-    OR transcriptomic OR "bulk RNA-seq" OR "bulk transcriptomics"
-    OR "single cell RNA-seq" OR scRNA-seq OR "single nucleus RNA-seq"
-    OR snRNA-seq OR "single cell transcriptomics"
-    OR "single nucleus transcriptomics" OR "spatial transcriptomics"
-    OR "spatial RNA-seq" OR "spatial gene expression" OR Visium OR GeoMx
-    OR CosMx OR Xenium OR MERFISH OR seqFISH OR "Slide-seq" OR "Stereo-seq"
-    OR microarray OR "gene chip" OR NanoString
-  )
-  AND TITLE_ABS:(
-    fibrosis OR fibrotic OR fibrosed OR fibrogenesis OR fibrogenic
-    OR cirrhosis OR cirrhotic OR "systemic sclerosis" OR scleroderma
-    OR keloid OR keloids OR "hypertrophic scar" OR "hypertrophic scars"
-    OR "tissue scarring" OR "organ scarring"
-  )
-)
-AND (HAS_DATA:y OR HAS_LABSLINKS:y)
-NOT PUB_TYPE:review
-""".strip()
-
-FIBROSIS_EXPANDED_CORE_QUERY = """\
-(
-  TITLE_ABS:(
-    human OR humans OR patient OR patients OR subject OR subjects
-    OR individual OR individuals OR donor OR donors OR biopsy OR biopsies
-    OR explant OR explants OR "Homo sapiens"
-  )
-  AND TITLE_ABS:(
-    "gene expression" OR "expression profiling" OR "transcriptional profiling"
-    OR "RNA sequencing" OR "RNA-seq" OR transcriptome OR transcriptomes
-    OR transcriptomic OR transcriptomics OR "bulk RNA-seq" OR "bulk transcriptomics"
-    OR "single cell RNA-seq" OR "single-cell RNA sequencing" OR scRNA-seq OR scRNAseq
-    OR "single nucleus RNA-seq" OR "single-nucleus RNA sequencing" OR snRNA-seq OR snRNAseq
-    OR "single cell transcriptomics" OR "single nucleus transcriptomics"
-    OR "spatial transcriptomics" OR "spatial RNA-seq" OR "spatial gene expression"
-    OR Visium OR GeoMx OR CosMx OR Xenium OR MERFISH OR seqFISH OR "Slide-seq"
-    OR "Stereo-seq" OR microarray OR "gene chip" OR NanoString
-    OR multiomic OR "multi-omic" OR multiomics
-  )
-  AND TITLE_ABS:(
-    fibrosis OR fibrotic OR fibrosed OR fibrogenesis OR fibrogenic
-    OR cirrhosis OR cirrhotic OR "systemic sclerosis" OR scleroderma
-    OR IPF OR "idiopathic pulmonary fibrosis" OR "SSc-ILD"
-    OR ILD OR "interstitial lung disease" OR NASH OR NAFLD OR MASH OR MASLD
-    OR "metabolic dysfunction-associated steatotic liver disease"
-    OR "chronic liver disease" OR keloid OR keloids
-    OR "hypertrophic scar" OR "hypertrophic scars" OR "tissue scarring"
-    OR "organ scarring"
-  )
-)
-AND (HAS_DATA:y OR HAS_LABSLINKS:y)
-NOT PUB_TYPE:review
-""".strip()
-
-FIBROSIS_HIGH_SPECIFICITY_DISEASE_QUERY = """\
-TITLE_ABS:(
-  "gene expression" OR "expression profiling" OR "transcriptional profiling"
-  OR "RNA sequencing" OR "RNA-seq" OR transcriptome OR transcriptomes
-  OR transcriptomic OR transcriptomics OR "bulk RNA-seq"
-  OR "single cell RNA-seq" OR "single-cell RNA sequencing" OR scRNA-seq OR scRNAseq
-  OR "single nucleus RNA-seq" OR "single-nucleus RNA sequencing" OR snRNA-seq OR snRNAseq
-  OR "spatial transcriptomics" OR "spatial RNA-seq" OR microarray OR NanoString
-)
-AND TITLE_ABS:(
-  IPF OR "idiopathic pulmonary fibrosis" OR "SSc-ILD"
-  OR MASLD OR MASH OR NASH OR NAFLD
-  OR "metabolic dysfunction-associated steatotic liver disease"
-)
-AND (HAS_DATA:y OR HAS_LABSLINKS:y)
-NOT PUB_TYPE:review
-""".strip()
-
-FIBROSIS_ORGAN_DISEASE_COMPLEMENT_QUERY = """\
-TITLE_ABS:(
-  human OR humans OR patient OR patients OR subject OR subjects
-  OR donor OR donors OR biopsy OR biopsies OR "Homo sapiens"
-)
-AND TITLE_ABS:(
-  "gene expression" OR "expression profiling" OR "transcriptional profiling"
-  OR "RNA sequencing" OR "RNA-seq" OR transcriptome OR transcriptomic
-  OR "bulk RNA-seq" OR "single cell RNA-seq" OR scRNA-seq
-  OR "single nucleus RNA-seq" OR snRNA-seq OR "spatial transcriptomics"
-  OR microarray OR NanoString
-)
-AND TITLE_ABS:(
-  cardiomyopathy OR "heart failure" OR "myocardial infarction"
-  OR "kidney disease" OR "kidney injury" OR ADPKD OR "polycystic kidney disease"
-  OR "diabetic kidney disease" OR "chronic liver disease"
-  OR MASLD OR MASH OR NASH OR NAFLD
-)
-AND (HAS_DATA:y OR HAS_LABSLINKS:y)
-NOT PUB_TYPE:review
-""".strip()
-
-FIBROSIS_DISCOVERY_QUERIES = [
-    FIBROSIS_DISCOVERY_QUERY,
-    FIBROSIS_EXPANDED_CORE_QUERY,
-    FIBROSIS_HIGH_SPECIFICITY_DISEASE_QUERY,
-    FIBROSIS_ORGAN_DISEASE_COMPLEMENT_QUERY,
+QUERY_CATALOG = load_query_catalog(QUERY_CATALOG_FILE)
+QUERY_ENTRIES = {item["id"]: item for item in QUERY_CATALOG["queries"]}
+FIBROSIS_DISCOVERY_QUERY = QUERY_ENTRIES["original"]["query"]
+FIBROSIS_EXPANDED_CORE_QUERY = QUERY_ENTRIES["expanded_core"]["query"]
+FIBROSIS_HIGH_SPECIFICITY_DISEASE_QUERY = QUERY_ENTRIES[
+    "high_specificity_disease"
+]["query"]
+FIBROSIS_ORGAN_DISEASE_COMPLEMENT_QUERY = QUERY_ENTRIES[
+    "organ_disease_complement"
+]["query"]
+FIBROSIS_DISCOVERY_QUERIES = [item["query"] for item in QUERY_CATALOG["queries"]]
+MAX_PUBLICATIONS_PER_QUERY = [
+    item["max_publications"] for item in QUERY_CATALOG["queries"]
 ]
 
 

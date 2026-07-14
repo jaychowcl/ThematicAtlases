@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "id": "fibrosis_discovery_expanded_v1",
+  "description": "Ordered Europe PMC searches for human fibrosis transcriptomics discovery.",
+  "queries": [
+    {
+      "id": "original",
+      "description": "Original human, transcriptomics, and explicit fibrosis query retained for checkpoint compatibility.",
+      "max_publications": 5000,
+      "query": "( TITLE_ABS:(human OR humans OR patient OR patients OR donor OR donors OR \"Homo sapiens\") AND TITLE_ABS:(\"gene expression\" OR \"RNA sequencing\" OR \"RNA-seq\" OR transcriptome OR transcriptomic OR \"bulk RNA-seq\" OR \"bulk transcriptomics\" OR \"single cell RNA-seq\" OR scRNA-seq OR \"single nucleus RNA-seq\" OR snRNA-seq OR \"single cell transcriptomics\" OR \"single nucleus transcriptomics\" OR \"spatial transcriptomics\" OR \"spatial RNA-seq\" OR \"spatial gene expression\" OR Visium OR GeoMx OR CosMx OR Xenium OR MERFISH OR seqFISH OR \"Slide-seq\" OR \"Stereo-seq\" OR microarray OR \"gene chip\" OR NanoString) AND TITLE_ABS:(fibrosis OR fibrotic OR fibrosed OR fibrogenesis OR fibrogenic OR cirrhosis OR cirrhotic OR \"systemic sclerosis\" OR scleroderma OR keloid OR keloids OR \"hypertrophic scar\" OR \"hypertrophic scars\" OR \"tissue scarring\" OR \"organ scarring\") ) AND (HAS_DATA:y OR HAS_LABSLINKS:y) NOT PUB_TYPE:review"
+    },
+    {
+      "id": "expanded_core",
+      "description": "Expanded human, assay, and fibrotic disease synonym query.",
+      "max_publications": 15000,
+      "query": "( TITLE_ABS:(human OR humans OR patient OR patients OR subject OR subjects OR individual OR individuals OR donor OR donors OR biopsy OR biopsies OR explant OR explants OR \"Homo sapiens\") AND TITLE_ABS:(\"gene expression\" OR \"expression profiling\" OR \"transcriptional profiling\" OR \"RNA sequencing\" OR \"RNA-seq\" OR transcriptome OR transcriptomes OR transcriptomic OR transcriptomics OR \"bulk RNA-seq\" OR \"bulk transcriptomics\" OR \"single cell RNA-seq\" OR \"single-cell RNA sequencing\" OR scRNA-seq OR scRNAseq OR \"single nucleus RNA-seq\" OR \"single-nucleus RNA sequencing\" OR snRNA-seq OR snRNAseq OR \"single cell transcriptomics\" OR \"single nucleus transcriptomics\" OR \"spatial transcriptomics\" OR \"spatial RNA-seq\" OR \"spatial gene expression\" OR Visium OR GeoMx OR CosMx OR Xenium OR MERFISH OR seqFISH OR \"Slide-seq\" OR \"Stereo-seq\" OR microarray OR \"gene chip\" OR NanoString OR multiomic OR \"multi-omic\" OR multiomics) AND TITLE_ABS:(fibrosis OR fibrotic OR fibrosed OR fibrogenesis OR fibrogenic OR cirrhosis OR cirrhotic OR \"systemic sclerosis\" OR scleroderma OR IPF OR \"idiopathic pulmonary fibrosis\" OR \"SSc-ILD\" OR ILD OR \"interstitial lung disease\" OR NASH OR NAFLD OR MASH OR MASLD OR \"metabolic dysfunction-associated steatotic liver disease\" OR \"chronic liver disease\" OR keloid OR keloids OR \"hypertrophic scar\" OR \"hypertrophic scars\" OR \"tissue scarring\" OR \"organ scarring\") ) AND (HAS_DATA:y OR HAS_LABSLINKS:y) NOT PUB_TYPE:review"
+    },
+    {
+      "id": "high_specificity_disease",
+      "description": "Assay plus named fibrotic diseases without requiring an explicit human word.",
+      "max_publications": 15000,
+      "query": "TITLE_ABS:(\"gene expression\" OR \"expression profiling\" OR \"transcriptional profiling\" OR \"RNA sequencing\" OR \"RNA-seq\" OR transcriptome OR transcriptomes OR transcriptomic OR transcriptomics OR \"bulk RNA-seq\" OR \"single cell RNA-seq\" OR \"single-cell RNA sequencing\" OR scRNA-seq OR scRNAseq OR \"single nucleus RNA-seq\" OR \"single-nucleus RNA sequencing\" OR snRNA-seq OR snRNAseq OR \"spatial transcriptomics\" OR \"spatial RNA-seq\" OR microarray OR NanoString) AND TITLE_ABS:(IPF OR \"idiopathic pulmonary fibrosis\" OR \"SSc-ILD\" OR MASLD OR MASH OR NASH OR NAFLD OR \"metabolic dysfunction-associated steatotic liver disease\") AND (HAS_DATA:y OR HAS_LABSLINKS:y) NOT PUB_TYPE:review"
+    },
+    {
+      "id": "organ_disease_complement",
+      "description": "Human transcriptomics query for cardiac, kidney, and liver disease complements.",
+      "max_publications": 15000,
+      "query": "TITLE_ABS:(human OR humans OR patient OR patients OR subject OR subjects OR donor OR donors OR biopsy OR biopsies OR \"Homo sapiens\") AND TITLE_ABS:(\"gene expression\" OR \"expression profiling\" OR \"transcriptional profiling\" OR \"RNA sequencing\" OR \"RNA-seq\" OR transcriptome OR transcriptomic OR \"bulk RNA-seq\" OR \"single cell RNA-seq\" OR scRNA-seq OR \"single nucleus RNA-seq\" OR snRNA-seq OR \"spatial transcriptomics\" OR microarray OR NanoString) AND TITLE_ABS:(cardiomyopathy OR \"heart failure\" OR \"myocardial infarction\" OR \"kidney disease\" OR \"kidney injury\" OR ADPKD OR \"polycystic kidney disease\" OR \"diabetic kidney disease\" OR \"chronic liver disease\" OR MASLD OR MASH OR NASH OR NAFLD) AND (HAS_DATA:y OR HAS_LABSLINKS:y) NOT PUB_TYPE:review"
+    }
+  ]
+}

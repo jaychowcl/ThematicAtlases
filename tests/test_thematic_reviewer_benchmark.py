@@ -388,6 +388,8 @@ def test_named_reference_set_benchmarks_all_publications() -> None:
     )
 
     assert report["benchmark"]["reference_set"]["publication_count"] == 21
+    assert report["summary"]["matched_count"] == 21
+    assert report["summary"]["relevant_recall"] == 1
 
 
 def test_public_reference_set_loader_returns_packaged_data() -> None:
@@ -397,8 +399,6 @@ def test_public_reference_set_loader_returns_packaged_data() -> None:
 
     assert reference_set["id"] == "leonie_2026_fibrosis"
     assert len(reference_set["reference_publications"]) == 21
-    assert report["summary"]["matched_count"] == 21
-    assert report["summary"]["relevant_recall"] == 1
 
 
 def test_named_reference_set_rejects_unknown_name() -> None:

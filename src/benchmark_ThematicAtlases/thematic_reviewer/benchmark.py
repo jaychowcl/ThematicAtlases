@@ -5,6 +5,7 @@ from importlib import resources
 import json
 from pathlib import Path
 import re
+from copy import deepcopy
 
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", flags=re.IGNORECASE)
@@ -76,6 +77,10 @@ class ThematicReviewerBenchmark:
     @staticmethod
     def available_reference_sets() -> tuple[str, ...]:
         return tuple(REFERENCE_SET_FILES)
+
+    def load_reference_set(self, reference_set: str) -> dict:
+        """Return a validated copy of one packaged reference set."""
+        return deepcopy(self._load_reference_set(reference_set))
 
     @classmethod
     def _load_reference_set(cls, reference_set: str) -> dict:

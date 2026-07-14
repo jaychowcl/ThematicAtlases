@@ -452,7 +452,20 @@ class Atlas:
         current = store.get_meta("run_fingerprint")
         if current is None:
             raise ValueError("trace does not contain a run fingerprint")
-        replacement_configuration = dict(current["configuration"])
+        current_configuration = current["configuration"]
+        current_queries = current_configuration.get("query") or []
+        normalized_current = [" ".join(query.split()) for query in current_queries]
+        normalized_requested = [" ".join(query.split()) for query in queries]
+        if (
+            normalized_current == normalized_requested
+            and current_configuration.get("max_publications_per_query")
+            == list(max_publications_per_query)
+            and current_configuration.get("max_publications") is None
+            and current_configuration.get("query_file") is None
+        ):
+            archive = manifest.get("query_archive")
+            return run_dir / archive if archive else run_dir
+        replacement_configuration = dict(current_configuration)
         replacement_configuration.update(
             {
                 "query": list(queries),

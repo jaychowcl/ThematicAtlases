@@ -690,6 +690,41 @@ def test_amend_queries_archives_manifest_and_updates_resumable_configuration(
     )
 
 
+def test_amend_queries_preserves_existing_whitespace_equivalent_configuration(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.trace import DevTraceWriter
+
+    trace = DevTraceWriter(
+        str(tmp_path),
+        "run-1",
+        {
+            "command": "collect-datasets",
+            "query": ["TITLE_ABS:(fibrosis\n OR fibrotic)"],
+            "query_file": None,
+            "max_publications": None,
+            "max_publications_per_query": [5000],
+        },
+    )
+    original = {
+        "query": ["TITLE_ABS:(fibrosis\n OR fibrotic)"],
+        "query_file": None,
+        "max_publications": None,
+        "max_publications_per_query": [5000],
+    }
+    trace.checkpoint_store.validate_fingerprint(original)
+
+    Atlas(metadata={}).amend_queries(
+        dev_out_dir=str(tmp_path),
+        run_id="run-1",
+        queries=["TITLE_ABS:(fibrosis OR fibrotic)"],
+        max_publications_per_query=[5000],
+    )
+
+    assert trace.checkpoint_store.get_meta("run_fingerprint")["configuration"] == original
+    assert trace.checkpoint_store.get_meta("run_configuration_amendments") is None
+
+
 def test_resume_discovery_trace_stops_before_harmonization(tmp_path) -> None:
     run_dir = tmp_path / "trace" / "discovery-run"
     run_dir.mkdir(parents=True)
