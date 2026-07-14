@@ -129,7 +129,9 @@ override leaves the collector manifest and fingerprint unchanged. Incremental
 results are written atomically to `resume_review_progress.json`; the shared
 SQLite checkpoint database remains authoritative. Historical reviewer rows can
 first be moved into a separate comparison database with
-`CheckpointStore.archive_stage(...)` without touching collector stages.
+`CheckpointStore.archive_stage(...)` without touching collector stages;
+`archive_items(...)` performs the same verified move for selected checkpoint
+keys.
 
 The same workflow is available in Python:
 
