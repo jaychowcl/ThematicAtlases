@@ -348,6 +348,88 @@ def test_collect_publications_rejects_invalid_max_publications() -> None:
         )
 
 
+def test_collect_publications_applies_independent_query_limits_and_deduplicates(
+    monkeypatch,
+) -> None:
+    responses = {
+        "old": [
+            {"id": "1", "source": "MED", "pmid": "1", "title": "First"},
+            {"id": "2", "source": "MED", "doi": "10.1/shared"},
+        ],
+        "expanded": [
+            {"id": "duplicate", "source": "MED", "doi": "10.1/SHARED"},
+            {"id": "3", "source": "MED", "pmcid": "PMC3"},
+        ],
+    }
+    calls = []
+
+    def fake_search(self, query, cursor):
+        calls.append(query)
+        return {
+            "hitCount": len(responses[query]),
+            "nextCursorMark": None,
+            "resultList": {"result": responses[query]},
+        }
+
+    monkeypatch.setattr(EuropePMCWrapper, "_search", fake_search)
+
+    result = EuropePMCWrapper(page_limit=2).collect_publications(
+        queries=["old", "expanded"],
+        max_publications_per_query=[1, 2],
+    )
+
+    assert calls == ["old", "expanded"]
+    assert [row["epmc_id"] for row in result] == ["1", "duplicate", "3"]
+    assert [row["queries"] for row in result] == [
+        ["old"],
+        ["expanded"],
+        ["expanded"],
+    ]
+
+
+def test_collect_publications_merges_duplicate_query_provenance(monkeypatch) -> None:
+    def fake_search(self, query, cursor):
+        return {
+            "hitCount": 1,
+            "nextCursorMark": None,
+            "resultList": {
+                "result": [
+                    {
+                        "id": "1",
+                        "source": "MED",
+                        "pmid": "1",
+                        "title": "" if query == "old" else "Merged title",
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setattr(EuropePMCWrapper, "_search", fake_search)
+
+    result = EuropePMCWrapper().collect_publications(
+        ["old", "expanded"],
+        max_publications_per_query=[1, 1],
+    )
+
+    assert len(result) == 1
+    assert result[0]["query"] == "old"
+    assert result[0]["queries"] == ["old", "expanded"]
+    assert result[0]["title"] == "Merged title"
+
+
+def test_collect_publications_validates_per_query_limits() -> None:
+    with pytest.raises(ValueError, match="max_publications_per_query"):
+        EuropePMCWrapper().collect_publications(
+            ["one", "two"],
+            max_publications_per_query=[5],
+        )
+    with pytest.raises(ValueError, match="max_publications_per_query"):
+        EuropePMCWrapper().collect_publications(
+            ["one"],
+            max_publications_per_query=[0],
+        )
+
+
 def test_collect_publications_retries_transient_failures(monkeypatch) -> None:
     calls = []
     responses = [

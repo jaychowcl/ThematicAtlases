@@ -63,6 +63,53 @@ def test_checkpoint_store_validates_run_fingerprint(tmp_path) -> None:
         raise AssertionError("mismatched checkpoints must be rejected")
 
 
+def test_checkpoint_store_amends_fingerprint_and_archives_previous_configuration(
+    tmp_path,
+) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    old = {"query": ["old"], "max_publications": 5000}
+    new = {
+        "query": ["old", "expanded"],
+        "max_publications": None,
+        "max_publications_per_query": [5000, 15000],
+    }
+    store.validate_fingerprint(old)
+
+    archived = store.amend_fingerprint(
+        new,
+        amendment_id="expanded-queries",
+        metadata={"reason": "append complementary searches"},
+    )
+
+    assert archived["configuration"] == old
+    assert store.get_meta("run_fingerprint")["configuration"] == new
+    assert store.get_meta("run_configuration_amendments") == [
+        {
+            "amendment_id": "expanded-queries",
+            "metadata": {"reason": "append complementary searches"},
+            "previous": archived,
+            "replacement": store.get_meta("run_fingerprint"),
+        }
+    ]
+    store.validate_fingerprint(new)
+
+
+def test_checkpoint_store_fingerprint_amendment_is_idempotent(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.validate_fingerprint({"query": ["old"]})
+    replacement = {"query": ["old", "new"]}
+    first = store.amend_fingerprint(replacement, amendment_id="queries-v2")
+    second = store.amend_fingerprint(replacement, amendment_id="queries-v2")
+
+    assert second == first
+    assert len(store.get_meta("run_configuration_amendments")) == 1
+
+    with pytest.raises(ValueError, match="amendment_id"):
+        store.amend_fingerprint(
+            {"query": ["different"]}, amendment_id="queries-v2"
+        )
+
+
 def test_checkpoint_database_is_valid_sqlite_not_json(tmp_path) -> None:
     path = tmp_path / "resume_state.sqlite"
     CheckpointStore(path).set_meta("value", {"ok": True})

@@ -65,14 +65,15 @@ def test_discovery_collects_publications_without_review_or_harmonization(
     assert script.main([]) == 0
 
     assert calls["collect_datasets"] == {
-        "query": [script.FIBROSIS_DISCOVERY_QUERY],
+        "query": script.FIBROSIS_DISCOVERY_QUERIES,
         "file": None,
         "out": str(tmp_path / ".out" / "fibrosis_discovery.json"),
         "theme": "fibrosis theme",
         "review_filter": "not_relevant",
         "review_strategy": "direct",
         "metadata_repositories": ["geo"],
-        "max_publications": 5000,
+        "max_publications": None,
+        "max_publications_per_query": [5000, 15000, 15000, 15000],
         "collect_metadata": True,
         "generate_queries": False,
         "max_generated_queries": 3,
@@ -91,7 +92,9 @@ def test_discovery_collects_publications_without_review_or_harmonization(
         "publication_texts": 0,
     }
     displayed = json.loads(capsys.readouterr().out)
-    assert displayed["max_publications"] == 5000
+    assert displayed["max_publications"] is None
+    assert displayed["max_publications_per_query"] == [5000, 15000, 15000, 15000]
+    assert len(displayed["query"]) == 4
     assert displayed["harmonization"] is False
     assert displayed["collect_metadata"] is True
     assert displayed["dev_trace"] is True
@@ -117,6 +120,9 @@ def test_static_query_has_narrowed_mandatory_concepts() -> None:
     assert '"extracellular matrix remodeling"' not in query
     assert 'ORGANISM:"Mus musculus"' not in query
     assert 'ORGANISM:"Rattus norvegicus"' not in query
+
+    assert script.FIBROSIS_DISCOVERY_QUERIES[0] == script.FIBROSIS_DISCOVERY_QUERY
+    assert len(script.FIBROSIS_DISCOVERY_QUERIES) == 4
 
 
 def test_generate_query_flag_uses_llm_query_instead_of_static_query(
@@ -178,3 +184,40 @@ def test_discovery_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
         "out": str(tmp_path / ".out" / "fibrosis_discovery.json"),
         "stop_before_review": True,
     }
+
+
+def test_discovery_can_amend_queries_before_resuming(tmp_path, monkeypatch) -> None:
+    calls = []
+
+    class RecordingAtlas:
+        def __init__(self, **kwargs):
+            pass
+
+        def amend_queries(self, **kwargs):
+            calls.append(("amend", kwargs))
+
+        def resume(self, **kwargs):
+            calls.append(("resume", kwargs))
+
+    theme = tmp_path / "theme.txt"
+    theme.write_text("fibrosis theme", encoding="utf-8")
+    monkeypatch.setattr(script, "ROOT", tmp_path)
+    monkeypatch.setattr(script, "THEME_FILE", theme)
+    monkeypatch.setattr(script, "OUTPUT_DIR", tmp_path / ".out")
+    monkeypatch.setattr(script, "Atlas", RecordingAtlas)
+    monkeypatch.setattr(script, "GoogleCredentialPreflight", lambda: object())
+    monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
+    monkeypatch.setattr(script, "configure_logging", lambda path: None)
+
+    assert script.main(["--resume", "run-1", "--amend-queries"]) == 0
+
+    assert calls[0] == (
+        "amend",
+        {
+            "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
+            "run_id": "run-1",
+            "queries": script.FIBROSIS_DISCOVERY_QUERIES,
+            "max_publications_per_query": [5000, 15000, 15000, 15000],
+        },
+    )
+    assert calls[1][0] == "resume"
