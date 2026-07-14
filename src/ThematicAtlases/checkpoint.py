@@ -104,6 +104,69 @@ class CheckpointStore:
                 "checkpoint configuration does not match the requested workflow"
             )
 
+    def amend_fingerprint(
+        self,
+        configuration: dict,
+        *,
+        amendment_id: str,
+        metadata: dict | None = None,
+    ) -> dict:
+        """Replace a run fingerprint while retaining an atomic audit history."""
+        if not amendment_id.strip():
+            raise ValueError("amendment_id must not be blank")
+        normalized = self._json(configuration)
+        replacement = {
+            "sha256": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+            "configuration": configuration,
+        }
+        with self._lock, self._connection() as connection:
+            fingerprint_row = connection.execute(
+                "SELECT value FROM checkpoint_meta WHERE key = ?",
+                ("run_fingerprint",),
+            ).fetchone()
+            if fingerprint_row is None:
+                raise ValueError("run fingerprint must exist before it can be amended")
+            previous = json.loads(fingerprint_row["value"])
+            history_row = connection.execute(
+                "SELECT value FROM checkpoint_meta WHERE key = ?",
+                ("run_configuration_amendments",),
+            ).fetchone()
+            history = [] if history_row is None else json.loads(history_row["value"])
+            existing = next(
+                (
+                    item
+                    for item in history
+                    if item.get("amendment_id") == amendment_id
+                ),
+                None,
+            )
+            if existing is not None:
+                if existing.get("replacement", {}).get("sha256") != replacement["sha256"]:
+                    raise ValueError(
+                        "amendment_id already exists with a different configuration"
+                    )
+                return existing["previous"]
+
+            amendment = {
+                "amendment_id": amendment_id,
+                "metadata": metadata or {},
+                "previous": previous,
+                "replacement": replacement,
+            }
+            history.append(amendment)
+            connection.execute(
+                "UPDATE checkpoint_meta SET value = ? WHERE key = ?",
+                (self._json(replacement), "run_fingerprint"),
+            )
+            connection.execute(
+                """
+                INSERT INTO checkpoint_meta(key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """,
+                ("run_configuration_amendments", self._json(history)),
+            )
+        return previous
+
     def put(
         self,
         stage: str,

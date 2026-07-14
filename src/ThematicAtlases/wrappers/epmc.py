@@ -53,12 +53,17 @@ class EuropePMCWrapper:
         self,
         queries: list[str],
         max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
         checkpoint_store=None,
     ) -> list[dict]:
         publication_options = {
             "queries": queries,
             "max_publications": max_publications,
         }
+        if max_publications_per_query is not None:
+            publication_options["max_publications_per_query"] = (
+                max_publications_per_query
+            )
         datalink_options = {}
         if checkpoint_store is not None:
             publication_options["checkpoint_store"] = checkpoint_store
@@ -73,16 +78,33 @@ class EuropePMCWrapper:
         self,
         queries: list[str],
         max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
         checkpoint_store=None,
     ) -> list[dict]:
         max_publications = self._normalized_max_publications(
             max_publications=max_publications
         )
+        query_limits = self._normalized_query_limits(
+            queries=queries,
+            max_publications_per_query=max_publications_per_query,
+        )
         publications = []
+        raw_publication_count = 0
 
         for query_index, query in enumerate(queries):
-            if max_publications is not None and len(publications) >= max_publications:
+            if (
+                max_publications is not None
+                and raw_publication_count >= max_publications
+            ):
                 break
+
+            query_limit = query_limits[query_index]
+            page_limit = self._request_settings["page_limit"]
+            if query_limit is not None:
+                required_pages = (
+                    query_limit + self._request_settings["page_size"] - 1
+                ) // self._request_settings["page_size"]
+                page_limit = max(page_limit, required_pages)
 
             cursor = "*"
             page = 0
@@ -101,26 +123,39 @@ class EuropePMCWrapper:
                 for item in saved_pages:
                     payload = item["payload"] or {}
                     page_publications = list(payload.get("publications", []))
-                    remaining = (
-                        None
-                        if max_publications is None
-                        else max_publications - len(publications)
+                    remaining = self._remaining_publications(
+                        query_limit=query_limit,
+                        query_collected=collected_hits,
+                        global_limit=max_publications,
+                        global_collected=raw_publication_count,
                     )
                     publications.extend(page_publications[:remaining])
-                    collected_hits += min(
+                    added = min(
                         len(page_publications),
                         len(page_publications) if remaining is None else remaining,
                     )
+                    collected_hits += added
+                    raw_publication_count += added
                     page += 1
                     total_hits = payload.get("total_hits", total_hits)
                     cursor = payload.get("next_cursor")
-                    if max_publications is not None and len(publications) >= max_publications:
+                    if self._limit_reached(
+                        query_limit,
+                        collected_hits,
+                        max_publications,
+                        raw_publication_count,
+                    ):
                         break
 
                 if saved_pages and (
                     cursor is None
-                    or (max_publications is not None and len(publications) >= max_publications)
-                    or page >= self._request_settings["page_limit"]
+                    or self._limit_reached(
+                        query_limit,
+                        collected_hits,
+                        max_publications,
+                        raw_publication_count,
+                    )
+                    or page >= page_limit
                 ):
                     logger.info(
                         "EuropePMC search checkpoint reused query=%r pages=%s publications=%s",
@@ -130,7 +165,7 @@ class EuropePMCWrapper:
                     )
                     continue
 
-            while cursor is not None and page < self._request_settings["page_limit"]:
+            while cursor is not None and page < page_limit:
                 logger.debug(
                     "EuropePMC search request query=%r cursor=%r page=%s",
                     query,
@@ -148,10 +183,11 @@ class EuropePMCWrapper:
                 if not hits:
                     break
 
-                remaining_publications = (
-                    None
-                    if max_publications is None
-                    else max_publications - len(publications)
+                remaining_publications = self._remaining_publications(
+                    query_limit=query_limit,
+                    query_collected=collected_hits,
+                    global_limit=max_publications,
+                    global_collected=raw_publication_count,
                 )
                 page_hits = hits[:remaining_publications]
 
@@ -164,6 +200,7 @@ class EuropePMCWrapper:
                 ]
 
                 collected_hits += len(page_hits)
+                raw_publication_count += len(page_hits)
                 next_cursor = response_data.get("nextCursorMark")
 
                 if checkpoint_store is not None:
@@ -180,7 +217,12 @@ class EuropePMCWrapper:
                         },
                     )
 
-                if max_publications is not None and len(publications) >= max_publications:
+                if self._limit_reached(
+                    query_limit,
+                    collected_hits,
+                    max_publications,
+                    raw_publication_count,
+                ):
                     break
 
                 if next_cursor == cursor:
@@ -188,7 +230,7 @@ class EuropePMCWrapper:
 
                 cursor = next_cursor
 
-                if cursor is not None and page >= self._request_settings["page_limit"]:
+                if cursor is not None and page >= page_limit:
                     page_limit_reached = True
                 elif cursor is not None:
                     time.sleep(self._request_settings["request_delay"])
@@ -199,12 +241,23 @@ class EuropePMCWrapper:
                 total_hits,
                 collected_hits,
                 page,
-                self._request_settings["page_limit"],
+                page_limit,
                 page_limit_reached,
                 cursor,
             )
 
-        return publications
+        deduplicated = self._deduplicate_publications(
+            publications,
+            include_query_list=len(queries) > 1,
+        )
+        logger.info(
+            "EuropePMC publication deduplication stats raw=%s unique=%s duplicates=%s queries=%s",
+            len(publications),
+            len(deduplicated),
+            len(publications) - len(deduplicated),
+            len(queries),
+        )
+        return deduplicated
 
     def _normalized_max_publications(
         self,
@@ -217,6 +270,97 @@ class EuropePMCWrapper:
             raise ValueError("max_publications must be a positive integer")
 
         return max_publications
+
+    def _normalized_query_limits(
+        self,
+        queries: list[str],
+        max_publications_per_query: list[int | None] | None,
+    ) -> list[int | None]:
+        if max_publications_per_query is None:
+            return [None] * len(queries)
+        if len(max_publications_per_query) != len(queries):
+            raise ValueError(
+                "max_publications_per_query must contain one limit per query"
+            )
+        if any(limit is not None and limit < 1 for limit in max_publications_per_query):
+            raise ValueError(
+                "max_publications_per_query limits must be positive integers or None"
+            )
+        return list(max_publications_per_query)
+
+    @staticmethod
+    def _remaining_publications(
+        *,
+        query_limit: int | None,
+        query_collected: int,
+        global_limit: int | None,
+        global_collected: int,
+    ) -> int | None:
+        remaining = []
+        if query_limit is not None:
+            remaining.append(max(0, query_limit - query_collected))
+        if global_limit is not None:
+            remaining.append(max(0, global_limit - global_collected))
+        return min(remaining) if remaining else None
+
+    @staticmethod
+    def _limit_reached(
+        query_limit: int | None,
+        query_collected: int,
+        global_limit: int | None,
+        global_collected: int,
+    ) -> bool:
+        return (
+            query_limit is not None and query_collected >= query_limit
+        ) or (
+            global_limit is not None and global_collected >= global_limit
+        )
+
+    def _deduplicate_publications(
+        self,
+        publications: list[dict],
+        *,
+        include_query_list: bool,
+    ) -> list[dict]:
+        unique = []
+        aliases: dict[tuple[str, str], int] = {}
+        for publication in publications:
+            keys = self._publication_identity_keys(publication)
+            matched = next((aliases[key] for key in keys if key in aliases), None)
+            if matched is None:
+                merged = dict(publication)
+                if include_query_list:
+                    merged["queries"] = [publication.get("query")]
+                unique.append(merged)
+                matched = len(unique) - 1
+            else:
+                merged = unique[matched]
+                for key, value in publication.items():
+                    if key != "query" and value and not merged.get(key):
+                        merged[key] = value
+                if include_query_list:
+                    query = publication.get("query")
+                    if query and query not in merged["queries"]:
+                        merged["queries"].append(query)
+            for key in keys:
+                aliases[key] = matched
+        return unique
+
+    @staticmethod
+    def _publication_identity_keys(publication: dict) -> list[tuple[str, str]]:
+        keys = []
+        source = str(publication.get("source") or "").strip().upper()
+        epmc_id = str(publication.get("epmc_id") or "").strip().upper()
+        if source and epmc_id:
+            keys.append(("epmc", f"{source}:{epmc_id}"))
+        for field in ("pmid", "pmcid"):
+            value = str(publication.get(field) or "").strip().upper()
+            if value:
+                keys.append((field, value))
+        doi = str(publication.get("doi") or "").strip().lower()
+        if doi:
+            keys.append(("doi", doi.removeprefix("https://doi.org/")))
+        return keys
 
     def publication_text_sections(self, text: str) -> list[dict]:
         normalized_text = self._normalize_text(text)

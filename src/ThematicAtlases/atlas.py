@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime
+import hashlib
 import inspect
 from pathlib import Path
 
@@ -82,6 +83,7 @@ class Atlas:
         review_strategy: str = "direct",
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
         reviewer=None,
         collect_metadata: bool = True,
         dev_trace: bool = False,
@@ -121,6 +123,7 @@ class Atlas:
                     "review_strategy": review_strategy,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
+                    "max_publications_per_query": max_publications_per_query,
                     "collect_metadata": collect_metadata,
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
@@ -145,6 +148,10 @@ class Atlas:
             max_generated_queries=max_generated_queries,
             review_before_metadata=review_before_metadata,
         )
+        if max_publications_per_query is not None:
+            collect_kwargs["max_publications_per_query"] = (
+                max_publications_per_query
+            )
         if trace is not None:
             collect_kwargs["_trace_writer"] = trace
         datasets = self.collect_datasets(**collect_kwargs)
@@ -234,6 +241,9 @@ class Atlas:
                 review_strategy=manifest.get("review_strategy", "direct"),
                 metadata_repositories=manifest.get("metadata_repositories"),
                 max_publications=manifest.get("max_publications"),
+                max_publications_per_query=manifest.get(
+                    "max_publications_per_query"
+                ),
                 collect_metadata=manifest.get("collect_metadata", True),
                 generate_queries=manifest.get("generate_queries", False),
                 max_generated_queries=manifest.get("max_generated_queries", 3),
@@ -361,6 +371,9 @@ class Atlas:
                         review_strategy=manifest.get("review_strategy", "direct"),
                         metadata_repositories=manifest.get("metadata_repositories"),
                         max_publications=manifest.get("max_publications"),
+                        max_publications_per_query=manifest.get(
+                            "max_publications_per_query"
+                        ),
                         collect_metadata=manifest.get("collect_metadata", True),
                         generate_queries=manifest.get("generate_queries", False),
                         max_generated_queries=manifest.get("max_generated_queries", 3),
@@ -405,6 +418,105 @@ class Atlas:
         logger.info("Atlas resume stats run_id=%s accessions=%s", run_dir.name, len(result.get("accessions", [])))
         return result
 
+    def amend_queries(
+        self,
+        *,
+        dev_out_dir: str,
+        run_id: str,
+        queries: list[str],
+        max_publications_per_query: list[int | None],
+    ) -> Path:
+        """Amend one trace's queries without discarding completed work."""
+        if not queries or any(not isinstance(query, str) or not query.strip() for query in queries):
+            raise ValueError("queries must contain non-empty strings")
+        if len(queries) != len(max_publications_per_query):
+            raise ValueError(
+                "max_publications_per_query must contain one limit per query"
+            )
+        if any(
+            limit is not None and limit < 1
+            for limit in max_publications_per_query
+        ):
+            raise ValueError(
+                "max_publications_per_query limits must be positive integers or None"
+            )
+
+        run_dir = self._resume_run_directory(
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
+        )
+        manifest_path = run_dir / "00_run_manifest.json"
+        manifest = self._read_checkpoint(manifest_path)
+        trace = DevTraceWriter.existing(run_dir)
+        store = trace.checkpoint_store
+        current = store.get_meta("run_fingerprint")
+        if current is None:
+            raise ValueError("trace does not contain a run fingerprint")
+        replacement_configuration = dict(current["configuration"])
+        replacement_configuration.update(
+            {
+                "query": list(queries),
+                "query_file": None,
+                "max_publications": None,
+                "max_publications_per_query": list(max_publications_per_query),
+            }
+        )
+        digest = hashlib.sha256(
+            json.dumps(
+                {
+                    "queries": queries,
+                    "limits": max_publications_per_query,
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()[:12]
+        amendment_id = f"query-expansion-{digest}"
+        previous = store.amend_fingerprint(
+            replacement_configuration,
+            amendment_id=amendment_id,
+            metadata={"run_id": run_dir.name, "reason": "append complementary searches"},
+        )
+
+        archive_directory = run_dir / "query_archives" / amendment_id
+        if archive_directory.exists():
+            archive_writer = DevTraceWriter.existing(archive_directory)
+        else:
+            archive_writer = DevTraceWriter(
+                root=str(run_dir / "query_archives"),
+                run_id=amendment_id,
+                manifest={
+                    "archive_id": amendment_id,
+                    "source_run_id": run_dir.name,
+                    "previous_manifest": manifest,
+                    "previous_fingerprint": previous,
+                },
+            )
+            archive_writer.write(
+                "query_configuration.json",
+                {
+                    "previous": previous,
+                    "replacement": store.get_meta("run_fingerprint"),
+                },
+            )
+        amended_manifest = {
+            **manifest,
+            "query": list(queries),
+            "query_file": None,
+            "max_publications": None,
+            "max_publications_per_query": list(max_publications_per_query),
+            "query_amendment_id": amendment_id,
+            "query_archive": str(archive_writer.directory.relative_to(run_dir)),
+        }
+        trace.write("00_run_manifest.json", amended_manifest)
+        logger.info(
+            "Atlas query amendment run_id=%s amendment_id=%s queries=%s limits=%s",
+            run_dir.name,
+            amendment_id,
+            len(queries),
+            max_publications_per_query,
+        )
+        return archive_writer.directory
+
     def collect_datasets(
         self,
         query: list[str] | None = None,
@@ -415,6 +527,7 @@ class Atlas:
         review_strategy: str = "direct",
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
         reviewer=None,
         collect_metadata: bool = True,
         generate_queries: bool = False,
@@ -456,6 +569,7 @@ class Atlas:
                     "review_strategy": review_strategy,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
+                    "max_publications_per_query": max_publications_per_query,
                     "collect_metadata": collect_metadata,
                     "generate_queries": generate_queries,
                     "max_generated_queries": max_generated_queries,
@@ -496,6 +610,10 @@ class Atlas:
                 "max_publications": max_publications,
                 "collect_metadata": collect_metadata,
             }
+            if max_publications_per_query is not None:
+                fingerprint_configuration["max_publications_per_query"] = (
+                    max_publications_per_query
+                )
             # Preserve compatibility with traces created before review strategies
             # existed while still separating explicitly selected legacy runs.
             if review_strategy != "direct":
@@ -510,6 +628,7 @@ class Atlas:
             out=None,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
+            max_publications_per_query=max_publications_per_query,
             collect_metadata=collect_metadata and not review_before_metadata,
             checkpoint_store=checkpoint_store,
         )
@@ -660,6 +779,7 @@ class Atlas:
         out: str | None = None,
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
         collect_metadata: bool = True,
         checkpoint_store=None,
     ) -> list[dict]:
@@ -671,6 +791,8 @@ class Atlas:
             max_publications=max_publications,
             collect_metadata=collect_metadata,
         )
+        if max_publications_per_query is not None:
+            options["max_publications_per_query"] = max_publications_per_query
         options.update(
             self._checkpoint_keyword(
                 self._collector.collect_jsons,

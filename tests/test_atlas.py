@@ -646,6 +646,50 @@ def test_collect_datasets_can_own_resumable_discovery_trace(tmp_path) -> None:
     assert json.loads((run_dir / "06_final_atlas.json").read_text()) == result
 
 
+def test_amend_queries_archives_manifest_and_updates_resumable_configuration(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.trace import DevTraceWriter
+
+    trace = DevTraceWriter(
+        str(tmp_path),
+        "run-1",
+        {
+            "command": "collect-datasets",
+            "query": ["old"],
+            "query_file": None,
+            "max_publications": 5000,
+        },
+    )
+    trace.checkpoint_store.validate_fingerprint(
+        {"query": ["old"], "query_file": None, "max_publications": 5000}
+    )
+
+    archive = Atlas(metadata={}).amend_queries(
+        dev_out_dir=str(tmp_path),
+        run_id="run-1",
+        queries=["old", "expanded"],
+        max_publications_per_query=[5000, 15000],
+    )
+
+    manifest = json.loads(
+        (tmp_path / "run-1" / "00_run_manifest.json").read_text()
+    )
+    assert manifest["query"] == ["old", "expanded"]
+    assert manifest["max_publications"] is None
+    assert manifest["max_publications_per_query"] == [5000, 15000]
+    archived_manifest = json.loads((archive / "00_run_manifest.json").read_text())
+    assert archived_manifest["previous_manifest"]["query"] == ["old"]
+    trace.checkpoint_store.validate_fingerprint(
+        {
+            "query": ["old", "expanded"],
+            "query_file": None,
+            "max_publications": None,
+            "max_publications_per_query": [5000, 15000],
+        }
+    )
+
+
 def test_resume_discovery_trace_stops_before_harmonization(tmp_path) -> None:
     run_dir = tmp_path / "trace" / "discovery-run"
     run_dir.mkdir(parents=True)

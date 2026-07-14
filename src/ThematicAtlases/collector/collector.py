@@ -35,6 +35,7 @@ class AtlasCollector:
         out: str | None = None,
         metadata_repositories: list[str] | None = None,
         max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
         collect_metadata: bool = True,
         checkpoint_store=None,
     ) -> list[dict]:
@@ -53,6 +54,10 @@ class AtlasCollector:
             "queries": queries,
             "max_publications": max_publications,
         }
+        if max_publications_per_query is not None:
+            accession_options["max_publications_per_query"] = (
+                max_publications_per_query
+            )
         if checkpoint_store is not None:
             accession_options["checkpoint_store"] = checkpoint_store
         accessions = self._epmc_wrapper().collect_accessions(**accession_options)
