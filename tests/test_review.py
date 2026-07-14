@@ -103,6 +103,7 @@ class DirectReviewer:
                 }
             ],
             "accession_assessments": [assessment],
+            "review_revision": 2,
             "strategy": strategy,
         }
 
@@ -504,6 +505,7 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
     )
 
     trace = texts["1"]["agentic_curator"]
+    assert trace["review_revision"] == 2
     assert trace["accession_assessments"][0]["decision"] == "exclude"
     assert trace["accessions_to_remove"] == [
         {

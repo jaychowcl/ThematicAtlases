@@ -135,3 +135,55 @@ def test_checkpoint_store_refuses_archive_id_collision_without_deleting_live_row
     assert [item["key"] for item in store.items("thematic_review")] == [
         "direct:2"
     ]
+
+
+def test_checkpoint_store_archives_only_selected_stage_items(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    archive_path = tmp_path / "selected_reviews.sqlite"
+    for ordinal, key in enumerate(("direct:1", "direct:2", "direct:3"), start=1):
+        store.put(
+            "thematic_review",
+            key,
+            ordinal,
+            "available",
+            payload={"publication": key},
+        )
+    store.put("datalinks", "MED:1", 1, "available")
+
+    result = store.archive_items(
+        "thematic_review",
+        ["direct:3", "direct:1", "direct:1"],
+        archive_path,
+        archive_id="contested-reviews",
+        metadata={"selection": "safety_union"},
+    )
+
+    assert result["item_count"] == 2
+    assert [item["key"] for item in store.items("thematic_review")] == [
+        "direct:2"
+    ]
+    assert [item["key"] for item in store.items("datalinks")] == ["MED:1"]
+    with sqlite3.connect(archive_path) as connection:
+        archived = connection.execute(
+            "SELECT item_key FROM checkpoint_archive_items "
+            "WHERE archive_id = ? ORDER BY ordinal",
+            ("contested-reviews",),
+        ).fetchall()
+    assert archived == [("direct:1",), ("direct:3",)]
+
+
+def test_checkpoint_store_refuses_missing_selected_archive_item(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put("thematic_review", "direct:1", 1, "available")
+
+    with pytest.raises(ValueError, match="were not present"):
+        store.archive_items(
+            "thematic_review",
+            ["direct:1", "direct:missing"],
+            tmp_path / "archive.sqlite",
+            archive_id="incomplete-selection",
+        )
+
+    assert [item["key"] for item in store.items("thematic_review")] == [
+        "direct:1"
+    ]
