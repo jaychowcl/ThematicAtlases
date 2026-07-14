@@ -30,7 +30,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: benchmark-package
   title: Benchmark Package
   anchor: benchmark-package
-  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, available_reference_sets, leonie_2026_fibrosis, taylor_2020_nafld_fibrosis, run_reference_publication_recall.py, aggregate report, reference-set-file, custom reference set, packaged JSON, reference set, publication recall, golden example, complete input output, mixed outcomes, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
+  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, available_reference_sets, load_reference_set, leonie_2026_fibrosis, taylor_2020_nafld_fibrosis, run_reference_publication_recall.py, run_reference_set_review.py, exact DOI resolution, GEO-linked reference review, reference audit, aggregate report, reference-set-file, custom reference set, packaged JSON, reference set, publication recall, golden example, complete input output, mixed outcomes, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
 
 - id: fibrosis-curation-theme
   title: Fibrosis Curation Theme
@@ -40,7 +40,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, complementary queries, per-query limits, cross-query deduplication, --amend-queries, query archive, --generate-query, LLM query generation, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, config/fibrosis_discovery_queries.json, query catalog, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, complementary queries, per-query limits, cross-query deduplication, --amend-queries, query archive, --generate-query, LLM query generation, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
 
 - id: cli-atlas
   title: CLI Atlas

@@ -135,6 +135,10 @@ from agentic_curator import ThematicReviewer
 
 `src/benchmark_ThematicAtlases/` is a sibling import package in the existing `ThematicAtlases` distribution. Benchmark implementations are separated by concern: `thematic_reviewer/` contains publication-discovery and curation benchmarks, while `ontology_harmonizer/` is the reserved namespace for future ontology-harmonization benchmarks. `ThematicReviewerBenchmark` remains exported from the package root and its subpackage.
 
+`load_reference_set(name)` is the public loader for validated packaged reference
+data. It returns a defensive copy so callers can build network-resolution or
+review workflows without mutating package state.
+
 The named reference-publication recall workflow loads a version-controlled reference set from the thematic-reviewer package data and compares it with thematic-review output:
 
 ```python
@@ -164,6 +168,21 @@ The root runner scores an existing atlas JSON or development trace against every
 ```
 
 Without `--out`, the path defaults to `.out/reference_publication_recall.json`. Aggregate schema `1.0` records the thematic input and an ordered `reports` object keyed by collection ID; each value is an unchanged schema `1.1` benchmark report. Packaged sets run first, followed by custom files in argument order. Duplicate IDs fail without writing a partial output. The runner prints its resolved configuration and per-set summaries.
+
+`run_reference_set_review.py` is the isolated production-path diagnostic for a
+named packaged set. It resolves each reference with an exact Europe PMC `DOI:`
+query, rejects non-exact responses, collects datalinks only for resolved
+references, retains GEO/GSE accessions, and directly reviews the linked
+publication text without downloading MINiML metadata. It uses an independent
+SQLite checkpoint and writes a resolution/datalink audit, accession list,
+reviewer input and progress, reviewed output, benchmark, and run summary under
+`.out/reference_reviews/<reference-set>/`. Rerunning the same command resumes
+that isolated workflow:
+
+```bash
+.env/bin/python run_reference_set_review.py \
+  --reference-set leonie_2026_fibrosis
+```
 
 `tests/fixtures/benchmark/` contains complete mixed input/output examples for both sets. The Leonie fixture records a complete 21-row report with 6 matches and 15 misses; the Taylor fixture records a complete 15-row report with 6 matches and 9 misses. Both cover relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession behavior. End-to-end method tests substitute only the machine-specific artifact path, independently verify summaries, then compare entire reports exactly. A real runner integration test also verifies both packaged reports are produced together.
 
@@ -200,8 +219,11 @@ gcloud auth application-default login
 
 The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
 
-`run_fibrosis_discovery.py` is the collection-only companion entry point. It
-uses four embedded Europe PMC queries by default: the original
+`run_fibrosis_discovery.py` is the collection-only companion entry point. Its
+ordered, versioned defaults live in
+`config/fibrosis_discovery_queries.json`; the runner validates and loads the
+catalog while preserving its existing exported query constants. The four
+queries are: the original
 human/fibrosis/transcriptomics query, an expanded core query, a high-specificity
 fibrotic-disease query, and a complementary human organ/disease query. The
 original query is capped at 5,000 raw results and each new query at 15,000.
@@ -222,6 +244,10 @@ caches ontologies, calls `create_atlas()`, or invokes harmonization. It prints
 the resolved query mode and configuration and writes
 `.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and
 `.out/fibrosis_discovery.log`.
+
+Query amendment compares normalized whitespace as well as ordered limits. This
+lets formatting-only changes in the stored catalog reuse an existing trace
+without changing its fingerprint or archiving a duplicate query generation.
 
 The discovery runner retains the fibrosis theme and direct-review configuration
 in its trace for the standalone reviewer, but collection-only execution does
