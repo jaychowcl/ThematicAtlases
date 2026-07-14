@@ -200,28 +200,28 @@ gcloud auth application-default login
 
 The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
 
-`run_fibrosis_discovery.py` is the pre-harmonization companion entry point. It
-uses an embedded human/fibrosis/transcriptomics Europe PMC query by default,
-while retaining the same fibrosis theme and `not_relevant` filter. It enables
-review-before-metadata: GEO-linked publications receive full-text/abstract
-review with no MINiML context, then only retained accessions receive GEO
-metadata. It does not run a second post-metadata review. The query removes
+`run_fibrosis_discovery.py` is the collection-only companion entry point. It
+uses an embedded human/fibrosis/transcriptomics Europe PMC query by default and
+stops after incrementally collecting full text or abstracts for GEO-linked
+publications. It does not invoke thematic review, download GEO MINiML metadata,
+filter accessions, or harmonize. The separate `run_publication_reviewer.py`
+command reviews a stable snapshot from the same trace and may run concurrently
+with discovery. The query removes
 generic sclerosis and remodelling-only terms, excludes reviews, and deliberately
 does not exclude mouse/rat mentions because mixed-species publications can still
 contain qualifying human datasets. `--generate-query` replaces the static query
 with the existing LLM theme-to-query workflow. Europe PMC synonym expansion
 remains enabled in both modes. The script searches up to 5,000 publications and
-calls `Atlas.collect_datasets()` directly. It never constructs `OntoStore`,
+calls `Atlas.collect_datasets(stop_before_review=True)`. It never constructs `OntoStore`,
 caches ontologies, calls `create_atlas()`, or invokes harmonization. It prints
 the resolved query mode and configuration and writes
 `.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and
 `.out/fibrosis_discovery.log`.
 
-The discovery runner explicitly selects `review_strategy="direct"`. This sends
-the full available publication text, theme, title, and every associated GSE
-accession to one judgement call; it does not run the legacy evidence-extraction
-call first. Suggested accession exclusions are retained in the review trace and
-do not currently remove individual accessions.
+The discovery runner retains the fibrosis theme and direct-review configuration
+in its trace for the standalone reviewer, but collection-only execution does
+not preflight LLM credentials or make a judgement call. `--generate-query`
+still requires credentials because query construction itself uses the LLM.
 
 Run it with:
 
@@ -245,8 +245,8 @@ Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
 - `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
-- `resume(dev_out_dir=".dev", run_id=None, out=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried.
-- `collect_datasets(..., review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. Direct discovery calls can own a resumable trace without invoking harmonization. New trace manifests record the strategy; old manifests resume as `direct`.
+- `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
+- `collect_datasets(..., review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata, writes `resume_publication_collection.json`, and omits reviewed/final-atlas trace markers.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
@@ -258,6 +258,9 @@ repository-filtered accessions, `02_reviewed_datasets.json` for pre-metadata
 survivors, and `resume_metadata_enriched_datasets.json` for the enriched result.
 Resume treats datalink, publication-text/review, and GEO metadata progress as
 separate boundaries, so a GEO retry does not repeat successful reviews.
+Collection-only traces additionally use `resume_publication_collection.json`
+and its summary for the unreviewed accession/publication-text snapshot. Static
+collection-only runs do not require Google credentials; generated-query runs do.
 
 Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=True)` invokes `store.cache_all()` once at the beginning of the first `create_atlas()` call, before credentials, query generation, or collection. The upstream cache API directly streams OWL into SQLite, imports an existing legacy JSON cache when available, and supports selective refresh through `store.cache_all(force_frameworks=[...])`; `force=True` still refreshes all active frameworks. Its framework replacement is transactional and temporary staging databases are deleted after success or failure. The result is retained as `atlas.ontology_cache_result`; aggregate cache exceptions propagate and prevent collection. The same store is passed to the default `AtlasHarmonizer` and its lazily created `OntologyHarmonizer`. Supplying a custom harmonizer together with Atlas-managed store/cache options raises `ValueError`.
 

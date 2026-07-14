@@ -71,9 +71,9 @@ Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atla
 
 ### Fibrosis discovery without harmonization
 
-Run publication discovery and thematic review for up to 5,000 publications,
-then download GEO metadata only for surviving accessions, without loading
-ontologies or starting harmonization:
+Collect GEO-linked publications and their available text for up to 5,000 search
+results without starting thematic review, metadata download, ontology loading,
+or harmonization:
 
 ```bash
 .env/bin/python run_fibrosis_discovery.py
@@ -88,14 +88,13 @@ the fibrosis theme instead, opt in explicitly:
 ```
 
 This writes `.out/fibrosis_discovery.json`, its summary, and a dedicated DEBUG
-log. The output retains `relevant` and `unsure` datasets and removes reviewed
-`not_relevant` publications.
+log. The output is an unreviewed collection snapshot containing accessions and
+publication text.
 
-The discovery runner enables `review_before_metadata`: it first restricts
-datalinks to GEO accessions, fetches open-access publication full text with
-abstract fallback, and reviews without MINiML context. Only publications not
-judged `not relevant` proceed to GEO resolution and metadata conversion. It does
-not perform a second review after metadata download.
+The discovery runner is collection-only by default: it restricts datalinks to
+GEO accessions, incrementally fetches open-access publication full text with
+abstract fallback, and stops before thematic review and GEO metadata. Run
+`run_publication_reviewer.py` separately to review a stable trace snapshot.
 
 Discovery also enables its own trace under `.out/dev_trace_discovery/`. Resume
 the newest incomplete discovery run, or select a run id, with:
@@ -277,7 +276,7 @@ atlas = Atlas(metadata={})
 
 Major orchestrator methods:
 
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False) -> dict`
+- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False) -> dict`
   - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
   - Output: atlas object with `accessions` and `publication_texts`.
 - `Atlas.harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None) -> dict`
@@ -286,7 +285,7 @@ Major orchestrator methods:
 - `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False) -> dict`
   - Inputs: collection, filtering, and harmonization options.
   - Output: final atlas object, optionally written to `out`.
-- `Atlas.resume(dev_out_dir=".dev", run_id=None, out=None) -> dict`
+- `Atlas.resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False) -> dict`
   - Resumes the selected traced discovery or atlas workflow from its latest durable item checkpoint.
 
 `Atlas` is the root orchestrator and dependency-injection boundary. Its constructor wires the collector, filterer, harmonizer, Europe PMC wrapper factory, metadata handlers, and publication text reviewer; tests and downstream applications can replace those components without changing the public workflow methods.
