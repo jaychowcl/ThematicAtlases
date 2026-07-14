@@ -201,7 +201,12 @@ gcloud auth application-default login
 The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
 
 `run_fibrosis_discovery.py` is the collection-only companion entry point. It
-uses an embedded human/fibrosis/transcriptomics Europe PMC query by default and
+uses four embedded Europe PMC queries by default: the original
+human/fibrosis/transcriptomics query, an expanded core query, a high-specificity
+fibrotic-disease query, and a complementary human organ/disease query. The
+original query is capped at 5,000 raw results and each new query at 15,000.
+Publications are deduplicated across query sets before datalink calls while
+ordered query provenance is retained. The runner
 stops after incrementally collecting full text or abstracts for GEO-linked
 publications. It does not invoke thematic review, download GEO MINiML metadata,
 filter accessions, or harmonize. The separate `run_publication_reviewer.py`
@@ -222,6 +227,9 @@ The discovery runner retains the fibrosis theme and direct-review configuration
 in its trace for the standalone reviewer, but collection-only execution does
 not preflight LLM credentials or make a judgement call. `--generate-query`
 still requires credentials because query construction itself uses the LLM.
+`--resume RUN_ID --amend-queries` transactionally archives the trace's previous
+query fingerprint and readable manifest, installs the four-query configuration,
+and resumes without deleting search, datalink, text, or review checkpoints.
 
 Run it with:
 
@@ -230,6 +238,7 @@ Run it with:
 .env/bin/python run_fibrosis_discovery.py --generate-query
 .env/bin/python run_fibrosis_discovery.py --resume
 .env/bin/python run_fibrosis_discovery.py --resume RUN_ID
+.env/bin/python run_fibrosis_discovery.py --resume RUN_ID --amend-queries
 ```
 
 Both fibrosis scripts enable incremental SQLite checkpoints automatically.
@@ -246,7 +255,8 @@ Public methods:
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
 - `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
 - `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
-- `collect_datasets(..., review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata, writes `resume_publication_collection.json`, and omits reviewed/final-atlas trace markers.
+- `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
+- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. The legacy maximum is global; an ordered per-query list permits independent result sets. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata, writes `resume_publication_collection.json`, and omits reviewed/final-atlas trace markers.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
@@ -273,7 +283,7 @@ Current responsibilities:
 
 - Build query lists from repeated API/CLI query values and optional UTF-8 query files.
 - Ignore blank query-file lines and lines beginning with `#`.
-- Call `EuropePMCWrapper.collect_accessions(queries=..., max_publications=...)`.
+- Call `EuropePMCWrapper.collect_accessions(queries=..., max_publications=..., max_publications_per_query=...)`.
 - Keep records handled by the selected metadata repositories. `metadata_repositories=None` means GEO-only.
 - Route handled records to metadata repository handlers when metadata collection is enabled. The default registry routes `geo` to `GEOWrapper` and `arrayexpress` to `ArrayExpressWrapper`.
 - Optionally write the intermediate collected accession list to `out`.
@@ -366,8 +376,8 @@ on resume. One dataset failure remains isolated from all other work items.
 
 Current public methods:
 
-- `collect_accessions(queries: list[str], max_publications: int | None = None) -> list[dict]`: searches publications, fetches Europe PMC datalinks for each publication, deduplicates by normalized `datalink_id`, and returns accession records before publication text enrichment.
-- `collect_publications(queries: list[str], max_publications: int | None = None) -> list[dict]`: searches Europe PMC for each query and returns normalized publication rows.
+- `collect_accessions(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches publications, deduplicates publications across queries, fetches datalinks once per unique publication, deduplicates by normalized `datalink_id`, and returns accession records before publication text enrichment.
+- `collect_publications(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches Europe PMC for each query and returns normalized, cross-query-deduplicated publication rows. The per-query limit list aligns with query order; configured limits can expand pagination beyond the default five pages.
 - `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
 - `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records.
 - `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
@@ -387,7 +397,7 @@ Search parameters:
 - `cursorMark=*` initially, then the returned `nextCursorMark`.
 - `synonym=TRUE`
 
-`max_publications` is an optional positive integer cap applied after search hits are normalized and before datalink requests. The cap is global across all query strings, so later query strings are not searched once the cap is reached.
+`max_publications` remains an optional positive global raw-hit cap for backward compatibility. `max_publications_per_query` accepts one positive integer or `None` per ordered query, so reaching one query's limit does not suppress later queries. Raw hits count toward limits before deduplication. Publications match by Europe PMC source/id, PMID, PMCID, or normalized DOI; merged multi-query records preserve the first `query` and add ordered `queries` provenance.
 
 Returned publication fields:
 

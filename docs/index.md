@@ -40,7 +40,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, --generate-query, LLM query generation, 5000 publications, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, complementary queries, per-query limits, cross-query deduplication, --amend-queries, query archive, --generate-query, LLM query generation, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
 
 - id: cli-atlas
   title: CLI Atlas
@@ -82,7 +82,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: epmc-wrapper
   title: EuropePMC Wrapper
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, collect_publication_texts, collect_datalinks, search_pages, datalinks, publication_text, SQLite checkpoint, first every tenth final, periodic progress, request duration, DEBUG, fullTextXML, abstract fallback, deduplicate, publication_texts, XML fallback, failed publications, stats logs, search stats
+  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, max_publications_per_query, multiple queries, publication provenance, cross-query deduplication, collect_publication_texts, collect_datalinks, search_pages, datalinks, publication_text, SQLite checkpoint, first every tenth final, periodic progress, request duration, DEBUG, fullTextXML, abstract fallback, deduplicate, publication_texts, XML fallback, failed publications, stats logs, search stats
 
 - id: rate-handling
   title: Rate Handling
