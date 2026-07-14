@@ -459,6 +459,7 @@ class PublicationTextReviewer:
                 "accession_assessments": review.get(
                     "accession_assessments", []
                 ),
+                "review_revision": review.get("review_revision"),
                 "raw_review": review,
             }
         raw_evidences = review.get("evidences", "")

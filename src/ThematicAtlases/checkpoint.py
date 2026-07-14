@@ -172,6 +172,46 @@ class CheckpointStore:
         metadata: dict | None = None,
     ) -> dict:
         """Atomically move one checkpoint stage into a comparison archive."""
+        return self._archive_checkpoint_items(
+            stage,
+            None,
+            archive_path,
+            archive_id=archive_id,
+            metadata=metadata,
+        )
+
+    def archive_items(
+        self,
+        stage: str,
+        item_keys: list[str] | tuple[str, ...] | set[str],
+        archive_path: str | Path,
+        *,
+        archive_id: str,
+        metadata: dict | None = None,
+    ) -> dict:
+        """Atomically move selected keys from one stage into an archive."""
+        normalized_keys = sorted(
+            {str(value).strip() for value in item_keys if str(value).strip()}
+        )
+        if not normalized_keys:
+            raise ValueError("item_keys must contain at least one non-empty key")
+        return self._archive_checkpoint_items(
+            stage,
+            normalized_keys,
+            archive_path,
+            archive_id=archive_id,
+            metadata=metadata,
+        )
+
+    def _archive_checkpoint_items(
+        self,
+        stage: str,
+        item_keys: list[str] | None,
+        archive_path: str | Path,
+        *,
+        archive_id: str,
+        metadata: dict | None,
+    ) -> dict:
         normalized_stage = str(stage).strip()
         normalized_archive_id = str(archive_id).strip()
         if not normalized_stage:
@@ -195,6 +235,14 @@ class CheckpointStore:
                 )
                 attached = True
                 connection.execute("BEGIN IMMEDIATE")
+                if item_keys is not None:
+                    connection.execute(
+                        "CREATE TEMP TABLE selected_archive_keys(item_key TEXT PRIMARY KEY)"
+                    )
+                    connection.executemany(
+                        "INSERT INTO selected_archive_keys(item_key) VALUES (?)",
+                        ((value,) for value in item_keys),
+                    )
                 connection.executescript(
                     """
                     CREATE TABLE IF NOT EXISTS checkpoint_archive.checkpoint_archive_meta (
@@ -229,12 +277,23 @@ class CheckpointStore:
                         f"archive_id already exists: {normalized_archive_id!r}"
                     )
 
-                source_count = int(
-                    connection.execute(
-                        "SELECT COUNT(*) FROM checkpoint_items WHERE stage = ?",
-                        (normalized_stage,),
-                    ).fetchone()[0]
-                )
+                if item_keys is None:
+                    selection_sql = "stage = ?"
+                else:
+                    selection_sql = (
+                        "stage = ? AND item_key IN "
+                        "(SELECT item_key FROM selected_archive_keys)"
+                    )
+                source_count = int(connection.execute(
+                    f"SELECT COUNT(*) FROM checkpoint_items WHERE {selection_sql}",
+                    (normalized_stage,),
+                ).fetchone()[0])
+                if item_keys is not None and source_count != len(item_keys):
+                    missing_count = len(item_keys) - source_count
+                    raise ValueError(
+                        f"{missing_count} selected checkpoint item(s) were not present "
+                        f"in stage {normalized_stage!r}"
+                    )
                 connection.execute(
                     """
                     INSERT INTO checkpoint_archive.checkpoint_archive_meta(
@@ -257,8 +316,7 @@ class CheckpointStore:
                     )
                     SELECT ?, stage, item_key, ordinal, status, payload, error,
                            updated_at
-                    FROM checkpoint_items WHERE stage = ?
-                    """,
+                    FROM checkpoint_items WHERE """ + selection_sql,
                     (normalized_archive_id, normalized_stage),
                 )
                 archived_count = int(
@@ -274,7 +332,7 @@ class CheckpointStore:
                         "checkpoint archive count did not match the live stage"
                     )
                 connection.execute(
-                    "DELETE FROM checkpoint_items WHERE stage = ?",
+                    f"DELETE FROM checkpoint_items WHERE {selection_sql}",
                     (normalized_stage,),
                 )
                 connection.commit()
