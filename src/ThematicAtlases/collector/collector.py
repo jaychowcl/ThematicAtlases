@@ -43,7 +43,7 @@ class AtlasCollector:
         else:
             from ThematicAtlases.collector.resume import TraceMetadataResumer
 
-            instance = TraceMetadataResumer()
+            instance = TraceMetadataResumer(collector_factory=lambda: self)
         self._metadata_resume_orchestrator_instance = instance
         return instance
 

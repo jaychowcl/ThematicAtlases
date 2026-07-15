@@ -465,15 +465,24 @@ class GEOWrapper:
         status = checkpoint.get("status")
         if "packages" in payload:
             packages = payload.get("packages") or []
-        else:
-            packages = [
-                item.get("accession_metadata")
-                for item in payload.get("records", [])
-                if item.get("metadata_status") == "available"
-                and isinstance(item.get("accession_metadata"), (dict, list))
-            ]
-        if status == "available" and packages:
-            return self._metadata_records_from_packages(record, packages)
+            if status == "available" and packages:
+                return self._metadata_records_from_packages(record, packages)
+        elif status == "available":
+            legacy_records = []
+            for item in payload.get("records", []):
+                package = item.get("accession_metadata")
+                if not isinstance(package, (dict, list)):
+                    continue
+                legacy_records.append(
+                    self._metadata_record(
+                        record=record,
+                        package=package,
+                        package_gse=item.get("datalink_id")
+                        or record.get("datalink_id", ""),
+                    )
+                )
+            if legacy_records:
+                return legacy_records
         if status == "no_data":
             return [self._metadata_unavailable_record(record)]
         return [self._metadata_error_record(record)]
