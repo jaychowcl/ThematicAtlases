@@ -252,7 +252,10 @@ def _relocate_manifest_outputs(
     artifacts: list[Path],
 ) -> None:
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    relocated = {str(artifact.resolve()): destination / "artifacts" / artifact.name for artifact in artifacts}
+    relocated = {
+        str(artifact.resolve()): destination / "artifacts" / artifact.name
+        for artifact in artifacts
+    }
     for key in ("atlas_out", "harmonization_details_out"):
         value = manifest.get(key)
         if not value:
