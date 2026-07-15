@@ -1,4 +1,6 @@
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -98,6 +100,72 @@ def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
     assert InterruptingGeo.calls == ["GSE1", "GSE2"]
     assert CompletingGeo.calls == ["GSE2"]
     assert [record["datalink_id"] for record in result] == ["GSE1", "GSE2"]
+
+
+def test_geo_metadata_checkpoint_rebuilds_latest_publication_provenance(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    wrapper = FakeGEOWrapper()
+    wrapper.collect_accession_metadata(
+        [
+            {
+                "datalink_id": "GSE1",
+                "datalink_id_scheme": "GEO",
+                "publications": [{"source": "MED", "epmc_id": "1"}],
+            }
+        ],
+        checkpoint_store=store,
+    )
+
+    result = wrapper.collect_accession_metadata(
+        [
+            {
+                "datalink_id": "GSE1",
+                "datalink_id_scheme": "GEO",
+                "publications": [
+                    {"source": "MED", "epmc_id": "1"},
+                    {"source": "MED", "epmc_id": "2"},
+                ],
+            }
+        ],
+        checkpoint_store=store,
+    )
+
+    assert result[0]["publications"] == [
+        {"source": "MED", "epmc_id": "1"},
+        {"source": "MED", "epmc_id": "2"},
+    ]
+    assert "packages" in store.get("geo_metadata", "GSE1")["payload"]
+
+
+def test_geo_metadata_item_lock_prevents_duplicate_concurrent_downloads(tmp_path) -> None:
+    store_path = tmp_path / "resume_state.sqlite"
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    class SlowGeo(FakeGEOWrapper):
+        def _gse_metadata_packages(self, gse_accession):
+            calls.append(gse_accession)
+            started.set()
+            assert release.wait(timeout=5)
+            return [{"series": {"accession": [{"value": gse_accession}]}}]
+
+    record = {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []}
+
+    def collect():
+        return SlowGeo().collect_accession_metadata(
+            [record], checkpoint_store=CheckpointStore(store_path)
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(collect)
+        assert started.wait(timeout=5)
+        second = executor.submit(collect)
+        release.set()
+        assert first.result()[0]["metadata_status"] == "available"
+        assert second.result()[0]["metadata_status"] == "available"
+
+    assert calls == ["GSE1"]
 
 
 def test_collect_accession_metadata_keeps_gse_and_publications() -> None:

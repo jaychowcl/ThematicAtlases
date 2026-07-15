@@ -438,7 +438,7 @@ def test_review_checkpoint_is_invalidated_when_publication_text_changes(
     assert result["1"]["agentic_curator"]["judgement"] == "relevant"
 
 
-def test_review_checkpoint_is_reused_when_only_metadata_context_changes(
+def test_review_checkpoint_is_invalidated_when_metadata_context_changes(
     tmp_path,
 ) -> None:
     store = CheckpointStore(tmp_path / "resume.sqlite")
@@ -461,8 +461,34 @@ def test_review_checkpoint_is_reused_when_only_metadata_context_changes(
         checkpoint_store=store,
     )
 
-    assert len(FakeReviewer.calls) == 1
+    assert len(FakeReviewer.calls) == 2
     assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+
+
+def test_review_records_metadata_context_coverage() -> None:
+    FakeReviewer.calls = []
+    result = PublicationTextReviewer().review_publication_texts(
+        publication_texts={"1": {"text": "stable full text"}},
+        contexts={
+            "1": {
+                "title": "Stable title",
+                "accessions": ["GSE1", "GSE2"],
+                "metadata": [{"accession": "GSE1", "context": "human liver"}],
+                "metadata_statuses": {
+                    "GSE1": "available",
+                    "GSE2": "pending",
+                },
+            }
+        },
+        theme="fibrosis",
+        reviewer=FakeReviewer(),
+    )
+
+    assert result["1"]["agentic_curator"]["metadata_context"] == {
+        "used_accessions": ["GSE1"],
+        "not_used_accessions": ["GSE2"],
+        "statuses": {"GSE1": "available", "GSE2": "pending"},
+    }
 
 
 def test_publication_context_aggregates_every_gse_for_shared_publication() -> None:
@@ -523,7 +549,7 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
 
 
 def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
-    assert REVIEW_CONTRACT_VERSION == 3
+    assert REVIEW_CONTRACT_VERSION == 4
 
 
 def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(
