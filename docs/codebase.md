@@ -122,6 +122,10 @@ The live atlas class is `Atlas` in `src/ThematicAtlases/atlas.py`. Import caller
 from ThematicAtlases.atlas import Atlas
 ```
 
+`Atlas.archive_existing_runs(...)` is the public whole-run archival API. It
+moves every inactive trace for one workflow into a verified archive while
+preserving the trace layout for later `Atlas.resume()` calls.
+
 The thematic reviewer/curator code has moved to the separate `agentic-curator` package. Import callers must use:
 
 ```python
@@ -271,6 +275,23 @@ Both fibrosis scripts enable incremental SQLite checkpoints automatically.
 Library callers opt in by enabling `dev_trace`; untraced calls retain the
 existing in-memory behavior.
 
+Before either fibrosis script starts a new non-resume run, it calls
+`Atlas.archive_existing_runs()` before opening the new log. All valid trace
+directories for that workflow and any existing fixed output, summary, details,
+and log artifacts move under
+`.out/previous_runs/<workflow>/<run-id>/`; fixed artifacts belong to the newest
+trace and live in its `artifacts/` subdirectory. A run with artifacts but no
+trace is retained as `orphan-<timestamp>`. Resume invocations never archive.
+The shared `.out/ontology_store/` cache is deliberately excluded.
+
+Collectors, resumes, and standalone reviewers hold a shared workflow activity
+lock. Archiving requires the exclusive form, checkpoints and validates SQLite,
+copies to hidden staging, verifies SHA-256 checksums, atomically publishes the
+archive, and only then deletes the sources. Consequently a new run refuses to
+archive while a cooperating collector or reviewer is active. The archived
+`00_run_manifest.json` points at relocated artifacts, and the trace remains
+directly resumable by using its workflow archive directory as `dev_out_dir`.
+
 <a id="atlas-workflow"></a>
 ### Atlas Workflow
 
@@ -282,10 +303,16 @@ Public methods:
 - `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
 - `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
+- `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.
 - `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. The legacy maximum is global; an ordered per-query list permits independent result sets. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata, writes `resume_publication_collection.json`, and omits reviewed/final-atlas trace markers.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
+
+Whole-run archives differ from checkpoint comparison archives.
+`archive_existing_runs()` relocates complete resumable trace directories;
+`CheckpointStore.archive_stage()` and `archive_items()` move selected checkpoint
+rows to comparison databases while leaving the parent run active.
 
 When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run directory under `dev_out_dir` containing `resume_state.sqlite`, a manifest, readable collection/review checkpoints, and final output/summary; full atlas traces also include pre/post harmonization metadata and target details. `CheckpointStore` uses WAL mode, full synchronous commits, a configuration fingerprint, and one row per stage/item. Statuses distinguish reusable success/no-data outcomes, non-retryable consumed-call failures, and transient failures that should be attempted again. `archive_stage(...)` transactionally moves a complete stage into comparison tables in a separate SQLite database; `archive_items(stage, item_keys, ...)` performs the same verified operation for an explicit subset. Both preserve unrelated rows/stages, reject missing selections or archive-ID reuse, and delete live rows only after archive counts match.
 

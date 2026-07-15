@@ -25,7 +25,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: public-api
   title: Public API
   anchor: public-api
-  keywords: import, __init__, exports, Atlas, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
+  keywords: import, __init__, exports, Atlas, archive_existing_runs, whole-run archive, directly resumable archive, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
 
 - id: benchmark-package
   title: Benchmark Package
@@ -40,7 +40,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: fibrosis-run-script
   title: Fibrosis Run Script
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, config/fibrosis_discovery_queries.json, query catalog, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, complementary queries, per-query limits, cross-query deduplication, --amend-queries, query archive, --generate-query, LLM query generation, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, config/fibrosis_discovery_queries.json, query catalog, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, complementary queries, per-query limits, cross-query deduplication, --amend-queries, query archive, automatic whole-run archive, previous_runs, workflow activity lock, orphan artifacts, --generate-query, LLM query generation, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
 
 - id: cli-atlas
   title: CLI Atlas
@@ -62,7 +62,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, resume, stop_before_review, collection-only resume, resume_publication_collection, review_before_metadata, resume_metadata_enriched_datasets, resume_state.sqlite, CheckpointStore, archive_stage, archive_items, selected checkpoint keys, comparison archive, archive id, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
+  keywords: Atlas, resume, stop_before_review, collection-only resume, resume_publication_collection, review_before_metadata, resume_metadata_enriched_datasets, resume_state.sqlite, CheckpointStore, archive_existing_runs, whole-run archive, archive_stage, archive_items, selected checkpoint keys, comparison archive, archive id, archive manifest, SHA-256, workflow activity lock, previous_runs, directly resumable, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector
