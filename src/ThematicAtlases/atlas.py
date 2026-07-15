@@ -350,6 +350,17 @@ class Atlas:
                         if progress_path.exists()
                         else accessions
                     )
+                    if progress_path.exists() and review_before_metadata:
+                        progress_accessions = review_input.get("accessions", [])
+                        if hasattr(self._collector, "available_accession_metadata"):
+                            review_input = {
+                                **review_input,
+                                "accessions": self._collector.available_accession_metadata(
+                                    jsons=progress_accessions,
+                                    metadata_repositories=manifest.get("metadata_repositories"),
+                                    checkpoint_store=checkpoint_store,
+                                ),
+                            }
                     datasets = self._filter_jsons(
                         jsons=review_input,
                         theme=manifest.get("theme"),

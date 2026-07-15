@@ -57,6 +57,13 @@ class TracePublicationReviewResumer:
             accessions=accessions,
             metadata_repositories=manifest.get("metadata_repositories"),
         )
+        collector = self._collector_factory()
+        if hasattr(collector, "available_accession_metadata"):
+            accessions = collector.available_accession_metadata(
+                jsons=accessions,
+                metadata_repositories=manifest.get("metadata_repositories"),
+                checkpoint_store=store,
+            )
         filterer = self._filterer_factory(
             publication_text_reviewer=self._publication_text_reviewer,
         )

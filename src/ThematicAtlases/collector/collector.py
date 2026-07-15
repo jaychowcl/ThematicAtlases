@@ -213,6 +213,32 @@ class AtlasCollector:
         )
         return records
 
+    def available_accession_metadata(
+        self,
+        jsons: list[dict],
+        metadata_repositories: list[str] | tuple[str, ...] | set[str] | None = None,
+        checkpoint_store=None,
+    ) -> list[dict]:
+        """Overlay completed repository metadata without performing downloads."""
+        selected = self._selected_metadata_repositories(metadata_repositories)
+        records = []
+        grouped = {}
+        for record in jsons:
+            repository = self.metadata_repository(record, selected)
+            if repository is not None:
+                grouped.setdefault(repository, []).append(record)
+        for repository, repository_records in grouped.items():
+            handler = self.metadata_handler(repository)
+            if checkpoint_store is not None and hasattr(handler, "available_accession_metadata"):
+                records.extend(
+                    handler.available_accession_metadata(repository_records, checkpoint_store)
+                )
+            elif repository == "arrayexpress":
+                records.extend(handler.collect_accession_metadata(repository_records))
+            else:
+                records.extend(repository_records)
+        return records
+
     def metadata_repository(
         self,
         record: dict,

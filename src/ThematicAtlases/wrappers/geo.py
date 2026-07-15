@@ -121,6 +121,58 @@ class GEOWrapper:
         )
         return result
 
+    def available_accession_metadata(
+        self,
+        jsons: list[dict],
+        checkpoint_store,
+    ) -> list[dict]:
+        """Overlay completed metadata without issuing network requests."""
+        resolved = []
+        for record in jsons:
+            source_accession = self._normalize_accession(record.get("datalink_id", ""))
+            checkpoint = checkpoint_store.get("geo_resolution", source_accession)
+            if checkpoint and checkpoint["status"] in {"available", "no_data"}:
+                gse_accession = (checkpoint.get("payload") or {}).get("gse_accession")
+            elif source_accession.startswith("GSE"):
+                gse_accession = source_accession
+            else:
+                gse_accession = None
+            if gse_accession:
+                resolved.append(self._gse_record(record, gse_accession))
+            else:
+                resolved.append(
+                    {
+                        **record,
+                        "metadata_repository": "geo",
+                        "metadata_status": "pending",
+                        "accession_metadata": None,
+                    }
+                )
+
+        gse_records = self._deduplicate_gse_jsons(
+            [record for record in resolved if str(record.get("datalink_id", "")).upper().startswith("GSE")]
+        )
+        pending_non_gse = [
+            record
+            for record in resolved
+            if not str(record.get("datalink_id", "")).upper().startswith("GSE")
+        ]
+        enriched = []
+        for record in gse_records:
+            checkpoint = checkpoint_store.get("geo_metadata", record.get("datalink_id", ""))
+            if checkpoint and checkpoint["status"] in {"available", "no_data", "terminal_error"}:
+                enriched.extend(self._records_from_metadata_checkpoint(record, checkpoint))
+            else:
+                enriched.append(
+                    {
+                        **record,
+                        "metadata_repository": "geo",
+                        "metadata_status": "pending",
+                        "accession_metadata": None,
+                    }
+                )
+        return self._deduplicate_gse_jsons(enriched) + pending_non_gse
+
     def get_gse(self, accession: str) -> str | None:
         accession = self._normalize_accession(accession=accession)
 

@@ -22,7 +22,7 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct", "evidence_then_judgement"}
-REVIEW_CONTRACT_VERSION = 3
+REVIEW_CONTRACT_VERSION = 4
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,12 @@ class PublicationTextReviewer:
 
                 context = contexts.setdefault(
                     publication_ref,
-                    {"title": "", "metadata": [], "accessions": []},
+                    {
+                        "title": "",
+                        "metadata": [],
+                        "accessions": [],
+                        "metadata_statuses": {},
+                    },
                 )
                 if not context["title"] and publication.get("title"):
                     context["title"] = publication.get("title", "")
@@ -124,6 +129,12 @@ class PublicationTextReviewer:
                     metadata_entry = {"accession": accession, "context": metadata}
                     if metadata_entry not in context["metadata"]:
                         context["metadata"].append(metadata_entry)
+                    context["metadata_statuses"][accession] = "available"
+                elif accession:
+                    status = str(record.get("metadata_status") or "pending")
+                    if status == "available":
+                        status = "available_but_empty"
+                    context["metadata_statuses"][accession] = status
 
         return contexts
 
@@ -231,18 +242,30 @@ class PublicationTextReviewer:
             "available",
             "terminal_error",
         } and (
-            payload.get("identity_hash") == identity_hash
-            or payload.get("input_hash") == input_hash
+            payload.get("input_hash") == input_hash
         ):
             publication_text = dict(
                 payload.get("publication_text", publication_text)
             )
 
         existing_review = publication_text.get(AGENTIC_CURATOR)
+        coverage_context = self._metadata_context(context)
+        metadata_changes_review = any(
+            status != "pending"
+            for status in (context.get("metadata_statuses") or {}).values()
+        )
         if (
             isinstance(existing_review, dict)
             and existing_review.get("theme") == theme
             and existing_review.get("strategy") == strategy
+            and (
+                "metadata_statuses" not in context
+                or (
+                    not metadata_changes_review
+                    and existing_review.get("review_input_hash") is None
+                )
+                or existing_review.get("review_input_hash") == input_hash
+            )
         ):
             return {
                 "publication_text": publication_text,
@@ -279,13 +302,22 @@ class PublicationTextReviewer:
                 "Atlas thematic review failed publication_ref=%s; retaining publication as unreviewed",
                 publication_ref,
             )
-            publication_text[AGENTIC_CURATOR] = {
+            failed_review = {
                 "theme": theme,
                 "strategy": strategy,
                 "review_status": "failed",
                 "error_type": type(error).__name__,
                 "error": str(error),
             }
+            if coverage_context is not None:
+                failed_review.update(
+                    {
+                        "review_input_hash": input_hash,
+                        "review_contract_version": REVIEW_CONTRACT_VERSION,
+                        "metadata_context": coverage_context,
+                    }
+                )
+            publication_text[AGENTIC_CURATOR] = failed_review
             if checkpoint_store is not None:
                 checkpoint_store.put(
                     "thematic_review",
@@ -313,6 +345,8 @@ class PublicationTextReviewer:
             theme=theme,
             review=review,
             strategy=strategy,
+            review_input_hash=input_hash,
+            metadata_context=coverage_context,
         )
         if checkpoint_store is not None:
             checkpoint_store.put(
@@ -440,6 +474,8 @@ class PublicationTextReviewer:
         theme: str,
         review: dict,
         strategy: str = "direct",
+        review_input_hash: str | None = None,
+        metadata_context: dict | None = None,
     ) -> dict:
         direct_judgement = " ".join(
             str(review.get("judgement", "")).lower().replace("_", " ").split()
@@ -448,7 +484,7 @@ class PublicationTextReviewer:
             removals = review.get("accessions_to_remove", [])
             if not isinstance(removals, list):
                 removals = []
-            return {
+            result = {
                 "theme": theme,
                 "strategy": str(review.get("strategy", strategy)),
                 "evidences": review.get("evidences", []),
@@ -462,6 +498,11 @@ class PublicationTextReviewer:
                 "review_revision": review.get("review_revision"),
                 "raw_review": review,
             }
+            if metadata_context is not None:
+                result["metadata_context"] = metadata_context
+                result["review_input_hash"] = review_input_hash
+                result["review_contract_version"] = REVIEW_CONTRACT_VERSION
+            return result
         raw_evidences = review.get("evidences", "")
         raw_judgement = review.get("judgement", "")
         evidence_object = self.json_object(raw_evidences)
@@ -471,7 +512,7 @@ class PublicationTextReviewer:
         if not isinstance(evidences, list):
             evidences = []
 
-        return {
+        result = {
             "theme": theme,
             "strategy": strategy,
             "evidences": evidences,
@@ -483,6 +524,28 @@ class PublicationTextReviewer:
             "accessions_to_remove": judgement_object.get(
                 "accessions_to_remove", []
             ),
+        }
+        if metadata_context is not None:
+            result["metadata_context"] = metadata_context
+            result["review_input_hash"] = review_input_hash
+            result["review_contract_version"] = REVIEW_CONTRACT_VERSION
+        return result
+
+    @staticmethod
+    def _metadata_context(context: dict) -> dict | None:
+        if "metadata_statuses" not in context:
+            return None
+        statuses = dict(context.get("metadata_statuses") or {})
+        used = [
+            item.get("accession")
+            for item in context.get("metadata", [])
+            if item.get("accession")
+        ]
+        accessions = list(context.get("accessions") or [])
+        return {
+            "used_accessions": [accession for accession in accessions if accession in used],
+            "not_used_accessions": [accession for accession in accessions if accession not in used],
+            "statuses": {accession: statuses.get(accession, "pending") for accession in accessions},
         }
 
     def json_object(self, value) -> dict:
