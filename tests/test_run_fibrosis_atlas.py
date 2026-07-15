@@ -47,6 +47,11 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
         pass
 
     class RecordingAtlas:
+        @staticmethod
+        def archive_existing_runs(**kwargs):
+            calls["archive_existing_runs"] = kwargs
+            return []
+
         def __init__(
             self, metadata, ontostore, cache_ontologies, credential_checker
         ):
@@ -75,6 +80,17 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
     assert script.main([]) == 0
 
     assert calls["configure_framework"] == ("snomed", True)
+    assert calls["archive_existing_runs"] == {
+        "dev_out_dir": str(tmp_path / ".out" / "dev_trace"),
+        "archive_root": str(tmp_path / ".out" / "previous_runs"),
+        "workflow": "fibrosis_atlas",
+        "artifact_paths": [
+            str(tmp_path / ".out" / "fibrosis_atlas.json"),
+            str(tmp_path / ".out" / "fibrosis_atlas.summary.json"),
+            str(tmp_path / ".out" / "fibrosis_harmonization_details.json"),
+            str(tmp_path / ".out" / "fibrosis_atlas.log"),
+        ],
+    }
     assert "snomed" not in calls["atlas"]["ontostore"].ontology_frameworks
     assert calls["atlas"]["cache_ontologies"] is True
     assert calls["create_atlas"] == {
@@ -116,6 +132,10 @@ def test_fibrosis_run_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
         def configure_framework(self, name, *, remove=False): pass
 
     class RecordingAtlas:
+        @staticmethod
+        def archive_existing_runs(**kwargs):
+            raise AssertionError("resume must not archive existing runs")
+
         def __init__(self, **kwargs): pass
         def resume(self, **kwargs): calls["resume"] = kwargs
 
