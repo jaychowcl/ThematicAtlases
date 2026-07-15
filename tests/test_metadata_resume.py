@@ -52,7 +52,7 @@ def _checkpoint_publication(trace_dir, epmc_id, datalink_id):
     )
 
 
-def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path) -> None:
+def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path, caplog) -> None:
     trace_dir = tmp_path / "trace"
     trace_dir.mkdir()
     (trace_dir / "00_run_manifest.json").write_text(
@@ -64,6 +64,7 @@ def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path) -
         epmc_wrapper_factory=FakeEPMC,
     )
 
+    caplog.set_level("INFO")
     first = resumer.resume(trace_dir)
     _checkpoint_publication(trace_dir, "2", "GSE2")
     second = resumer.resume(trace_dir)
@@ -72,3 +73,6 @@ def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path) -
     assert [record["datalink_id"] for record in second["accessions"]] == ["GSE1", "GSE2"]
     assert second["publication_texts"] == {}
     assert json.loads((trace_dir / "resume_metadata_progress.json").read_text()) == second
+    assert "Metadata snapshot stats datalink_checkpoints=1 datalink_rows=1" in caplog.text
+    assert "Metadata checkpoint stats" in caplog.text
+    assert "Metadata snapshot complete accessions=2" in caplog.text
