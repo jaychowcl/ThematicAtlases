@@ -137,6 +137,41 @@ def test_geo_metadata_checkpoint_rebuilds_latest_publication_provenance(tmp_path
     assert "packages" in store.get("geo_metadata", "GSE1")["payload"]
 
 
+def test_legacy_geo_metadata_checkpoint_preserves_related_gse_identity(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put(
+        "geo_metadata",
+        "GSE1",
+        1,
+        "available",
+        payload={
+            "records": [
+                {
+                    "datalink_id": "GSE9",
+                    "metadata_status": "available",
+                    "accession_metadata": {"series": {}},
+                    "publications": [{"source": "MED", "epmc_id": "old"}],
+                }
+            ]
+        },
+    )
+
+    result = FakeGEOWrapper().collect_accession_metadata(
+        [
+            {
+                "datalink_id": "GSE1",
+                "datalink_id_scheme": "GEO",
+                "publications": [{"source": "MED", "epmc_id": "new"}],
+            }
+        ],
+        checkpoint_store=store,
+    )
+
+    assert result[0]["datalink_id"] == "GSE9"
+    assert result[0]["source_datalink_id"] == "GSE1"
+    assert result[0]["publications"] == [{"source": "MED", "epmc_id": "new"}]
+
+
 def test_geo_metadata_item_lock_prevents_duplicate_concurrent_downloads(tmp_path) -> None:
     store_path = tmp_path / "resume_state.sqlite"
     started = threading.Event()
