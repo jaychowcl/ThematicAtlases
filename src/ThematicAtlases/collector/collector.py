@@ -18,6 +18,7 @@ class AtlasCollector:
         epmc_wrapper_factory=None,
         metadata_handlers: dict | None = None,
         metadata_repositories: list[str] | tuple[str, ...] | set[str] | None = None,
+        metadata_resume_orchestrator_factory=None,
     ):
         self._epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
         self._metadata_handlers = metadata_handlers or {
@@ -27,6 +28,24 @@ class AtlasCollector:
         self._metadata_repositories = self._normalized_metadata_repositories(
             metadata_repositories
         )
+        self._metadata_resume_orchestrator_factory = metadata_resume_orchestrator_factory
+        self._metadata_resume_orchestrator_instance = None
+
+    def resume_metadata(self, trace_dir: str) -> dict:
+        """Collect metadata for the current datalink snapshot in a trace."""
+        return self._metadata_resume_orchestrator().resume(trace_dir)
+
+    def _metadata_resume_orchestrator(self):
+        if self._metadata_resume_orchestrator_instance is not None:
+            return self._metadata_resume_orchestrator_instance
+        if self._metadata_resume_orchestrator_factory is not None:
+            instance = self._metadata_resume_orchestrator_factory()
+        else:
+            from ThematicAtlases.collector.resume import TraceMetadataResumer
+
+            instance = TraceMetadataResumer()
+        self._metadata_resume_orchestrator_instance = instance
+        return instance
 
     def collect_jsons(
         self,
