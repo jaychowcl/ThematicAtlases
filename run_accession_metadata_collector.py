@@ -28,16 +28,20 @@ def require_project_venv(
         )
 
 
-def configure_logging(verbosity: int) -> None:
+def configure_logging(verbosity: int, path: Path) -> None:
     level = logging.WARNING
     if verbosity == 1:
         level = logging.INFO
     elif verbosity >= 2:
         level = logging.DEBUG
+    path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stderr,
+        handlers=[
+            logging.StreamHandler(sys.stderr),
+            logging.FileHandler(path, mode="a", encoding="utf-8"),
+        ],
         force=True,
     )
 
@@ -56,7 +60,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     require_project_venv(root=ROOT, executable=sys.executable)
-    configure_logging(args.verbose)
+    log_path = args.trace_dir / "resume_metadata.log"
+    configure_logging(args.verbose, log_path)
+    logging.getLogger(__name__).info(
+        "Metadata worker start trace_dir=%s progress_artifact=%s log_path=%s",
+        args.trace_dir,
+        args.trace_dir / "resume_metadata_progress.json",
+        log_path,
+    )
     result = AtlasCollector().resume_metadata(args.trace_dir)
     print(
         json.dumps(
@@ -66,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
                 "progress_artifact": str(
                     args.trace_dir / "resume_metadata_progress.json"
                 ),
+                "log_path": str(log_path),
             },
             indent=2,
         )
