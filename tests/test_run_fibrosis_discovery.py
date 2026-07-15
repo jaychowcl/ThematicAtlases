@@ -34,6 +34,11 @@ def test_discovery_collects_publications_without_review_or_harmonization(
         pass
 
     class RecordingAtlas:
+        @staticmethod
+        def archive_existing_runs(**kwargs):
+            calls["archive_existing_runs"] = kwargs
+            return []
+
         def __init__(self, metadata, credential_checker):
             calls["atlas"] = {
                 "metadata": metadata,
@@ -81,6 +86,16 @@ def test_discovery_collects_publications_without_review_or_harmonization(
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
         "review_before_metadata": True,
         "stop_before_review": True,
+    }
+    assert calls["archive_existing_runs"] == {
+        "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
+        "archive_root": str(tmp_path / ".out" / "previous_runs"),
+        "workflow": "fibrosis_discovery",
+        "artifact_paths": [
+            str(tmp_path / ".out" / "fibrosis_discovery.json"),
+            str(tmp_path / ".out" / "fibrosis_discovery.summary.json"),
+            str(tmp_path / ".out" / "fibrosis_discovery.log"),
+        ],
     }
     assert not hasattr(calls["atlas"]["credential_checker"], "ontology_frameworks")
     summary = json.loads(
@@ -131,6 +146,11 @@ def test_generate_query_flag_uses_llm_query_instead_of_static_query(
     calls = {}
 
     class RecordingAtlas:
+        @staticmethod
+        def archive_existing_runs(**kwargs):
+            calls["archive_existing_runs"] = kwargs
+            return []
+
         def __init__(self, metadata, credential_checker):
             pass
 
@@ -154,12 +174,17 @@ def test_generate_query_flag_uses_llm_query_instead_of_static_query(
 
     assert calls["collect_datasets"]["query"] is None
     assert calls["collect_datasets"]["generate_queries"] is True
+    assert "archive_existing_runs" in calls
 
 
 def test_discovery_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
     calls = {}
 
     class RecordingAtlas:
+        @staticmethod
+        def archive_existing_runs(**kwargs):
+            raise AssertionError("resume must not archive existing runs")
+
         def __init__(self, **kwargs):
             pass
 
