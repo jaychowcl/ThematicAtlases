@@ -12,6 +12,7 @@ import sys
 
 from ThematicAtlases.credentials import GoogleCredentialPreflight
 from ThematicAtlases.filterer import PublicationTextReviewer
+from ThematicAtlases.run_archive import workflow_activity_lock
 
 
 ROOT = Path(__file__).resolve().parent
@@ -83,13 +84,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.theme_file is not None
         else None
     )
-    GoogleCredentialPreflight().check()
-    result = PublicationTextReviewer().resume(
-        args.trace_dir,
-        theme=theme,
-        strategy=args.strategy,
-        allow_theme_override=args.allow_theme_override,
-    )
+    with workflow_activity_lock(
+        args.trace_dir.parent, exclusive=False, blocking=False
+    ):
+        GoogleCredentialPreflight().check()
+        result = PublicationTextReviewer().resume(
+            args.trace_dir,
+            theme=theme,
+            strategy=args.strategy,
+            allow_theme_override=args.allow_theme_override,
+        )
     print(
         json.dumps(
             {

@@ -15,6 +15,7 @@ from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
+from ThematicAtlases.run_archive import archive_existing_runs
 
 logger = logging.getLogger(__name__)
 
@@ -963,3 +964,18 @@ class Atlas:
 
     def _dev_run_id(self) -> str:
         return datetime.now().strftime("%Y%m%dT%H%M%S")
+    @staticmethod
+    def archive_existing_runs(
+        *,
+        dev_out_dir: str,
+        archive_root: str,
+        workflow: str,
+        artifact_paths: list[str] | tuple[str, ...] = (),
+    ) -> list[Path]:
+        """Archive every inactive trace and fixed artifact for one workflow."""
+        return archive_existing_runs(
+            dev_out_dir=dev_out_dir,
+            archive_root=archive_root,
+            workflow=workflow,
+            artifact_paths=artifact_paths,
+        )

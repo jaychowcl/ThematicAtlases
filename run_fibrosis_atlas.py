@@ -14,6 +14,7 @@ from agentic_curator.curators.ontology_harmonizer import OntoStore
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.credentials import GoogleCredentialPreflight
+from ThematicAtlases.run_archive import workflow_activity_lock
 
 
 ROOT = Path(__file__).resolve().parent
@@ -108,45 +109,63 @@ def main(argv: list[str] | None = None) -> int:
     require_project_venv(root=ROOT, executable=sys.executable)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     config = resolved_configuration()
-    configure_logging(Path(config["log_out"]))
-    print(json.dumps(config, indent=2))
+    new_run = args.resume is None
+    with workflow_activity_lock(
+        config["dev_out_dir"], exclusive=new_run, blocking=False
+    ) as activity_lock:
+        if new_run:
+            Atlas.archive_existing_runs(
+                dev_out_dir=config["dev_out_dir"],
+                archive_root=str(OUTPUT_DIR / "previous_runs"),
+                workflow="fibrosis_atlas",
+                artifact_paths=[
+                    config["atlas_out"],
+                    config["summary_out"],
+                    config["harmonization_details_out"],
+                    config["log_out"],
+                ],
+            )
+            activity_lock.downgrade()
 
-    theme = THEME_FILE.read_text(encoding="utf-8")
-    store = OntoStore(storage_dir=config["ontology_storage_dir"])
-    for framework in REMOVED_ONTOLOGY_FRAMEWORKS:
-        store.configure_framework(framework, remove=True)
+        configure_logging(Path(config["log_out"]))
+        print(json.dumps(config, indent=2))
 
-    credential_checker = GoogleCredentialPreflight()
-    atlas = Atlas(
-        metadata={},
-        ontostore=store,
-        cache_ontologies=True,
-        credential_checker=credential_checker,
-    )
-    if args.resume is not None:
-        atlas.resume(
-            dev_out_dir=config["dev_out_dir"],
-            run_id=args.resume or None,
+        theme = THEME_FILE.read_text(encoding="utf-8")
+        store = OntoStore(storage_dir=config["ontology_storage_dir"])
+        for framework in REMOVED_ONTOLOGY_FRAMEWORKS:
+            store.configure_framework(framework, remove=True)
+
+        credential_checker = GoogleCredentialPreflight()
+        atlas = Atlas(
+            metadata={},
+            ontostore=store,
+            cache_ontologies=True,
+            credential_checker=credential_checker,
+        )
+        if args.resume is not None:
+            atlas.resume(
+                dev_out_dir=config["dev_out_dir"],
+                run_id=args.resume or None,
+                out=config["atlas_out"],
+            )
+            return 0
+        atlas.create_atlas(
+            query=None,
+            file=None,
             out=config["atlas_out"],
+            theme=theme,
+            review_filter=REVIEW_FILTER,
+            metadata_repositories=METADATA_REPOSITORIES,
+            max_publications=MAX_PUBLICATIONS,
+            collect_metadata=COLLECT_METADATA,
+            dev_trace=DEV_TRACE,
+            dev_out_dir=config["dev_out_dir"],
+            harmonization_details_out=config["harmonization_details_out"],
+            generate_queries=GENERATE_QUERIES,
+            max_generated_queries=MAX_GENERATED_QUERIES,
+            harmonization_options=HARMONIZATION_OPTIONS,
         )
         return 0
-    atlas.create_atlas(
-        query=None,
-        file=None,
-        out=config["atlas_out"],
-        theme=theme,
-        review_filter=REVIEW_FILTER,
-        metadata_repositories=METADATA_REPOSITORIES,
-        max_publications=MAX_PUBLICATIONS,
-        collect_metadata=COLLECT_METADATA,
-        dev_trace=DEV_TRACE,
-        dev_out_dir=config["dev_out_dir"],
-        harmonization_details_out=config["harmonization_details_out"],
-        generate_queries=GENERATE_QUERIES,
-        max_generated_queries=MAX_GENERATED_QUERIES,
-        harmonization_options=HARMONIZATION_OPTIONS,
-    )
-    return 0
 
 
 if __name__ == "__main__":

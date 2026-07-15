@@ -13,6 +13,7 @@ import sys
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.credentials import GoogleCredentialPreflight
 from ThematicAtlases.query_catalog import load_query_catalog
+from ThematicAtlases.run_archive import workflow_activity_lock
 from ThematicAtlases.summary import build_atlas_summary
 
 
@@ -135,56 +136,73 @@ def main(argv: list[str] | None = None) -> int:
     require_project_venv(root=ROOT, executable=sys.executable)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     config = resolved_configuration(generate_query=args.generate_query)
-    configure_logging(Path(config["log_out"]))
-    print(json.dumps(config, indent=2))
-
-    theme = THEME_FILE.read_text(encoding="utf-8")
-    atlas = Atlas(
-        metadata={},
-        credential_checker=GoogleCredentialPreflight(),
-    )
-    if args.resume is not None:
-        if args.amend_queries:
-            atlas.amend_queries(
+    new_run = args.resume is None
+    with workflow_activity_lock(
+        config["dev_out_dir"], exclusive=new_run, blocking=False
+    ) as activity_lock:
+        if new_run:
+            Atlas.archive_existing_runs(
                 dev_out_dir=config["dev_out_dir"],
-                run_id=args.resume,
-                queries=FIBROSIS_DISCOVERY_QUERIES,
-                max_publications_per_query=MAX_PUBLICATIONS_PER_QUERY,
+                archive_root=str(OUTPUT_DIR / "previous_runs"),
+                workflow="fibrosis_discovery",
+                artifact_paths=[
+                    config["discovery_out"],
+                    config["summary_out"],
+                    config["log_out"],
+                ],
             )
-        atlas.resume(
-            dev_out_dir=config["dev_out_dir"],
-            run_id=args.resume or None,
+            activity_lock.downgrade()
+
+        configure_logging(Path(config["log_out"]))
+        print(json.dumps(config, indent=2))
+
+        theme = THEME_FILE.read_text(encoding="utf-8")
+        atlas = Atlas(
+            metadata={},
+            credential_checker=GoogleCredentialPreflight(),
+        )
+        if args.resume is not None:
+            if args.amend_queries:
+                atlas.amend_queries(
+                    dev_out_dir=config["dev_out_dir"],
+                    run_id=args.resume,
+                    queries=FIBROSIS_DISCOVERY_QUERIES,
+                    max_publications_per_query=MAX_PUBLICATIONS_PER_QUERY,
+                )
+            atlas.resume(
+                dev_out_dir=config["dev_out_dir"],
+                run_id=args.resume or None,
+                out=config["discovery_out"],
+                stop_before_review=STOP_BEFORE_REVIEW,
+            )
+            return 0
+        result = atlas.collect_datasets(
+            query=config["query"],
+            file=None,
             out=config["discovery_out"],
+            theme=theme,
+            review_filter=REVIEW_FILTER,
+            review_strategy=REVIEW_STRATEGY,
+            metadata_repositories=METADATA_REPOSITORIES,
+            max_publications=MAX_PUBLICATIONS,
+            max_publications_per_query=config["max_publications_per_query"],
+            collect_metadata=COLLECT_METADATA,
+            generate_queries=config["generate_queries"],
+            max_generated_queries=MAX_GENERATED_QUERIES,
+            dev_trace=DEV_TRACE,
+            dev_out_dir=config["dev_out_dir"],
+            review_before_metadata=REVIEW_BEFORE_METADATA,
             stop_before_review=STOP_BEFORE_REVIEW,
         )
+        summary = build_atlas_summary(
+            atlas=result,
+            atlas_path=config["discovery_out"],
+        )
+        Path(config["summary_out"]).write_text(
+            json.dumps(summary, indent=2),
+            encoding="utf-8",
+        )
         return 0
-    result = atlas.collect_datasets(
-        query=config["query"],
-        file=None,
-        out=config["discovery_out"],
-        theme=theme,
-        review_filter=REVIEW_FILTER,
-        review_strategy=REVIEW_STRATEGY,
-        metadata_repositories=METADATA_REPOSITORIES,
-        max_publications=MAX_PUBLICATIONS,
-        max_publications_per_query=config["max_publications_per_query"],
-        collect_metadata=COLLECT_METADATA,
-        generate_queries=config["generate_queries"],
-        max_generated_queries=MAX_GENERATED_QUERIES,
-        dev_trace=DEV_TRACE,
-        dev_out_dir=config["dev_out_dir"],
-        review_before_metadata=REVIEW_BEFORE_METADATA,
-        stop_before_review=STOP_BEFORE_REVIEW,
-    )
-    summary = build_atlas_summary(
-        atlas=result,
-        atlas_path=config["discovery_out"],
-    )
-    Path(config["summary_out"]).write_text(
-        json.dumps(summary, indent=2),
-        encoding="utf-8",
-    )
-    return 0
 
 
 if __name__ == "__main__":
