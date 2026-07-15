@@ -332,6 +332,14 @@ Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=
 
 `ThematicAtlases.collector.AtlasCollector` owns accession discovery and metadata collection.
 
+`AtlasCollector.resume_metadata(trace_dir)` delegates to `TraceMetadataResumer`
+and processes one stable snapshot of the currently available datalink checkpoint
+rows. It applies the trace manifest's repository selection, downloads metadata,
+atomically writes the atlas-shaped `resume_metadata_progress.json`, and exits.
+The root `run_accession_metadata_collector.py TRACE_DIR [-v|-vv]` command exposes
+the same operation. Repeated calls discover later datalinks and reuse completed
+`geo_resolution` and `geo_metadata` items without requiring LLM credentials.
+
 Current responsibilities:
 
 - Build query lists from repeated API/CLI query values and optional UTF-8 query files.
@@ -363,6 +371,10 @@ Repository filtering behavior:
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
+- GEO resolution and metadata downloads use per-item cross-process locks. New
+  metadata checkpoints store provenance-independent packages; reuse rebuilds
+  records from the latest accession snapshot so later publication links are not
+  lost. Legacy record-shaped checkpoint payloads remain readable.
 - ArrayExpress metadata is placeholder-only for now. `ArrayExpressWrapper` preserves the input record and adds `metadata_repository="arrayexpress"`, `metadata_source="placeholder"`, `metadata_status="placeholder"`, and `accession_metadata=null`.
 
 <a id="filterer"></a>
@@ -400,7 +412,13 @@ skipped, failed, full-text, fallback, and missing counts.
 - `review_strategy="direct"` is the default and makes one structured call over the whole publication. The model returns one assessment per supplied GSE covering human samples, eligible transcriptomics, established fibrosis, and explicit evidence-to-accession linkage. Each criterion is `meets`, `fails`, or `uncertain`; application code derives accession and publication decisions instead of accepting a model-authored verdict. `evidence_then_judgement` preserves the prior two-call evidence extraction followed by judgement as an explicit legacy strategy.
 - Direct output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, `strategy`, `review_revision`, derived `judgement`, `reasoning`, `confidence`, `accession_assessments`, and derived `accessions_to_remove`. Missing supplied accessions become uncertain; unknown and duplicate assessments are discarded. Revision 2 treats low-confidence failures as uncertain, requires absent accession linkage to remain uncertain, and evaluates human origin and fibrosis independently. A publication is relevant when at least one supplied accession meets all criteria, not relevant when every accession has a medium/high-confidence explicit failure, and unsure otherwise. Removal suggestions remain trace-only: publication-level `review_filter` does not apply them.
 - The complete available publication remains the primary context. When accession metadata was collected first, each GSE additionally receives its own compact, at-most-500-character MINiML context. Full MINiML, author, protocol, and platform content is not sent, and absent metadata is represented by no compact context rather than inferred accession knowledge.
-- Existing `agentic_curator` reviews are reused only when both stored `theme` and `strategy` match. Review identity includes contract version, strategy, theme, publication text, title, and associated accessions. Contract version 3 invalidates pre-criterion direct checkpoints; a changed contract, text, title, theme, accession set, or strategy triggers a new review.
+- Existing `agentic_curator` reviews are reused only when their effective input matches. Review identity includes contract version, strategy, theme, publication text, title, associated accessions, compact metadata context, and metadata coverage. Contract version 4 invalidates earlier direct checkpoints; a change to any review input triggers a new review.
+- Incremental reviewer snapshots overlay completed metadata checkpoints without
+  waiting for missing metadata. Reviews store `metadata_context` with used and
+  non-used accessions plus per-accession status. Contract version 4 includes the
+  compact metadata context and its coverage in the effective input hash, so
+  metadata arriving after an early review triggers a replacement review on the
+  next reviewer or full-resume invocation. The raw MINiML object is not sent.
 - Each thematic review is checkpointed atomically under `thematic_review/<strategy>:<publication_ref>`. Direct and legacy strategies resume independently. Unversioned legacy checkpoint keys remain in SQLite but are ignored, so their publications are reviewed under the new contract. Per-item locks prevent duplicate calls across processes. A publication-level exception is stored with `review_status="failed"`, retained regardless of `review_filter`, and does not stop later reviews. Invalid or truncated consumed LLM responses are not retried; Europe PMC/network fetching retains its bounded transient retry behavior.
 - Root `run_publication_reviewer.py TRACE_DIR [--theme-file PATH] [--allow-theme-override] [--strategy direct|evidence_then_judgement] [-v|-vv]` checks project ADC, reviews one stable datalink snapshot, prints counts, and exits so it can be invoked again as collection advances. The override flag is required when intentionally reviewing a historical collector snapshot with a newer explicit theme.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.

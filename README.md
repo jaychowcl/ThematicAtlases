@@ -140,6 +140,35 @@ from ThematicAtlases.filterer import PublicationTextReviewer
 snapshot = PublicationTextReviewer().resume(".dev/RUN_ID")
 ```
 
+Metadata can be downloaded independently for the same stable datalink snapshot,
+without waiting for discovery or starting thematic review:
+
+```bash
+.env/bin/python run_accession_metadata_collector.py \
+  .out/dev_trace_discovery/RUN_ID -v
+```
+
+This writes `resume_metadata_progress.json` and reusable `geo_resolution` and
+`geo_metadata` rows in the trace database. Run it again later to pick up newly
+available datalinks. Metadata checkpoints store packages independently from
+publication provenance, so a later publication pointing to an already cached
+GSE is retained when the final accession record is rebuilt.
+
+The publication reviewer uses completed metadata when it is available and does
+not wait when it is pending. Each review records `metadata_context` with the
+accessions whose compact MINiML context was used and those reviewed without it.
+If metadata becomes available later, the changed review input invalidates that
+publication's prior review and the next reviewer or full resume run reviews it
+again. Full MINiML is never sent to the reviewer.
+
+The same metadata snapshot workflow is available in Python:
+
+```python
+from ThematicAtlases.collector import AtlasCollector
+
+snapshot = AtlasCollector().resume_metadata(".dev/RUN_ID")
+```
+
 Collect GEO datasets from a query:
 
 ```bash

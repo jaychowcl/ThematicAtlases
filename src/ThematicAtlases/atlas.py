@@ -582,6 +582,7 @@ class Atlas:
                         "01_collected_accessions.json",
                         "resume_publication_collection.json",
                         "resume_publication_collection.summary.json",
+                        "resume_metadata_progress.json",
                         "02_reviewed_datasets.json",
                         "resume_metadata_enriched_datasets.json",
                         "06_final_atlas.json",
