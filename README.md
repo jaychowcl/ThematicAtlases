@@ -148,9 +148,12 @@ without waiting for discovery or starting thematic review:
   .out/dev_trace_discovery/RUN_ID -v
 ```
 
-This writes `resume_metadata_progress.json` and reusable `geo_resolution` and
-`geo_metadata` rows in the trace database. Run it again later to pick up newly
-available datalinks. Metadata checkpoints store packages independently from
+This appends human-readable progress and stage statistics to
+`resume_metadata.log`, writes `resume_metadata_progress.json`, and stores
+reusable `geo_resolution` and `geo_metadata` rows in the trace database. Run it
+again later to pick up newly available datalinks. Each invocation rebuilds the
+deduplicated GSE list from its current snapshot but reuses completed resolution
+checkpoints without another NCBI call. Metadata checkpoints store packages independently from
 publication provenance, so a later publication pointing to an already cached
 GSE is retained when the final accession record is rebuilt.
 

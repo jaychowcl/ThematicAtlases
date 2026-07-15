@@ -337,8 +337,11 @@ and processes one stable snapshot of the currently available datalink checkpoint
 rows. It applies the trace manifest's repository selection, downloads metadata,
 atomically writes the atlas-shaped `resume_metadata_progress.json`, and exits.
 The root `run_accession_metadata_collector.py TRACE_DIR [-v|-vv]` command exposes
-the same operation. Repeated calls discover later datalinks and reuse completed
-`geo_resolution` and `geo_metadata` items without requiring LLM credentials.
+the same operation and appends progress, snapshot sizes, checkpoint status
+counts, repository counts, and completion statistics to
+`resume_metadata.log`. Repeated calls discover later datalinks, rebuild the
+deduplicated GSE list, and reuse completed `geo_resolution` and `geo_metadata`
+items without repeating their network calls or requiring LLM credentials.
 
 Current responsibilities:
 

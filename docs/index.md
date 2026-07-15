@@ -67,7 +67,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: collector
   title: Collector
   anchor: collector
-  keywords: AtlasCollector, query loading, collect_jsons, collect_metadata, skip metadata, resume_metadata, TraceMetadataResumer, run_accession_metadata_collector.py, resume_metadata_progress, metadata snapshot, concurrent metadata, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
+  keywords: AtlasCollector, query loading, collect_jsons, collect_metadata, skip metadata, resume_metadata, TraceMetadataResumer, run_accession_metadata_collector.py, resume_metadata_progress, resume_metadata.log, metadata logging, checkpoint stats, metadata snapshot, concurrent metadata, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
 
 - id: filterer
   title: Filterer
