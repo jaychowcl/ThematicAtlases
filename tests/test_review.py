@@ -9,6 +9,7 @@ from ThematicAtlases.filterer.review import (
     REVIEW_CONTRACT_VERSION,
     PublicationTextReviewer,
 )
+from ThematicAtlases.filterer import review as review_module
 from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.checkpoint import CheckpointStore
 
@@ -675,6 +676,50 @@ def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) ->
         "GSE2",
     ]
     assert set(result["publication_texts"]) == {"1", "2"}
+
+
+def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="stable abstract",
+    )
+    monkeypatch.setattr(
+        review_module,
+        "build_miniml_metadata_context",
+        lambda metadata: "compact metadata" if metadata else "",
+    )
+    FakeReviewer.calls = []
+    review = PublicationTextReviewer()
+
+    first = review.resume(trace_dir, reviewer=FakeReviewer())
+    store.put(
+        "geo_metadata",
+        "GSE1",
+        1,
+        "available",
+        payload={
+            "checkpoint_version": 2,
+            "packages": [
+                {"series": {"accession": [{"value": "GSE1"}]}}
+            ],
+        },
+    )
+    second = review.resume(trace_dir, reviewer=FakeReviewer())
+
+    assert len(FakeReviewer.calls) == 2
+    assert first["publication_texts"]["1"]["agentic_curator"]["metadata_context"] == {
+        "used_accessions": [],
+        "not_used_accessions": ["GSE1"],
+        "statuses": {"GSE1": "pending"},
+    }
+    assert second["publication_texts"]["1"]["agentic_curator"]["metadata_context"] == {
+        "used_accessions": ["GSE1"],
+        "not_used_accessions": [],
+        "statuses": {"GSE1": "available"},
+    }
 
 
 def test_resume_picks_up_retryable_datalink_after_it_becomes_available(
