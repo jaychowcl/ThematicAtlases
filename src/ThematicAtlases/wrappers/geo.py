@@ -3,9 +3,15 @@ import time
 from contextlib import nullcontext
 
 from meta_standards_converter.converters.geo2json import geo2json
+from meta_standards_converter.enrichers.miniml_enricher import MINiMLEnricher
 import requests
 
 from ThematicAtlases.checkpoint import is_retryable_error
+from ThematicAtlases.wrappers.enrichment import (
+    CheckpointedINSDCFetcher,
+    CheckpointedPubmedFetcher,
+    RetryTags,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +41,7 @@ class GEOWrapper:
         self,
         jsons: list[dict],
         checkpoint_store=None,
+        retry_tags: RetryTags | None = None,
     ) -> list[dict]:
         records = []
         dropped_records = 0
@@ -112,6 +119,7 @@ class GEOWrapper:
         result = self._collect_gse_metadata_records(
             records=deduplicated_records,
             checkpoint_store=checkpoint_store,
+            retry_tags=retry_tags,
         )
         logger.info(
             "GEO accession metadata stats input_records=%s output_records=%s dropped_records=%s",
@@ -349,6 +357,7 @@ class GEOWrapper:
         self,
         records: list[dict],
         checkpoint_store=None,
+        retry_tags: RetryTags | None = None,
     ) -> list[dict]:
         metadata_records = []
         packages_returned = 0
@@ -375,18 +384,75 @@ class GEOWrapper:
                     if checkpoint_store is not None
                     else None
                 )
-                if checkpoint and checkpoint["status"] in {
-                    "available",
-                    "no_data",
-                    "terminal_error",
-                }:
+                if checkpoint and checkpoint["status"] == "available":
+                    payload = checkpoint.get("payload") or {}
+                    packages = list(payload.get("packages") or [])
+                    mode = payload.get("enrichment_mode")
+                    if checkpoint_store is not None and packages and (
+                        mode in {"all", "selected"} or retry_tags is not None
+                    ):
+                        packages, payload = self._repair_enrichment_packages(
+                            packages=packages,
+                            payload=payload,
+                            checkpoint_store=checkpoint_store,
+                            retry_tags=retry_tags,
+                        )
+                        checkpoint_store.put(
+                            "geo_metadata",
+                            gse_accession,
+                            index,
+                            "available",
+                            payload=payload,
+                        )
+                        checkpoint = checkpoint_store.get(
+                            "geo_metadata", gse_accession
+                        )
+                    metadata_records.extend(
+                        self._records_from_metadata_checkpoint(record, checkpoint)
+                    )
+                    continue
+                if checkpoint and checkpoint["status"] in {"no_data", "terminal_error"}:
                     metadata_records.extend(
                         self._records_from_metadata_checkpoint(record, checkpoint)
                     )
                     continue
 
                 try:
-                    packages = self._gse_metadata_packages(gse_accession=gse_accession)
+                    pending_payload = (checkpoint or {}).get("payload") or {}
+                    if (
+                        checkpoint_store is not None
+                        and pending_payload.get("checkpoint_version") == 3
+                        and pending_payload.get("packages")
+                    ):
+                        packages = list(pending_payload["packages"])
+                        packages, pending_payload = self._repair_enrichment_packages(
+                            packages=packages,
+                            payload=pending_payload,
+                            checkpoint_store=checkpoint_store,
+                            retry_tags=retry_tags,
+                        )
+                    elif checkpoint_store is not None:
+                        if type(self)._gse_metadata_packages is not GEOWrapper._gse_metadata_packages:
+                            packages = self._gse_metadata_packages(
+                                gse_accession=gse_accession
+                            )
+                            pending_payload = {
+                                "checkpoint_version": 2,
+                                "packages": packages,
+                            }
+                        else:
+                            packages, pending_payload = self._checkpointed_gse_metadata_packages(
+                                gse_accession=gse_accession,
+                                index=index,
+                                checkpoint_store=checkpoint_store,
+                                retry_tags=retry_tags,
+                            )
+                    else:
+                        packages = self._gse_metadata_packages(gse_accession=gse_accession)
+                        pending_payload = {
+                            "checkpoint_version": 2,
+                            "packages": packages,
+                        }
                 except Exception as error:
                     error_records += 1
                     logger.warning(
@@ -404,7 +470,8 @@ class GEOWrapper:
                             "retryable_error"
                             if is_retryable_error(error)
                             else "terminal_error",
-                            payload={"checkpoint_version": 2, "packages": []},
+                            payload=(checkpoint or {}).get("payload")
+                            or {"checkpoint_version": 3, "packages": []},
                             error=str(error),
                         )
                     continue
@@ -418,7 +485,12 @@ class GEOWrapper:
                             gse_accession,
                             index,
                             "no_data",
-                            payload={"checkpoint_version": 2, "packages": []},
+                            payload={
+                                "checkpoint_version": 3,
+                                "enrichment_mode": "all",
+                                "enrichment_state": "complete",
+                                "packages": [],
+                            },
                         )
                     continue
 
@@ -434,7 +506,11 @@ class GEOWrapper:
                         gse_accession,
                         index,
                         "available",
-                        payload={"checkpoint_version": 2, "packages": packages},
+                        payload={
+                            **pending_payload,
+                            "packages": packages,
+                            "enrichment_state": "complete",
+                        },
                     )
 
         result = self._deduplicate_gse_jsons(jsons=metadata_records)
@@ -448,6 +524,180 @@ class GEOWrapper:
             len(result),
         )
         return result
+
+    def _checkpointed_gse_metadata_packages(
+        self,
+        *,
+        gse_accession: str,
+        index: int,
+        checkpoint_store,
+        retry_tags: RetryTags | None,
+    ) -> tuple[list[dict], dict]:
+        enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
+        converter = geo2json(enricher=enricher)
+        logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
+        packages = converter.convert(
+            gse=gse_accession,
+            related_series=True,
+            remove_empty=True,
+            enrich=False,
+            out=None,
+        )
+        payload = {
+            "checkpoint_version": 3,
+            "enrichment_mode": "all",
+            "enrichment_state": "pending",
+            "packages": packages,
+        }
+        checkpoint_store.put(
+            "geo_metadata",
+            gse_accession,
+            index,
+            "retryable_error",
+            payload=payload,
+            error="identifier enrichment pending",
+        )
+        for package_index, package in enumerate(packages):
+            packages[package_index] = converter.enricher.enrich(data=package)
+            payload["packages"] = packages
+            checkpoint_store.put(
+                "geo_metadata",
+                gse_accession,
+                index,
+                "retryable_error",
+                payload=payload,
+                error="identifier enrichment pending",
+            )
+        return packages, payload
+
+    def _checkpointed_enricher(
+        self,
+        checkpoint_store,
+        retry_tags: RetryTags | None = None,
+        *,
+        ena_identifiers=None,
+    ):
+        return MINiMLEnricher(
+            pubmed_fetcher=CheckpointedPubmedFetcher(
+                checkpoint_store,
+                forced_identifiers=() if retry_tags is None else retry_tags.pubmed,
+                tag_id=None if retry_tags is None else retry_tags.tag_id,
+            ),
+            insdc_fetcher=CheckpointedINSDCFetcher(
+                checkpoint_store,
+                forced_sra=() if retry_tags is None else retry_tags.sra,
+                forced_ena=() if retry_tags is None else retry_tags.ena,
+                ena_identifiers=ena_identifiers,
+                tag_id=None if retry_tags is None else retry_tags.tag_id,
+            ),
+        )
+
+    def _repair_enrichment_packages(
+        self,
+        *,
+        packages: list[dict],
+        payload: dict,
+        checkpoint_store,
+        retry_tags: RetryTags | None,
+    ) -> tuple[list[dict], dict]:
+        mode = payload.get("enrichment_mode")
+        if mode == "all":
+            enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
+            packages = [enricher.enrich(data=package) for package in packages]
+            return packages, {**payload, "packages": packages, "enrichment_state": "complete"}
+
+        tracked = payload.get("tracked_identifiers") or {
+            "pubmed": [], "sra": [], "ena": []
+        }
+        tracked = {key: list(values) for key, values in tracked.items()}
+        if retry_tags is not None:
+            for key in ("pubmed", "sra", "ena"):
+                for identifier in getattr(retry_tags, key):
+                    if identifier not in tracked[key]:
+                        tracked[key].append(identifier)
+        selected = RetryTags(
+            tag_id="" if retry_tags is None else retry_tags.tag_id,
+            pubmed=tuple(tracked["pubmed"]),
+            sra=tuple(tracked["sra"]),
+            ena=tuple(tracked["ena"]),
+        )
+        packages = self._repair_selected_packages(
+            packages,
+            checkpoint_store,
+            selected,
+            retry_tags,
+        )
+        return packages, {
+            **payload,
+            "checkpoint_version": 3,
+            "enrichment_mode": "selected",
+            "enrichment_state": "complete",
+            "tracked_identifiers": tracked,
+            "packages": packages,
+        }
+
+    def _repair_selected_packages(
+        self,
+        packages,
+        checkpoint_store,
+        selected: RetryTags,
+        forced: RetryTags | None,
+    ):
+        pubmed_fetcher = CheckpointedPubmedFetcher(
+            checkpoint_store,
+            forced_identifiers=() if forced is None else forced.pubmed,
+            tag_id=None if forced is None else forced.tag_id,
+        )
+        insdc_fetcher = CheckpointedINSDCFetcher(
+            checkpoint_store,
+            forced_sra=() if forced is None else forced.sra,
+            forced_ena=() if forced is None else forced.ena,
+            ena_identifiers=selected.ena,
+            tag_id=None if forced is None else forced.tag_id,
+        )
+        for package in packages:
+            series = package.get("series") if isinstance(package.get("series"), dict) else {}
+            publications = series.get("pubmed_publication") or []
+            publications = publications if isinstance(publications, list) else [publications]
+            for publication in publications:
+                identifier = str(publication.get("pubmed_id") or "")
+                if identifier not in selected.pubmed:
+                    continue
+                try:
+                    values = pubmed_fetcher.pubmed_summary(identifier)
+                except Exception:
+                    continue
+                for field, value in zip(
+                    ("doi", "author_list", "title", "status", "status_term_source_ref", "status_term_accession_number"),
+                    values,
+                ):
+                    publication[field] = value
+
+            samples = package.get("sample") or []
+            samples = samples if isinstance(samples, list) else [samples]
+            for sample in samples:
+                if not isinstance(sample, dict):
+                    continue
+                accessions = sample.get("sra_accession") or []
+                accessions = accessions if isinstance(accessions, list) else [accessions]
+                runs = list(sample.get("sra_run") or [])
+                for identifier in accessions:
+                    identifier = str(identifier).upper()
+                    if identifier in selected.sra:
+                        try:
+                            runs = insdc_fetcher.fetch_sra_runs(identifier)
+                        except Exception:
+                            continue
+                    elif identifier in selected.ena:
+                        fastqs = insdc_fetcher.fetch_ena_fastq_files(identifier)
+                        for run in runs:
+                            files = fastqs.get(run.get("run"))
+                            if files:
+                                run["fastq_files"] = files
+                                run["submitted_file_name"] = files[0].get("filename")
+                                run["md5"] = files[0].get("md5")
+                sample["sra_run"] = runs
+        return packages
 
     def _metadata_records_from_packages(self, record: dict, packages: list[dict]) -> list[dict]:
         return [

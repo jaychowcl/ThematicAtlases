@@ -275,6 +275,9 @@ class Atlas:
                 "datalinks",
                 "geo_resolution",
                 "geo_metadata",
+                "pubmed_enrichment",
+                "sra_xml",
+                "ena_fastq",
                 "publication_text",
             )
         )
@@ -283,7 +286,13 @@ class Atlas:
         review_retryable = checkpoint_store.has_retryable("publication_text")
         metadata_retryable = any(
             checkpoint_store.has_retryable(stage)
-            for stage in ("geo_resolution", "geo_metadata")
+            for stage in (
+                "geo_resolution",
+                "geo_metadata",
+                "pubmed_enrichment",
+                "sra_xml",
+                "ena_fastq",
+            )
         )
         review_before_metadata = manifest.get("review_before_metadata", False)
         final_path = run_dir / "06_final_atlas.json"

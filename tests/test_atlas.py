@@ -898,9 +898,14 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
         filterer=RecordingFilterer(),
     ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="retry-collection")
 
+    assert len(calls) == 1
+    assert result["accessions"][0]["datalink_id"] == "GSE1"
+
 
 @pytest.mark.parametrize("stage", ["pubmed_enrichment", "sra_xml", "ena_fastq"])
 def test_resume_ignores_final_output_for_retryable_enrichment_stage(tmp_path, stage) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
     run_dir = tmp_path / "trace" / f"retry-{stage}"
     run_dir.mkdir(parents=True)
     manifest = {
@@ -921,23 +926,18 @@ def test_resume_ignores_final_output_for_retryable_enrichment_stage(tmp_path, st
     store.put(stage, "item", 1, "retryable_error", error="timeout")
 
     class RecordingCollector:
-        def collect_jsons(self, **kwargs):
-            return []
+        def collect_jsons(self, checkpoint_store=None, **kwargs):
+            checkpoint_store.put(stage, "item", 1, "available", payload={})
+            return [{"datalink_id": "GSE1", "publications": []}]
 
     atlas = Atlas(
         metadata={},
         collector=RecordingCollector(),
-        filterer=FakeFilterer(),
-        harmonizer=FakeHarmonizer(),
-        credential_checker=lambda: None,
+        filterer=RecordingFilterer(),
     )
     result = atlas.resume(dev_out_dir=str(tmp_path / "trace"), run_id=run_dir.name)
 
     assert result != {"accessions": [{"final": True}]}
-
-    assert len(calls) == 1
-    assert result["accessions"][0]["datalink_id"] == "GSE1"
-
 
 def test_collect_datasets_can_review_before_collecting_metadata() -> None:
     events = []

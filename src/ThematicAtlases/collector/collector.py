@@ -31,9 +31,19 @@ class AtlasCollector:
         self._metadata_resume_orchestrator_factory = metadata_resume_orchestrator_factory
         self._metadata_resume_orchestrator_instance = None
 
-    def resume_metadata(self, trace_dir: str) -> dict:
+    def resume_metadata(
+        self,
+        trace_dir: str,
+        *,
+        audit_enrichment_only: bool = False,
+        retry_tags=None,
+    ) -> dict:
         """Collect metadata for the current datalink snapshot in a trace."""
-        return self._metadata_resume_orchestrator().resume(trace_dir)
+        return self._metadata_resume_orchestrator().resume(
+            trace_dir,
+            audit_enrichment_only=audit_enrichment_only,
+            retry_tags=retry_tags,
+        )
 
     def _metadata_resume_orchestrator(self):
         if self._metadata_resume_orchestrator_instance is not None:
@@ -168,6 +178,7 @@ class AtlasCollector:
         jsons: list[dict],
         metadata_repositories: list[str] | tuple[str, ...] | set[str] | None = None,
         checkpoint_store=None,
+        retry_tags=None,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -195,6 +206,8 @@ class AtlasCollector:
             handler_options = {"jsons": repository_jsons}
             if checkpoint_store is not None:
                 handler_options["checkpoint_store"] = checkpoint_store
+            if retry_tags is not None and repository == "geo":
+                handler_options["retry_tags"] = retry_tags
             records.extend(
                 self.metadata_handler(repository=repository).collect_accession_metadata(
                     **handler_options

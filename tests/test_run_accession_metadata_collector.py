@@ -62,8 +62,8 @@ def test_runner_forwards_audit_and_retry_tag_options(tmp_path, monkeypatch, caps
     assert script.main([str(trace_dir), "--audit-enrichment-only"]) == 0
     assert script.main([str(trace_dir), "--retry-tags", str(tags)]) == 0
     assert calls == [
-        (trace_dir, {"audit_enrichment_only": True, "retry_tags": None}),
-        (trace_dir, {"audit_enrichment_only": False, "retry_tags": tags}),
+        (trace_dir, {"audit_enrichment_only": True}),
+        (trace_dir, {"retry_tags": tags}),
     ]
 
 

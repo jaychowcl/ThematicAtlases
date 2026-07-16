@@ -76,3 +76,55 @@ def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path, c
     assert "Metadata snapshot stats datalink_checkpoints=1 datalink_rows=1" in caplog.text
     assert "Metadata checkpoint stats" in caplog.text
     assert "Metadata snapshot complete accessions=2" in caplog.text
+
+
+def test_metadata_audit_writes_report_and_template_without_collecting(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    trace_dir.mkdir()
+    (trace_dir / "00_run_manifest.json").write_text("{}", encoding="utf-8")
+    store = CheckpointStore(trace_dir / "resume_state.sqlite")
+    store.put(
+        "geo_metadata",
+        "GSE1",
+        1,
+        "available",
+        payload={
+            "checkpoint_version": 2,
+            "packages": [
+                {
+                    "series": {
+                        "accession": [{"value": "GSE1"}],
+                        "pubmed_publication": [
+                            {
+                                "pubmed_id": "123",
+                                "doi": None,
+                                "author_list": None,
+                                "title": None,
+                                "status": None,
+                                "status_term_source_ref": None,
+                                "status_term_accession_number": None,
+                            }
+                        ],
+                    }
+                }
+            ],
+        },
+    )
+
+    class UnexpectedCollector:
+        def __init__(self):
+            raise AssertionError("audit must not construct a network collector")
+
+    result = TraceMetadataResumer(
+        collector_factory=UnexpectedCollector,
+        epmc_wrapper_factory=lambda: None,
+    ).resume(trace_dir, audit_enrichment_only=True)
+
+    assert result["counts"]["pubmed"] == 1
+    assert json.loads(
+        (trace_dir / "resume_enrichment_candidates.json").read_text()
+    ) == result
+    assert json.loads(
+        (trace_dir / "resume_enrichment_retry_tags.json").read_text()
+    ) == {"tag_id": "", "pubmed": [], "sra": [], "ena": []}
+    assert store.items("pubmed_enrichment") == []

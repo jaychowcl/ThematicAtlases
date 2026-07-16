@@ -3,10 +3,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
+import pytest
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers import geo as geo_module
 from ThematicAtlases.wrappers.geo import GEOWrapper
+from ThematicAtlases.wrappers.enrichment import RetryTags
 
 
 class FakeResponse:
@@ -201,6 +203,110 @@ def test_geo_metadata_item_lock_prevents_duplicate_concurrent_downloads(tmp_path
         assert second.result()[0]["metadata_status"] == "available"
 
     assert calls == ["GSE1"]
+
+
+def test_interrupted_identifier_enrichment_reuses_parsed_gse_packages(
+    tmp_path, monkeypatch
+) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    converter_calls = []
+
+    class FakeConverter:
+        def __init__(self, enricher):
+            self.enricher = enricher
+
+        def convert(self, **kwargs):
+            converter_calls.append(kwargs)
+            return [{"series": {"accession": [{"value": "GSE1"}]}}]
+
+    monkeypatch.setattr(geo_module, "geo2json", FakeConverter)
+
+    class InterruptingEnricher:
+        def enrich(self, data):
+            raise KeyboardInterrupt()
+
+    class InterruptingGeo(GEOWrapper):
+        def _checkpointed_enricher(self, *args, **kwargs):
+            return InterruptingEnricher()
+
+    record = {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []}
+    with pytest.raises(KeyboardInterrupt):
+        InterruptingGeo().collect_accession_metadata([record], checkpoint_store=store)
+
+    pending = store.get("geo_metadata", "GSE1")
+    assert pending["status"] == "retryable_error"
+    assert pending["payload"]["enrichment_state"] == "pending"
+
+    class CompletingEnricher:
+        def enrich(self, data):
+            data["repaired"] = True
+            return data
+
+    class CompletingGeo(GEOWrapper):
+        def _checkpointed_enricher(self, *args, **kwargs):
+            return CompletingEnricher()
+
+    result = CompletingGeo().collect_accession_metadata([record], checkpoint_store=store)
+
+    assert result[0]["accession_metadata"]["repaired"] is True
+    assert len(converter_calls) == 1
+    assert store.get("geo_metadata", "GSE1")["status"] == "available"
+
+
+def test_manual_tag_repairs_every_affected_legacy_package(tmp_path, monkeypatch) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    package = {
+        "series": {
+            "accession": [{"value": "GSE1"}],
+            "pubmed_publication": [{"pubmed_id": "123", "title": None}],
+        }
+    }
+    store.put(
+        "geo_metadata",
+        "GSE1",
+        1,
+        "available",
+        payload={
+            "checkpoint_version": 2,
+            "packages": [
+                package,
+                {
+                    "series": {
+                        "accession": [{"value": "GSE2"}],
+                        "pubmed_publication": [
+                            {"pubmed_id": "123", "title": None}
+                        ],
+                    }
+                },
+            ],
+        },
+    )
+    calls = []
+
+    class FakeCheckpointedPubmed:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def pubmed_summary(self, identifier):
+            calls.append(identifier)
+            return (None, None, "Repaired title", None, None, None)
+
+    monkeypatch.setattr(geo_module, "CheckpointedPubmedFetcher", FakeCheckpointedPubmed)
+    record = {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []}
+    result = GEOWrapper().collect_accession_metadata(
+        [record],
+        checkpoint_store=store,
+        retry_tags=RetryTags(tag_id="manual-1", pubmed=("123",)),
+    )
+
+    assert [
+        item["accession_metadata"]["series"]["pubmed_publication"][0]["title"]
+        for item in result
+    ] == ["Repaired title", "Repaired title"]
+    assert calls == ["123", "123"]
+    payload = store.get("geo_metadata", "GSE1")["payload"]
+    assert payload["enrichment_mode"] == "selected"
+    assert payload["tracked_identifiers"]["pubmed"] == ["123"]
 
 
 def test_collect_accession_metadata_keeps_gse_and_publications() -> None:

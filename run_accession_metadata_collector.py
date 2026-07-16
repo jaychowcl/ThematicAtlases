@@ -54,6 +54,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="run directory containing 00_run_manifest.json and resume_state.sqlite",
     )
     parser.add_argument("-v", "--verbose", action="count", default=0)
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument(
+        "--audit-enrichment-only",
+        action="store_true",
+        help="audit cached legacy enrichment without network calls",
+    )
+    actions.add_argument(
+        "--retry-tags",
+        type=Path,
+        help="explicit PubMed/SRA/ENA identifiers to retry",
+    )
     return parser.parse_args(argv)
 
 
@@ -68,7 +79,30 @@ def main(argv: list[str] | None = None) -> int:
         args.trace_dir / "resume_metadata_progress.json",
         log_path,
     )
-    result = AtlasCollector().resume_metadata(args.trace_dir)
+    resume_options = {}
+    if args.audit_enrichment_only:
+        resume_options["audit_enrichment_only"] = True
+    if args.retry_tags is not None:
+        resume_options["retry_tags"] = args.retry_tags
+    result = AtlasCollector().resume_metadata(args.trace_dir, **resume_options)
+    if args.audit_enrichment_only:
+        print(
+            json.dumps(
+                {
+                    "trace_dir": str(args.trace_dir),
+                    "candidates": result.get("counts", {}),
+                    "candidate_artifact": str(
+                        args.trace_dir / "resume_enrichment_candidates.json"
+                    ),
+                    "retry_tag_template": str(
+                        args.trace_dir / "resume_enrichment_retry_tags.json"
+                    ),
+                    "log_path": str(log_path),
+                },
+                indent=2,
+            )
+        )
+        return 0
     print(
         json.dumps(
             {
