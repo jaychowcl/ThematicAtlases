@@ -898,6 +898,43 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
         filterer=RecordingFilterer(),
     ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="retry-collection")
 
+
+@pytest.mark.parametrize("stage", ["pubmed_enrichment", "sra_xml", "ena_fastq"])
+def test_resume_ignores_final_output_for_retryable_enrichment_stage(tmp_path, stage) -> None:
+    run_dir = tmp_path / "trace" / f"retry-{stage}"
+    run_dir.mkdir(parents=True)
+    manifest = {
+        "run_id": run_dir.name,
+        "query": ["fibrosis"],
+        "collect_metadata": True,
+        "metadata_repositories": ["geo"],
+        "review_filter": "none",
+        "review_strategy": "direct",
+        "generate_queries": False,
+        "max_generated_queries": 3,
+        "review_before_metadata": False,
+    }
+    (run_dir / "00_run_manifest.json").write_text(json.dumps(manifest))
+    (run_dir / "06_final_atlas.json").write_text(json.dumps({"accessions": [{"final": True}]}))
+    (run_dir / "01_collected_accessions.json").write_text(json.dumps({"accessions": []}))
+    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store.put(stage, "item", 1, "retryable_error", error="timeout")
+
+    class RecordingCollector:
+        def collect_jsons(self, **kwargs):
+            return []
+
+    atlas = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=FakeFilterer(),
+        harmonizer=FakeHarmonizer(),
+        credential_checker=lambda: None,
+    )
+    result = atlas.resume(dev_out_dir=str(tmp_path / "trace"), run_id=run_dir.name)
+
+    assert result != {"accessions": [{"final": True}]}
+
     assert len(calls) == 1
     assert result["accessions"][0]["datalink_id"] == "GSE1"
 

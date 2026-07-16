@@ -45,6 +45,33 @@ def test_runner_collects_one_metadata_snapshot(tmp_path, monkeypatch, capsys) ->
     }
 
 
+def test_runner_forwards_audit_and_retry_tag_options(tmp_path, monkeypatch, capsys) -> None:
+    calls = []
+
+    class RecordingCollector:
+        def resume_metadata(self, trace_dir, **options):
+            calls.append((trace_dir, options))
+            return {"accessions": [], "publication_texts": {}}
+
+    trace_dir = tmp_path / "trace"
+    tags = tmp_path / "tags.json"
+    monkeypatch.setattr(script, "AtlasCollector", RecordingCollector)
+    monkeypatch.setattr(script, "require_project_venv", lambda **kwargs: None)
+    monkeypatch.setattr(script, "configure_logging", lambda *args: None)
+
+    assert script.main([str(trace_dir), "--audit-enrichment-only"]) == 0
+    assert script.main([str(trace_dir), "--retry-tags", str(tags)]) == 0
+    assert calls == [
+        (trace_dir, {"audit_enrichment_only": True, "retry_tags": None}),
+        (trace_dir, {"audit_enrichment_only": False, "retry_tags": tags}),
+    ]
+
+
+def test_audit_and_retry_tags_are_mutually_exclusive() -> None:
+    with pytest.raises(SystemExit):
+        script.parse_args(["trace", "--audit-enrichment-only", "--retry-tags", "tags.json"])
+
+
 def test_configure_logging_appends_to_trace_log(tmp_path) -> None:
     path = tmp_path / "resume_metadata.log"
     script.configure_logging(1, path)
