@@ -321,6 +321,9 @@ repository-filtered accessions, `02_reviewed_datasets.json` for pre-metadata
 survivors, and `resume_metadata_enriched_datasets.json` for the enriched result.
 Resume treats datalink, publication-text/review, and GEO metadata progress as
 separate boundaries, so a GEO retry does not repeat successful reviews.
+Retryable `pubmed_enrichment`, `sra_xml`, and `ena_fastq` rows are also treated
+as incomplete metadata work, preventing a stale final or metadata-enriched
+checkpoint from masking identifier-level repairs.
 Collection-only traces additionally use `resume_publication_collection.json`
 and its summary for the unreviewed accession/publication-text snapshot. Static
 collection-only runs do not require Google credentials; generated-query runs do.
@@ -332,7 +335,8 @@ Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=
 
 `ThematicAtlases.collector.AtlasCollector` owns accession discovery and metadata collection.
 
-`AtlasCollector.resume_metadata(trace_dir)` delegates to `TraceMetadataResumer`
+`AtlasCollector.resume_metadata(trace_dir, *, audit_enrichment_only=False,
+retry_tags=None)` delegates to `TraceMetadataResumer`
 and processes one stable snapshot of the currently available datalink checkpoint
 rows. It applies the trace manifest's repository selection, downloads metadata,
 atomically writes the atlas-shaped `resume_metadata_progress.json`, and exits.
@@ -342,6 +346,11 @@ counts, repository counts, and completion statistics to
 `resume_metadata.log`. Repeated calls discover later datalinks, rebuild the
 deduplicated GSE list, and reuse completed `geo_resolution` and `geo_metadata`
 items without repeating their network calls or requiring LLM credentials.
+`audit_enrichment_only=True` reads legacy GSE packages without network calls,
+writes `resume_enrichment_candidates.json`, and creates an empty
+`resume_enrichment_retry_tags.json` template when needed. `retry_tags=PATH`
+accepts explicit `pubmed`, `sra`, and `ena` identifier lists plus a unique
+`tag_id`; completed tags are idempotent and a new tag forces another lookup.
 
 Current responsibilities:
 
@@ -670,6 +679,22 @@ GEO emits INFO-level progress logs while resolving accessions and collecting met
 Traced runs checkpoint source-accession-to-GSE resolution and each GSE metadata
 conversion separately. Available, unavailable, and terminal parse outcomes are
 reused; transient fetch/conversion failures are retried on resume.
+
+For newly parsed GSE packages, PubMed summaries, NCBI SRA XML, and ENA FASTQ
+reports are separately stored as `pubmed_enrichment/<PMID>`,
+`sra_xml/<SRA accession>`, and `ena_fastq/<SRA accession>`. Each stage uses the
+standard four checkpoint outcomes and a cross-process item lock. Parsed MINiML
+packages are persisted in a pending version-3 `geo_metadata` payload before
+enrichment begins, so interruption resumes enrichment without another MINiML
+download or parse. Identifier failures leave partial GSE metadata available;
+later successful retries are merged into every affected cached package.
+
+Version-2 GSE rows remain readable and are not automatically enriched. The
+audit reports all-null PubMed summaries, SRA accessions without runs, and any
+SRA-linked sample with at least one run lacking FASTQ data. Only identifiers in
+an explicit retry-tag file modify those legacy packages; other inferred gaps
+remain untouched. Atlas records and `accession_metadata` package shapes do not
+change.
 
 <a id="cli-atlas"></a>
 ## CLI Atlas

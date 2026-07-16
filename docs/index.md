@@ -62,12 +62,12 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: atlas-workflow
   title: Atlas Workflow
   anchor: atlas-workflow
-  keywords: Atlas, resume, stop_before_review, collection-only resume, resume_publication_collection, review_before_metadata, resume_metadata_enriched_datasets, resume_state.sqlite, CheckpointStore, archive_existing_runs, whole-run archive, archive_stage, archive_items, selected checkpoint keys, comparison archive, archive id, archive manifest, SHA-256, workflow activity lock, previous_runs, directly resumable, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
+  keywords: Atlas, resume, stop_before_review, collection-only resume, resume_publication_collection, review_before_metadata, resume_metadata_enriched_datasets, resume_state.sqlite, CheckpointStore, enrichment retry, pubmed_enrichment, sra_xml, ena_fastq, archive_existing_runs, whole-run archive, archive_stage, archive_items, selected checkpoint keys, comparison archive, archive id, archive manifest, SHA-256, workflow activity lock, previous_runs, directly resumable, retryable_error, terminal_error, run fingerprint, orchestrator, dependency injection, query_generator, credential_checker, ontostore, cache_ontologies, cache_all, force_frameworks, streaming OWL, SQLite staging, eager ontology cache, generate_queries, max_generated_queries, harmonization_options, create_atlas, collect_datasets, harmonize_datasets, summary, dev trace, checkpoints
 
 - id: collector
   title: Collector
   anchor: collector
-  keywords: AtlasCollector, query loading, collect_jsons, collect_metadata, skip metadata, resume_metadata, TraceMetadataResumer, run_accession_metadata_collector.py, resume_metadata_progress, resume_metadata.log, metadata logging, checkpoint stats, metadata snapshot, concurrent metadata, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
+  keywords: AtlasCollector, query loading, collect_jsons, collect_metadata, skip metadata, resume_metadata, audit_enrichment_only, retry_tags, resume_enrichment_candidates, retry tag template, TraceMetadataResumer, run_accession_metadata_collector.py, resume_metadata_progress, resume_metadata.log, metadata logging, checkpoint stats, metadata snapshot, concurrent metadata, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
 
 - id: filterer
   title: Filterer
@@ -97,4 +97,4 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: geo-wrapper
   title: GEO Wrapper
   anchor: geo-wrapper
-  keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs
+  keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, MINiMLEnricher, PubMed, SRA, ENA, identifier checkpoint, partial metadata, enrichment repair, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs

@@ -157,6 +157,33 @@ checkpoints without another NCBI call. Metadata checkpoints store packages indep
 publication provenance, so a later publication pointing to an already cached
 GSE is retained when the final accession record is rebuilt.
 
+New GEO packages also checkpoint each enrichment lookup independently under
+`pubmed_enrichment`, `sra_xml`, and `ena_fastq`. Transient PubMed, NCBI SRA,
+or ENA failures retain partial GSE metadata and retry without downloading or
+parsing MINiML again. Successful, no-data, and terminal outcomes are reused by
+exact identifier, including across GSE packages.
+
+Audit older GSE checkpoints without issuing network requests:
+
+```bash
+.env/bin/python run_accession_metadata_collector.py \
+  .out/dev_trace_discovery/RUN_ID --audit-enrichment-only -v
+```
+
+This writes `resume_enrichment_candidates.json` and, when absent, an empty
+`resume_enrichment_retry_tags.json` template. Candidates are informational and
+are never retried automatically. To repair confirmed historical identifiers,
+populate a tag file with a unique non-empty `tag_id` and run:
+
+```bash
+.env/bin/python run_accession_metadata_collector.py \
+  .out/dev_trace_discovery/RUN_ID --retry-tags PATH -v
+```
+
+Each tag is idempotent. Reusing the same tag skips its completed calls; a new
+tag explicitly forces another request. Applied results are merged into every
+affected cached package without changing the atlas or MINiML package schemas.
+
 The publication reviewer uses completed metadata when it is available and does
 not wait when it is pending. Each review records `metadata_context` with the
 accessions whose compact MINiML context was used and those reviewed without it.
@@ -170,6 +197,9 @@ The same metadata snapshot workflow is available in Python:
 from ThematicAtlases.collector import AtlasCollector
 
 snapshot = AtlasCollector().resume_metadata(".dev/RUN_ID")
+audit = AtlasCollector().resume_metadata(
+    ".dev/RUN_ID", audit_enrichment_only=True
+)
 ```
 
 Collect GEO datasets from a query:
