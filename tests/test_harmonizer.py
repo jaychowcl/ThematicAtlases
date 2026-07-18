@@ -21,6 +21,7 @@ class RecordingOntologyHarmonizer:
             "harmonization_targets": [{"id": "target-1"}],
             "workflow": "local_rag_ols",
             "target_paths": [{"path": "/samples"}],
+            "controls": {"direct_lookup_judge": True},
         }
 
 
@@ -64,6 +65,7 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
             "harmonization_targets": [{"id": "target-1"}],
             "workflow": "local_rag_ols",
             "target_paths": [{"path": "/samples"}],
+            "controls": {"direct_lookup_judge": True},
         }
     ]
 

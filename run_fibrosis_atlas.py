@@ -32,9 +32,13 @@ LOG_LEVEL = "DEBUG"
 MAX_WORKERS = 1
 REMOVED_ONTOLOGY_FRAMEWORKS = ["snomed"]
 HARMONIZATION_OPTIONS = {
-    "lookup_llm_judge": True,
-    "search_llm_judge": True,
-    "llm": True,
+    "target_checker": True,
+    "direct_lookup_judge": True,
+    "rag_lookup": True,
+    "rag_lookup_judge": True,
+    "ols_lookup": True,
+    "ols_lookup_judge": True,
+    "field_assignment_judge": True,
 }
 
 

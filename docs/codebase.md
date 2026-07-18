@@ -210,7 +210,7 @@ first/every-tenth/final progress for long loops, and stage summaries from all
 three packages. Prompt and response bodies, publication/metadata payloads,
 credentials, authorization headers, and request parameters are not logged.
 
-The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables the fixed LLM-backed local/semantic/OLS harmonization workflow with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
+The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables target checking plus every direct/RAG/OLS/field stage control with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
 
 Prepare and run it with:
 
@@ -475,9 +475,14 @@ cosine-nearest neighbours from persistent USearch partitions. It never downloads
 a missing local framework. OLS is the only external ontology search; no grounded
 web search or prior LLM framework-selection call occurs.
 
-Every available local, semantic, or OLS candidate set is judged when its judge
-is enabled. `no_match` rejects that stage's candidates and continues to the
-next stage. `false` terminally skips a non-harmonizable target, records
+Every available local, semantic, or OLS candidate set is judged when its
+stage-specific judge is enabled. With `direct_lookup_judge=False`, only one
+unique exact identity is accepted; ambiguous exact and FTS candidates remain
+unjudged evidence. `rag_lookup` and `ols_lookup` independently control
+retrieval, while their judge switches independently control selection. An
+unjudged RAG or OLS candidate list is trace-only and the first result is never
+automatically applied. `no_match` rejects that stage's candidates and continues
+to the next stage. `false` terminally skips a non-harmonizable target, records
 `harmonization_status="skipped"` plus `harmonization_skip`, and bypasses later
 search, label, field, and MINiML application. The OLS judge receives a neutral
 candidate section and no restricted/unrestricted stage literal.
@@ -487,11 +492,14 @@ replaces `hz_label` and is supplied to field lookup/assignment together with
 the original `pre_hz_label`. If no term matches, field harmonization uses the
 normalized input label; terminal skips are the exception.
 
-The details sidecar records targets, `workflow`, paths, statuses, errors, and
-configured `preferred_ontology_ids` by `datalink_id`. The current upstream
-wrapper reports `workflow="local_rag_ols"`. Per-run `harmonization_options`
-such as `target_paths`, `llm`, and judge toggles are forwarded unchanged; the
-removed strategy argument must not be supplied.
+The details sidecar records targets, `workflow`, effective `controls`, paths,
+statuses, errors, and configured `preferred_ontology_ids` by `datalink_id`.
+The current upstream wrapper reports `workflow="local_rag_ols"`. Per-run
+`harmonization_options` such as `target_paths`, `target_checker`,
+`direct_lookup_judge`, `rag_lookup`, `rag_lookup_judge`, `ols_lookup`,
+`ols_lookup_judge`, and `field_assignment_judge` are forwarded unchanged.
+The removed `llm`, `lookup_llm_judge`, and `search_llm_judge` keys fail fast
+before metadata iteration or upstream harmonizer construction.
 
 Identical metadata/context/options/preferences are memoized within a run.
 Configured preferred ontology IDs, including their order, participate in the
@@ -508,7 +516,10 @@ on resume. One dataset failure remains isolated from other work items.
 
 `GoogleCredentialPreflight` is an optional injected policy. It resolves Google
 ADC/project configuration and refreshes the token once without generating model
-content.
+content. Preflight runs only for eligible metadata when target checking, the
+direct judge, RAG retrieval (which needs embeddings), an enabled OLS retrieval
+plus judge, or field assignment is enabled. A fully deterministic/offline set
+of stage controls does not require credentials.
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
 

@@ -376,7 +376,7 @@ attempt, status, duration, count, and periodic progress fields without logging
 prompt/response bodies, publication or MINiML payloads, credentials, headers,
 or request parameters.
 
-`harmonization_options` forwards upstream controls such as `target_paths`, `llm`, and judge toggles. The upstream workflow is fixed as local exact/FTS, cached semantic lookup, then OLS; details expose it as `workflow="local_rag_ols"`. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request.
+`harmonization_options` forwards `target_paths` and independent upstream controls: `target_checker`, `direct_lookup_judge`, `rag_lookup`, `rag_lookup_judge`, `ols_lookup`, `ols_lookup_judge`, and `field_assignment_judge`. The removed `llm`, `lookup_llm_judge`, and `search_llm_judge` keys fail fast. The upstream workflow is fixed as local exact/FTS, cached semantic lookup, then OLS; details expose it as `workflow="local_rag_ols"` and retain the effective `controls`. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request. Preflight runs only when an enabled stage needs a model or embeddings.
 
 Code flow:
 

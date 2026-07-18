@@ -10,6 +10,19 @@ logger = logging.getLogger(__name__)
 
 
 class AtlasHarmonizer:
+    REMOVED_HARMONIZATION_OPTIONS = frozenset(
+        {"llm", "lookup_llm_judge", "search_llm_judge"}
+    )
+    MODEL_STAGE_DEFAULTS = {
+        "target_checker": True,
+        "direct_lookup_judge": True,
+        "rag_lookup": True,
+        "rag_lookup_judge": True,
+        "ols_lookup": True,
+        "ols_lookup_judge": True,
+        "field_assignment_judge": True,
+    }
+
     def __init__(
         self,
         ontology_harmonizer=None,
@@ -38,6 +51,7 @@ class AtlasHarmonizer:
         accessions = list(source_accessions)
         details: list[dict | None] = [None] * len(accessions)
         harmonization_options = dict(harmonization_options or {})
+        self._validate_harmonization_options(harmonization_options)
         work_by_key = {}
 
         for index, record in enumerate(accessions):
@@ -70,7 +84,7 @@ class AtlasHarmonizer:
             )["indices"].append(index)
 
         if work_by_key:
-            if harmonization_options.get("llm", True):
+            if self._requires_model_credentials(harmonization_options):
                 self._preflight_credentials()
             ontology_harmonizer = self._ontology_harmonizer()
             work_items = list(work_by_key.values())
@@ -129,6 +143,8 @@ class AtlasHarmonizer:
                         details[index]["preferred_ontology_ids"] = harmonization[
                             "preferred_ontology_ids"
                         ]
+                    if "controls" in harmonization:
+                        details[index]["controls"] = harmonization["controls"]
 
                 if checkpoint_store is None or cached:
                     return
@@ -278,3 +294,24 @@ class AtlasHarmonizer:
             return
         self._credential_checker.check()
         self._credentials_checked = True
+
+    @classmethod
+    def _validate_harmonization_options(cls, options: dict) -> None:
+        removed = sorted(cls.REMOVED_HARMONIZATION_OPTIONS.intersection(options))
+        if removed:
+            joined = ", ".join(removed)
+            raise ValueError(
+                f"removed harmonization option(s): {joined}; use the "
+                "stage-specific target, direct, RAG, OLS, and field controls"
+            )
+
+    @classmethod
+    def _requires_model_credentials(cls, options: dict) -> bool:
+        controls = {**cls.MODEL_STAGE_DEFAULTS, **options}
+        return bool(
+            controls["target_checker"]
+            or controls["direct_lookup_judge"]
+            or controls["rag_lookup"]
+            or (controls["ols_lookup"] and controls["ols_lookup_judge"])
+            or controls["field_assignment_judge"]
+        )
