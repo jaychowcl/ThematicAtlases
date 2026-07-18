@@ -449,9 +449,11 @@ local miss clears prior ontology-selection state and proceeds directly to the
 atlas orchestration therefore starts with unrestricted OLS; direct
 `OlsStrategyHandler` callers that retain an ontology ID use restricted OLS
 first and fall back to unrestricted OLS when needed. The optional search LLM
-judge receives only structured OLS candidates. No Gemini-grounded or other web
-search is performed. An accepted OLS candidate supplies the ontology ID and is
-followed by OLS framework-metadata retrieval and OntoStore configuration.
+judge receives only structured OLS candidates under one neutral `OLS Hits`
+section; neither an explicit search-stage field nor restricted/unrestricted
+candidate headings are included in model context. No Gemini-grounded or other
+web search is performed. An accepted OLS candidate supplies the ontology ID and
+is followed by OLS framework-metadata retrieval and OntoStore configuration.
 When LLM judging is enabled, every local candidate set is judged, including a
 single exact hit. Both the local lookup judge and OLS judge may return
 `decision="false"` to terminally skip a non-harmonizable target such as a sample
@@ -470,11 +472,13 @@ retained as compatibility aliases; callers must use `strategy="ols"`.
 Field harmonization runs after label resolution, including any search fallback.
 When a local or searched ontology term is selected, its canonical term title
 (for example, `lung`), not the ontology framework title, replaces `hz_label`
-and is supplied to field lookup/assignment. The selected title is propagated to
-every deduplicated target occurrence before `hz_*` MINiML annotations are
-applied. If no term matches or a selected term has no usable title, field
-harmonization still runs with the normalized input label; explicit judge skips
-are the exception and bypass field harmonization entirely.
+and is supplied to field lookup/assignment. LLM field assignment receives that
+current canonical value as `label` and the original input as `pre_hz_label`
+when available. The selected title is propagated to every deduplicated target
+occurrence before `hz_*` MINiML annotations are applied. If no term matches or
+a selected term has no usable title, field harmonization still runs with the
+normalized input label; explicit judge skips are the exception and bypass field
+harmonization entirely.
 
 The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
 
