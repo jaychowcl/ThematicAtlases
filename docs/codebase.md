@@ -443,6 +443,16 @@ skipped, failed, full-text, fallback, and missing counts.
 
 `ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared `ontostore`, iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. Its lazily created default `OntologyHarmonizer` receives that same store. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
 
+The upstream ontology resolution path performs local exact/FTS lookup first. A
+local miss no longer invokes automatic LLM ontology-framework assignment; it
+proceeds directly to the configured search strategy. For `websearch`, a target
+that already carries an ontology ID retains the restricted-OLS-first path. A
+target without an ontology ID skips restricted OLS and begins with unrestricted
+OLS plus grounded search, and an accepted structured OLS candidate supplies the
+ontology ID and framework configuration. `assign_onto_framework()` remains
+available to explicit upstream callers but is not part of normal atlas
+harmonization orchestration.
+
 The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
 
 With a checkpoint store, each unique metadata/context/options work key is

@@ -77,7 +77,7 @@ Use `--query <keyword>` when the section id is not known. Anchors are stable and
 - id: harmonizer
   title: Harmonizer
   anchor: harmonizer
-  keywords: AtlasHarmonizer, OntologyHarmonizer, OntoStore, harmonization_options, max_workers, memoization, credential preflight, ArrayExpress no-call, accession_metadata, failure isolation
+  keywords: AtlasHarmonizer, OntologyHarmonizer, OntoStore, harmonization_options, max_workers, memoization, credential preflight, ArrayExpress no-call, accession_metadata, failure isolation, local lookup miss, direct search, unrestricted OLS, restricted OLS, no automatic framework assignment, assign_onto_framework
 
 - id: epmc-wrapper
   title: EuropePMC Wrapper
