@@ -453,6 +453,14 @@ ontology ID and framework configuration. `assign_onto_framework()` remains
 available to explicit upstream callers but is not part of normal atlas
 harmonization orchestration.
 
+Field harmonization runs after label resolution, including any search fallback.
+When a local or searched ontology term is selected, its canonical term title
+(for example, `lung`), not the ontology framework title, replaces `hz_label`
+and is supplied to field lookup/assignment. The selected title is propagated to
+every deduplicated target occurrence before `hz_*` MINiML annotations are
+applied. If no term matches or a selected term has no usable title, field
+harmonization still runs with the normalized input label.
+
 The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
 
 With a checkpoint store, each unique metadata/context/options work key is
