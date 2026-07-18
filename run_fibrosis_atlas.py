@@ -32,7 +32,6 @@ LOG_LEVEL = "DEBUG"
 MAX_WORKERS = 1
 REMOVED_ONTOLOGY_FRAMEWORKS = ["snomed"]
 HARMONIZATION_OPTIONS = {
-    "strategy": "ols",
     "lookup_llm_judge": True,
     "search_llm_judge": True,
     "llm": True,

@@ -315,7 +315,7 @@ Filtering options:
 
 Harmonization options:
 
-- `create-atlas --harmonization-details-out PATH`: optionally write target, strategy, path, status, and error details separately from the atlas.
+- `create-atlas --harmonization-details-out PATH`: optionally write target, workflow, path, status, and error details separately from the atlas.
 - `harmonize-datasets --file INPUT --out OUTPUT [--harmonization-details-out PATH]`: transform an existing atlas file. Input and output paths are required.
 
 Output shapes:
@@ -376,7 +376,7 @@ attempt, status, duration, count, and periodic progress fields without logging
 prompt/response bodies, publication or MINiML payloads, credentials, headers,
 or request parameters.
 
-`harmonization_options` forwards upstream controls such as `strategy`, `target_paths`, `llm`, and judge thresholds. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request.
+`harmonization_options` forwards upstream controls such as `target_paths`, `llm`, and judge toggles. The upstream workflow is fixed as local exact/FTS, cached semantic lookup, then OLS; details expose it as `workflow="local_rag_ols"`. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request.
 
 Code flow:
 

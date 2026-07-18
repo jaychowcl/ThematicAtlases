@@ -122,7 +122,7 @@ class AtlasHarmonizer:
                         "harmonization_targets": harmonization.get(
                             "harmonization_targets", []
                         ),
-                        "strategy": harmonization.get("strategy"),
+                        "workflow": harmonization.get("workflow"),
                         "target_paths": harmonization.get("target_paths"),
                     }
 

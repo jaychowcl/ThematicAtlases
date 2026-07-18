@@ -210,7 +210,7 @@ first/every-tenth/final progress for long loops, and stage summaries from all
 three packages. Prompt and response bodies, publication/metadata payloads,
 credentials, authorization headers, and request parameters are not logged.
 
-The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables full LLM-backed web-search harmonization with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
+The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables the fixed LLM-backed local/semantic/OLS harmonization workflow with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
 
 Prepare and run it with:
 
@@ -441,54 +441,63 @@ skipped, failed, full-text, fallback, and missing counts.
 <a id="harmonizer"></a>
 ### Harmonizer
 
-`ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared `ontostore`, iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. Its lazily created default `OntologyHarmonizer` receives that same store. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
+`ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared
+`ontostore`, iterates atlas accessions, builds ordered publication context from
+non-empty publication titles and abstracts, and calls
+`agentic_curator.OntologyHarmonizer.harmonize_miniml_json(...)` for dictionary
+or list `accession_metadata`. Its lazily created default harmonizer receives
+that same store.
 
-The upstream ontology resolution path performs local exact/FTS lookup first. A
-local miss clears prior ontology-selection state and proceeds directly to the
-`ols` strategy without automatic LLM ontology-framework assignment. Normal
-atlas orchestration therefore starts with unrestricted OLS; direct
-`OlsStrategyHandler` callers that retain an ontology ID use restricted OLS
-first and fall back to unrestricted OLS when needed. The optional search LLM
-judge receives only structured OLS candidates under one neutral `OLS Hits`
-section; neither an explicit search-stage field nor restricted/unrestricted
-candidate headings are included in model context. No Gemini-grounded or other
-web search is performed. An accepted OLS candidate supplies the ontology ID and
-is followed by OLS framework-metadata retrieval and OntoStore configuration.
-When LLM judging is enabled, every local candidate set is judged, including a
-single exact hit. Both the local lookup judge and OLS judge may return
-`decision="false"` to terminally skip a non-harmonizable target such as a sample
-identifier. A skip records `harmonization_status="skipped"` plus stage,
-decision, confidence, and reason in `harmonization_skip`; it bypasses all later
-search, canonical-label, field, and MINiML-application steps. Explicit OLS
-rejection is terminal even at the restricted stage. No-hit and provider-error
-paths remain unmatched rather than skipped. The former
-`lookup_llm_threshold` Python and CLI option was removed because local judging
-now runs for every candidate set when enabled.
-`assign_onto_framework()` remains available to explicit upstream callers but is
-not part of normal atlas harmonization orchestration. The previous
-`strategy="websearch"` name and web-result fields were removed rather than
-retained as compatibility aliases; callers must use `strategy="ols"`.
+A successful call replaces `accession_metadata` with the returned
+`miniml_json` and sets `ontology_harmonization_status="available"`. Null or
+unsupported metadata remains `unavailable`. Exceptions are isolated per
+accession: original metadata is retained with status `error` and
+`ontology_harmonization_error`, then later accessions continue.
 
-Field harmonization runs after label resolution, including any search fallback.
-When a local or searched ontology term is selected, its canonical term title
-(for example, `lung`), not the ontology framework title, replaces `hz_label`
-and is supplied to field lookup/assignment. LLM field assignment receives that
-current canonical value as `label` and the original input as `pre_hz_label`
-when available. The selected title is propagated to every deduplicated target
-occurrence before `hz_*` MINiML annotations are applied. If no term matches or
-a selected term has no usable title, field harmonization still runs with the
-normalized input label; explicit judge skips are the exception and bypass field
-harmonization entirely.
+The upstream ontology path is fixed:
 
-The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
+1. local exact lookup, then FTS5;
+2. semantic lookup across locally cached ontology frameworks;
+3. unrestricted OLS when semantic lookup misses;
+4. selected-term title promotion to `hz_label`;
+5. field registry lookup or LLM field assignment using the harmonized label.
+
+Semantic lookup embeds one ontology term per chunk with Gemini and retrieves
+cosine-nearest neighbours from persistent USearch partitions. It never downloads
+a missing local framework. OLS is the only external ontology search; no grounded
+web search or prior LLM framework-selection call occurs.
+
+Every available local, semantic, or OLS candidate set is judged when its judge
+is enabled. `no_match` rejects that stage's candidates and continues to the
+next stage. `false` terminally skips a non-harmonizable target, records
+`harmonization_status="skipped"` plus `harmonization_skip`, and bypasses later
+search, label, field, and MINiML application. The OLS judge receives a neutral
+candidate section and no restricted/unrestricted stage literal.
+
+Field harmonization runs after label resolution. A selected canonical term title
+replaces `hz_label` and is supplied to field lookup/assignment together with
+the original `pre_hz_label`. If no term matches, field harmonization uses the
+normalized input label; terminal skips are the exception.
+
+The details sidecar records targets, `workflow`, paths, statuses, and errors by
+`datalink_id`. The current upstream wrapper reports
+`workflow="local_rag_ols"`. Per-run `harmonization_options` such as
+`target_paths`, `llm`, and judge toggles are forwarded unchanged; the removed
+strategy argument must not be supplied.
+
+Identical metadata/context/options are memoized within a run. `max_workers=1`
+is the safe default; higher values opt into bounded parallel work with stable
+output order. Null ArrayExpress metadata never constructs the upstream
+harmonizer or performs LLM calls.
 
 With a checkpoint store, each unique metadata/context/options work key is
 committed immediately after harmonization. Successful outcomes and terminal
 consumed-call failures are reused; transient provider/network errors are retried
-on resume. One dataset failure remains isolated from all other work items.
+on resume. One dataset failure remains isolated from other work items.
 
-`ThematicAtlases.credentials.GoogleCredentialPreflight` is an optional injected policy. It resolves Google ADC/project configuration and refreshes the token once without generating model content. An injected checker runs before method-owned query generation/thematic review and before eligible LLM-enabled harmonization.
-
+`GoogleCredentialPreflight` is an optional injected policy. It resolves Google
+ADC/project configuration and refreshes the token once without generating model
+content.
 <a id="epmc-wrapper"></a>
 ### EuropePMC Wrapper
 
