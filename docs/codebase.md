@@ -444,14 +444,18 @@ skipped, failed, full-text, fallback, and missing counts.
 `ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared `ontostore`, iterates the atlas `accessions`, builds ordered publication context from each record's non-empty nested `title` and `abstractText`, and calls `agentic_curator.OntologyHarmonizer.harmonize_miniml_json(publication_context=..., miniml_json=...)` for dictionary/list `accession_metadata`. Its lazily created default `OntologyHarmonizer` receives that same store. A successful call replaces `accession_metadata` with the returned `miniml_json` and adds `ontology_harmonization_status="available"`. Null or unsupported metadata is retained with status `unavailable`. Exceptions are isolated per accession: original metadata is retained with status `error` and `ontology_harmonization_error`, and later accessions continue.
 
 The upstream ontology resolution path performs local exact/FTS lookup first. A
-local miss no longer invokes automatic LLM ontology-framework assignment; it
-proceeds directly to the configured search strategy. For `websearch`, a target
-that already carries an ontology ID retains the restricted-OLS-first path. A
-target without an ontology ID skips restricted OLS and begins with unrestricted
-OLS plus grounded search, and an accepted structured OLS candidate supplies the
-ontology ID and framework configuration. `assign_onto_framework()` remains
-available to explicit upstream callers but is not part of normal atlas
-harmonization orchestration.
+local miss clears prior ontology-selection state and proceeds directly to the
+`ols` strategy without automatic LLM ontology-framework assignment. Normal
+atlas orchestration therefore starts with unrestricted OLS; direct
+`OlsStrategyHandler` callers that retain an ontology ID use restricted OLS
+first and fall back to unrestricted OLS when needed. The optional search LLM
+judge receives only structured OLS candidates. No Gemini-grounded or other web
+search is performed. An accepted OLS candidate supplies the ontology ID and is
+followed by OLS framework-metadata retrieval and OntoStore configuration.
+`assign_onto_framework()` remains available to explicit upstream callers but is
+not part of normal atlas harmonization orchestration. The previous
+`strategy="websearch"` name and web-result fields were removed rather than
+retained as compatibility aliases; callers must use `strategy="ols"`.
 
 Field harmonization runs after label resolution, including any search fallback.
 When a local or searched ontology term is selected, its canonical term title

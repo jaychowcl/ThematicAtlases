@@ -32,7 +32,7 @@ LOG_LEVEL = "DEBUG"
 MAX_WORKERS = 1
 REMOVED_ONTOLOGY_FRAMEWORKS = ["snomed"]
 HARMONIZATION_OPTIONS = {
-    "strategy": "websearch",
+    "strategy": "ols",
     "lookup_llm_judge": True,
     "lookup_llm_threshold": 2,
     "search_llm_judge": True,

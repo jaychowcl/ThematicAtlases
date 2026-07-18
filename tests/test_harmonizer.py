@@ -17,7 +17,7 @@ class RecordingOntologyHarmonizer:
         return {
             "miniml_json": {**miniml_json, "hz_organism": "mus musculus"},
             "harmonization_targets": [{"id": "target-1"}],
-            "strategy": "websearch",
+            "strategy": "ols",
             "target_paths": [{"path": "/samples"}],
         }
 
@@ -60,7 +60,7 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
             "datalink_id": "GSE1",
             "status": "available",
             "harmonization_targets": [{"id": "target-1"}],
-            "strategy": "websearch",
+            "strategy": "ols",
             "target_paths": [{"path": "/samples"}],
         }
     ]
@@ -87,7 +87,7 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
             return {
                 "miniml_json": {**miniml_json, "harmonized": True},
                 "harmonization_targets": [],
-                "strategy": "websearch",
+                "strategy": "ols",
                 "target_paths": [],
             }
 
@@ -130,7 +130,7 @@ def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
             return {
                 "miniml_json": {**miniml_json, "harmonized": True},
                 "harmonization_targets": [],
-                "strategy": "websearch",
+                "strategy": "ols",
                 "target_paths": [],
             }
 
@@ -159,7 +159,7 @@ def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
             return {
                 "miniml_json": {**miniml_json, "harmonized": True},
                 "harmonization_targets": [],
-                "strategy": "websearch",
+                "strategy": "ols",
                 "target_paths": [],
             }
 
@@ -291,7 +291,7 @@ def test_harmonizer_memoizes_identical_metadata_and_context() -> None:
             return {
                 "miniml_json": {**kwargs["miniml_json"], "harmonized": True},
                 "harmonization_targets": [],
-                "strategy": "websearch",
+                "strategy": "ols",
                 "target_paths": [],
             }
 
@@ -320,7 +320,7 @@ def test_harmonizer_parallel_workers_preserve_accession_order() -> None:
             return {
                 "miniml_json": kwargs["miniml_json"],
                 "harmonization_targets": [],
-                "strategy": "websearch",
+                "strategy": "ols",
                 "target_paths": [],
             }
 

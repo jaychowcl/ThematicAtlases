@@ -13,7 +13,7 @@ class FakeOntologyHarmonizer:
         return {
             "miniml_json": miniml_json,
             "harmonization_targets": [],
-            "strategy": "websearch",
+            "strategy": "ols",
             "target_paths": [],
         }
 
