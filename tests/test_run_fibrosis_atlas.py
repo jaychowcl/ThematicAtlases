@@ -110,9 +110,8 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
         "generate_queries": True,
         "max_generated_queries": 3,
         "harmonization_options": {
-                "strategy": "ols",
-                "lookup_llm_judge": True,
-                "search_llm_judge": True,
+            "lookup_llm_judge": True,
+            "search_llm_judge": True,
             "llm": True,
         },
     }
