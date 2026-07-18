@@ -448,6 +448,14 @@ non-empty publication titles and abstracts, and calls
 or list `accession_metadata`. Its lazily created default harmonizer receives
 that same store.
 
+An injected `OntoStore` may configure ordered runtime-only
+`preferred_ontology_ids`. These preferences do not restrict local, semantic, or
+OLS retrieval. Instead, the local/RAG shared judge and the OLS judge receive
+the ordered IDs plus up to two reserved candidates per preferred ontology
+within their existing pool sizes. The preference is advisory and is not passed
+to target checking or field assignment. OLS still makes exactly one
+unrestricted request, regardless of a target's existing ontology ID.
+
 A successful call replaces `accession_metadata` with the returned
 `miniml_json` and sets `ontology_harmonization_status="available"`. Null or
 unsupported metadata remains `unavailable`. Exceptions are isolated per
@@ -479,16 +487,19 @@ replaces `hz_label` and is supplied to field lookup/assignment together with
 the original `pre_hz_label`. If no term matches, field harmonization uses the
 normalized input label; terminal skips are the exception.
 
-The details sidecar records targets, `workflow`, paths, statuses, and errors by
-`datalink_id`. The current upstream wrapper reports
-`workflow="local_rag_ols"`. Per-run `harmonization_options` such as
-`target_paths`, `llm`, and judge toggles are forwarded unchanged; the removed
-strategy argument must not be supplied.
+The details sidecar records targets, `workflow`, paths, statuses, errors, and
+configured `preferred_ontology_ids` by `datalink_id`. The current upstream
+wrapper reports `workflow="local_rag_ols"`. Per-run `harmonization_options`
+such as `target_paths`, `llm`, and judge toggles are forwarded unchanged; the
+removed strategy argument must not be supplied.
 
-Identical metadata/context/options are memoized within a run. `max_workers=1`
-is the safe default; higher values opt into bounded parallel work with stable
-output order. Null ArrayExpress metadata never constructs the upstream
-harmonizer or performs LLM calls.
+Identical metadata/context/options/preferences are memoized within a run.
+Configured preferred ontology IDs, including their order, participate in the
+work key so changing preferences invalidates prior harmonization checkpoints;
+an empty preference list retains the legacy key shape. `max_workers=1` is the
+safe default; higher values opt into bounded parallel work with stable output
+order. Null ArrayExpress metadata never constructs the upstream harmonizer or
+performs LLM calls.
 
 With a checkpoint store, each unique metadata/context/options work key is
 committed immediately after harmonization. Successful outcomes and terminal

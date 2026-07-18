@@ -125,6 +125,10 @@ class AtlasHarmonizer:
                         "workflow": harmonization.get("workflow"),
                         "target_paths": harmonization.get("target_paths"),
                     }
+                    if "preferred_ontology_ids" in harmonization:
+                        details[index]["preferred_ontology_ids"] = harmonization[
+                            "preferred_ontology_ids"
+                        ]
 
                 if checkpoint_store is None or cached:
                     return
@@ -201,15 +205,25 @@ class AtlasHarmonizer:
         publication_context: str | None,
         harmonization_options: dict,
     ) -> str:
+        key_data = {
+            "metadata": metadata,
+            "publication_context": publication_context,
+            "harmonization_options": harmonization_options,
+        }
+        preferred_ontology_ids = self._preferred_ontology_ids()
+        if preferred_ontology_ids:
+            key_data["preferred_ontology_ids"] = preferred_ontology_ids
         return json.dumps(
-            {
-                "metadata": metadata,
-                "publication_context": publication_context,
-                "harmonization_options": harmonization_options,
-            },
+            key_data,
             sort_keys=True,
             default=repr,
         )
+
+    def _preferred_ontology_ids(self) -> list[str]:
+        store = self._ontostore
+        if store is None and self._ontology_harmonizer_instance is not None:
+            store = getattr(self._ontology_harmonizer_instance, "ontostore", None)
+        return list(getattr(store, "preferred_ontology_ids", ()) or ())
 
     def publication_context(self, record: dict) -> str | None:
         contexts = []
