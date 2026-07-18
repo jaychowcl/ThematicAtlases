@@ -452,6 +452,16 @@ first and fall back to unrestricted OLS when needed. The optional search LLM
 judge receives only structured OLS candidates. No Gemini-grounded or other web
 search is performed. An accepted OLS candidate supplies the ontology ID and is
 followed by OLS framework-metadata retrieval and OntoStore configuration.
+When LLM judging is enabled, every local candidate set is judged, including a
+single exact hit. Both the local lookup judge and OLS judge may return
+`decision="false"` to terminally skip a non-harmonizable target such as a sample
+identifier. A skip records `harmonization_status="skipped"` plus stage,
+decision, confidence, and reason in `harmonization_skip`; it bypasses all later
+search, canonical-label, field, and MINiML-application steps. Explicit OLS
+rejection is terminal even at the restricted stage. No-hit and provider-error
+paths remain unmatched rather than skipped. The former
+`lookup_llm_threshold` Python and CLI option was removed because local judging
+now runs for every candidate set when enabled.
 `assign_onto_framework()` remains available to explicit upstream callers but is
 not part of normal atlas harmonization orchestration. The previous
 `strategy="websearch"` name and web-result fields were removed rather than
@@ -463,7 +473,8 @@ When a local or searched ontology term is selected, its canonical term title
 and is supplied to field lookup/assignment. The selected title is propagated to
 every deduplicated target occurrence before `hz_*` MINiML annotations are
 applied. If no term matches or a selected term has no usable title, field
-harmonization still runs with the normalized input label.
+harmonization still runs with the normalized input label; explicit judge skips
+are the exception and bypass field harmonization entirely.
 
 The optional details file records targets, strategy, paths, statuses, and errors by `datalink_id`. `AtlasHarmonizer(ontology_harmonizer=...)` accepts a configured upstream instance, including `OntoStore`, LLM, and request policy; per-run `harmonization_options` are forwarded unchanged. Identical metadata/context/options are memoized within a run. `max_workers=1` is the safe default and higher values opt into bounded parallel work with stable output order. Null ArrayExpress metadata never constructs the upstream harmonizer or performs LLM calls.
 
