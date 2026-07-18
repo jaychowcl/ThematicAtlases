@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 
@@ -210,7 +212,13 @@ def test_harmonizer_accepts_injected_instance_and_forwards_options() -> None:
         },
         harmonization_options={
             "target_paths": [{"path": "/samples"}],
-            "llm": False,
+            "target_checker": False,
+            "direct_lookup_judge": False,
+            "rag_lookup": True,
+            "rag_lookup_judge": False,
+            "ols_lookup": True,
+            "ols_lookup_judge": False,
+            "field_assignment_judge": False,
         },
     )
 
@@ -219,9 +227,33 @@ def test_harmonizer_accepts_injected_instance_and_forwards_options() -> None:
             "publication_context": None,
             "miniml_json": {"value": "x"},
             "target_paths": [{"path": "/samples"}],
-            "llm": False,
+            "target_checker": False,
+            "direct_lookup_judge": False,
+            "rag_lookup": True,
+            "rag_lookup_judge": False,
+            "ols_lookup": True,
+            "ols_lookup_judge": False,
+            "field_assignment_judge": False,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "retired_option", ["llm", "lookup_llm_judge", "search_llm_judge"]
+)
+def test_harmonizer_rejects_retired_runtime_options_before_work(
+    retired_option,
+) -> None:
+    def unexpected_factory():
+        raise AssertionError("retired options must fail before construction")
+
+    with pytest.raises(ValueError, match=f"removed harmonization option.*{retired_option}"):
+        AtlasHarmonizer(
+            ontology_harmonizer_factory=unexpected_factory
+        ).harmonize_datasets(
+            {"accessions": [{"datalink_id": "E-MTAB-1", "accession_metadata": None}]},
+            harmonization_options={retired_option: False},
+        )
 
 
 def test_default_ontology_harmonizer_receives_injected_ontostore() -> None:
@@ -295,7 +327,7 @@ def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
                 }
             ]
         },
-        harmonization_options={"llm": True},
+        harmonization_options={"target_checker": True},
     )
 
     assert result["accessions"][0]["ontology_harmonization_status"] == "unavailable"
@@ -321,6 +353,57 @@ def test_harmonizer_preflights_once_only_when_metadata_is_eligible() -> None:
                 {"datalink_id": "GSE2", "accession_metadata": {"value": "y"}},
             ]
         }
+    )
+
+    assert RecordingChecker.calls == 1
+
+
+def test_harmonizer_skips_credential_preflight_when_all_model_stages_are_off() -> None:
+    class UnexpectedChecker:
+        def check(self):
+            raise AssertionError("deterministic-only controls need no credentials")
+
+    AtlasHarmonizer(
+        ontology_harmonizer=RecordingOntologyHarmonizer(),
+        credential_checker=UnexpectedChecker(),
+    ).harmonize_datasets(
+        {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {"value": "x"}}]},
+        harmonization_options={
+            "target_checker": False,
+            "direct_lookup_judge": False,
+            "rag_lookup": False,
+            "ols_lookup": False,
+            "field_assignment_judge": False,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "harmonization_options",
+    [
+        {"target_checker": True, "direct_lookup_judge": False, "rag_lookup": False, "ols_lookup": False, "field_assignment_judge": False},
+        {"target_checker": False, "direct_lookup_judge": True, "rag_lookup": False, "ols_lookup": False, "field_assignment_judge": False},
+        {"target_checker": False, "direct_lookup_judge": False, "rag_lookup": True, "ols_lookup": False, "field_assignment_judge": False},
+        {"target_checker": False, "direct_lookup_judge": False, "rag_lookup": False, "ols_lookup": True, "ols_lookup_judge": True, "field_assignment_judge": False},
+        {"target_checker": False, "direct_lookup_judge": False, "rag_lookup": False, "ols_lookup": False, "field_assignment_judge": True},
+    ],
+)
+def test_harmonizer_preflights_for_each_enabled_model_stage(
+    harmonization_options,
+) -> None:
+    class RecordingChecker:
+        calls = 0
+
+        def check(self):
+            self.__class__.calls += 1
+
+    RecordingChecker.calls = 0
+    AtlasHarmonizer(
+        ontology_harmonizer=RecordingOntologyHarmonizer(),
+        credential_checker=RecordingChecker(),
+    ).harmonize_datasets(
+        {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {"value": "x"}}]},
+        harmonization_options=harmonization_options,
     )
 
     assert RecordingChecker.calls == 1

@@ -357,10 +357,10 @@ def test_harmonize_datasets_delegates_to_harmonizer() -> None:
     assert Atlas(metadata={}, harmonizer=harmonizer).harmonize_datasets(
         datasets=datasets,
         harmonization_details_out="details.json",
-        harmonization_options={"llm": False},
+        harmonization_options={"ols_lookup_judge": False},
     ) == {**datasets, "harmonized": True}
     assert RecordingHarmonizer.calls == [
-        (datasets, "details.json", {"llm": False})
+        (datasets, "details.json", {"ols_lookup_judge": False})
     ]
 
 
