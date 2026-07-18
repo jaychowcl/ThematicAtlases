@@ -233,6 +233,52 @@ def test_default_ontology_harmonizer_receives_injected_ontostore() -> None:
     assert harmonizer.ontostore is store
 
 
+def test_harmonizer_work_key_includes_ordered_preferred_ontologies() -> None:
+    class PreferenceStore:
+        preferred_ontology_ids = ("custom", "efo")
+
+    harmonizer = AtlasHarmonizer(ontostore=PreferenceStore())
+    first = harmonizer._work_key(
+        metadata={"value": "lung"},
+        publication_context=None,
+        harmonization_options={},
+    )
+    PreferenceStore.preferred_ontology_ids = ("efo", "custom")
+    second = harmonizer._work_key(
+        metadata={"value": "lung"},
+        publication_context=None,
+        harmonization_options={},
+    )
+
+    assert first != second
+    assert json.loads(first)["preferred_ontology_ids"] == ["custom", "efo"]
+    assert json.loads(second)["preferred_ontology_ids"] == ["efo", "custom"]
+
+
+def test_harmonizer_details_include_preferred_ontology_trace() -> None:
+    class PreferenceTracingHarmonizer:
+        def harmonize_miniml_json(self, **kwargs):
+            return {
+                "miniml_json": kwargs["miniml_json"],
+                "harmonization_targets": [],
+                "workflow": "local_rag_ols",
+                "target_paths": [],
+                "preferred_ontology_ids": ["custom", "efo"],
+            }
+
+    _, details = AtlasHarmonizer(
+        ontology_harmonizer=PreferenceTracingHarmonizer()
+    ).harmonize_datasets(
+        {
+            "accessions": [
+                {"datalink_id": "GSE1", "accession_metadata": {"value": "lung"}}
+            ]
+        }
+    )
+
+    assert details[0]["preferred_ontology_ids"] == ["custom", "efo"]
+
+
 def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
     def unexpected_factory():
         raise AssertionError("ontology harmonizer should not be constructed")
