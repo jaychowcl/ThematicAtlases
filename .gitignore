@@ -10,6 +10,9 @@ oldd/*
 .out/
 .out/*
 
+settings.json
+
+
 .vscode/
 .vscode/*
 
