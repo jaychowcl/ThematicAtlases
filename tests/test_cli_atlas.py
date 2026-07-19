@@ -291,7 +291,7 @@ def test_create_atlas_writes_final_filtered_object(
     assert result["accessions"][0]["accession_metadata"] == {
         "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
     }
-    assert result["accessions"][0]["ontology_harmonization_status"] == "available"
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
     assert result["publication_texts"] == {}
 
 

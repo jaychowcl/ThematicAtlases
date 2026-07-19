@@ -215,6 +215,30 @@ def test_create_atlas_eagerly_caches_injected_ontostore_once_before_collection()
     assert events == ["cache", "collect", "collect"]
 
 
+def test_create_atlas_preflights_credentials_before_semantic_cache() -> None:
+    events = []
+
+    class RecordingChecker:
+        def check(self):
+            events.append("credentials")
+
+    class RecordingStore:
+        def cache_all(self):
+            events.append("cache")
+            return {"successful": ["efo"], "failed": []}
+
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        ontostore=RecordingStore(),
+        cache_ontologies=True,
+        credential_checker=RecordingChecker(),
+    ).create_atlas(query=["a"])
+
+    assert events[:2] == ["credentials", "cache"]
+
+
 def test_create_atlas_does_not_cache_ontologies_by_default() -> None:
     class UnexpectedStore:
         def cache_all(self):
@@ -523,7 +547,7 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
             {
                 "datalink_id": "GSE1",
                 "publications": [],
-                "ontology_harmonization_status": "unavailable",
+                "ontology_harmonization_run_status": "not_run",
             }
         ],
         "publication_texts": {},

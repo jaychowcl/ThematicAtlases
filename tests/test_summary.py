@@ -12,7 +12,7 @@ def test_build_atlas_summary_reports_operations_and_scientific_profile() -> None
             {
                 "datalink_id": "GSE1",
                 "metadata_repository": "geo",
-                "ontology_harmonization_status": "available",
+                "ontology_harmonization_run_status": "completed",
                 "publications": [{"pmid": "1", "publication_text_ref": "1"}],
                 "accession_metadata": {
                     "platform": [{"iid": "GPL1", "technology": "high-throughput sequencing"}],
@@ -42,7 +42,7 @@ def test_build_atlas_summary_reports_operations_and_scientific_profile() -> None
             {
                 "datalink_id": "E-MTAB-1",
                 "metadata_repository": "arrayexpress",
-                "ontology_harmonization_status": "unavailable",
+                "ontology_harmonization_run_status": "not_run",
                 "accession_metadata": None,
                 "publications": [{"pmid": "1", "publication_text_ref": "1"}],
             },
@@ -58,7 +58,8 @@ def test_build_atlas_summary_reports_operations_and_scientific_profile() -> None
     assert summary["counts"] == {"accessions": 2, "publications": 1, "publication_texts": 2}
     assert summary["repositories"] == {"arrayexpress": 1, "geo": 1}
     assert summary["review_judgements"] == {"relevant": 1, "unreviewed": 1}
-    assert summary["harmonization_statuses"] == {"available": 1, "unavailable": 1}
+    assert summary["harmonization_run_statuses"] == {"completed": 1, "not_run": 1}
+    assert "harmonization_statuses" not in summary
     profile = summary["scientific_profile"]
     assert profile["samples_total"] == 1
     assert profile["organisms"] == {"Homo sapiens": 1}

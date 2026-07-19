@@ -57,11 +57,12 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
         "organism": "Mouse",
         "hz_organism": "mus musculus",
     }
-    assert result["accessions"][0]["ontology_harmonization_status"] == "available"
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
+    assert "ontology_harmonization_status" not in result["accessions"][0]
     assert details == [
         {
             "datalink_id": "GSE1",
-            "status": "available",
+            "run_status": "completed",
             "harmonization_targets": [{"id": "target-1"}],
             "workflow": "local_rag_ols",
             "target_paths": [{"path": "/samples"}],
@@ -76,8 +77,8 @@ def test_harmonize_datasets_marks_unsupported_metadata_unavailable() -> None:
     )
 
     assert result["accessions"][0]["accession_metadata"] is None
-    assert result["accessions"][0]["ontology_harmonization_status"] == "unavailable"
-    assert details == [{"datalink_id": "GSE1", "status": "unavailable"}]
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
+    assert details == [{"datalink_id": "GSE1", "run_status": "not_run"}]
 
 
 def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> None:
@@ -109,13 +110,13 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
     assert result["accessions"][0] == {
         "datalink_id": "GSE1",
         "accession_metadata": {"value": "one"},
-        "ontology_harmonization_status": "error",
+        "ontology_harmonization_run_status": "error",
         "ontology_harmonization_error": "provider unavailable",
     }
     assert result["accessions"][1]["accession_metadata"]["harmonized"] is True
     assert details[0] == {
         "datalink_id": "GSE1",
-        "status": "error",
+        "run_status": "error",
         "error": "provider unavailable",
     }
     assert details[1]["status"] == "available"
@@ -188,7 +189,7 @@ def test_harmonize_datasets_writes_optional_details_file(tmp_path) -> None:
     )
 
     assert json.loads(details_out.read_text(encoding="utf-8")) == [
-        {"datalink_id": "GSE1", "status": "unavailable"}
+        {"datalink_id": "GSE1", "run_status": "not_run"}
     ]
 
 
@@ -332,7 +333,7 @@ def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
         harmonization_options={"target_checker": True},
     )
 
-    assert result["accessions"][0]["ontology_harmonization_status"] == "unavailable"
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
 
 
 def test_harmonizer_preflights_once_only_when_metadata_is_eligible() -> None:
