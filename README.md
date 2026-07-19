@@ -1,420 +1,370 @@
 # ThematicAtlases
 
-Tools for collecting, curating, and harmonizing biomedical dataset accessions into thematic atlases.
+Build publication-driven, reviewable, and ontology-harmonized atlases of biomedical datasets.
 
 ## Description
 
-ThematicAtlases builds atlas-ready JSON from publication-driven dataset discovery. It searches Europe PMC, extracts dataset datalinks, filters them by selected metadata repositories, optionally enriches supported accessions with metadata, maps each accession back to publication provenance, and can run thematic publication review. `create_atlas()` is the end-to-end Python flow: it calls `collect_datasets()`, then passes those datasets to `harmonize_datasets()`.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns atlas-shaped JSON with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata; ArrayExpress routing is supported with placeholder metadata while its live fetcher remains pending.
 
-The current workflow supports GEO and ArrayExpress routing. GEO accessions are normalized to GSE records, retain their source evidence in `original_datalinks`, deduplicate records that resolve to the same GSE, and are enriched with `geo2json` metadata through `meta-standards-converter`. ArrayExpress accessions are retained and marked with placeholder metadata so downstream JSON shapes can already include ArrayExpress records while a live ArrayExpress fetcher is still pending.
-
-The filtering stage builds a shared `publication_texts` map, fetching open-access full text from Europe PMC when available and falling back to abstracts when full text is missing. Accession publication entries then receive `publication_text_ref` pointers into that shared map so full text is not duplicated on every accession. When a theme is supplied, ThematicAtlases can call `agentic-curator` to review publication text for thematic relevance and optionally remove not-relevant or unsure publications.
-
-`create-atlas` passes each accession's MINiML-style `accession_metadata` to `agentic-curator` ontology harmonization. Harmonized MINiML replaces the original metadata. The public `ontology_harmonization_run_status` distinguishes `completed`, `not_run`, and per-accession `error` outcomes; it describes whether the workflow ran, not whether every target matched. ArrayExpress metadata remains placeholder-only.
+The pipeline can fetch open-access full text with abstract fallback, review publications against a theme with `agentic-curator`, filter review outcomes, and harmonize supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
 
 ## Installation
 
-Install the package from the repository root:
-
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-For development and tests:
-
-```bash
-python3 -m pip install -e ".[dev]"
-```
-
-After installation, use the console command:
-
-```bash
-thematic-atlas --help
-```
-
-You can also run the CLI as a module:
-
-```bash
-python3 -m ThematicAtlases.cli_atlas --help
-```
-
-### Requirements
-
-- Python `>=3.10`
-- Runtime dependencies: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`
-- Optional development dependency: `pytest`
-
-## Quickstart
-
-### Full fibrosis atlas run
-
-Prepare the repository environment, then configure Google Application Default Credentials and a quota project for the LLM-backed query, review, and ontology stages:
+From the repository root, create the project virtual environment and install the package:
 
 ```bash
 python3 -m venv .env
+.env/bin/python -m pip install -r requirements.txt
+```
+
+For development and tests, include the development dependency group:
+
+```bash
 .env/bin/python -m pip install -e ".[dev]"
+.env/bin/python -m pytest
+```
+
+The editable install provides the `thematic-atlas` console command. The equivalent module entrypoint is `.env/bin/python -m ThematicAtlases.cli_atlas`.
+
+### Requirements
+
+- Python 3.10 or newer.
+- Git and network access during installation because `agentic-curator` and `meta-standards-converter` are Git dependencies.
+- Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
+- Google Application Default Credentials and a Google Cloud quota project for model-backed features.
+- `pytest>=8` only when installing the optional `dev` dependencies.
+
+The project is licensed under [GPL-3.0-or-later](LICENSE).
+
+## Configuration
+
+There is no central application configuration file. Generic workflows are configured with CLI flags or Python arguments; purpose-built fibrosis runners use repository files and constants. Explicit CLI/Python values take precedence over library defaults. On the CLI, `--theme-file` takes precedence over `--theme`, and subcommand-local logging options take precedence over global logging options.
+
+Important defaults and configuration sources:
+
+- Omitting `metadata_repositories` or `--metadata-repository` selects the GEO-only path. Repeat the option or pass a list to include `arrayexpress`.
+- Publication review defaults to strategy `direct` and filter `none`. A non-`none` filter and `review_before_metadata` require a theme.
+- Query generation is opt-in and defaults to at most three generated queries. Explicit queries come first, query-file entries follow, and generated queries are appended.
+- `docs/theme_fibrosis.txt` is the fixed fibrosis theme. `config/fibrosis_discovery_queries.json` is the ordered, versioned static-query catalog used by the discovery runner.
+- CLI result data is written with `--out`; logging goes to stdout unless `--log-file` is supplied. Development traces default to `.dev/`, while fixed runner artifacts are written under `.out/`.
+- The repository's `.env/` directory is the Python virtual environment required by the purpose-built runners; it is not a dotenv file and is not automatically loaded as environment configuration.
+
+Model-backed query generation, thematic review, ontology caching, semantic lookup, and judge/assignment stages require Google Application Default Credentials. Configure user credentials with:
+
+```bash
 gcloud auth application-default login
-.env/bin/python run_fibrosis_atlas.py
+gcloud auth application-default set-quota-project PROJECT_ID
 ```
 
-Resume the newest incomplete trace, or a specific run, without repeating its
-latest valid completed stage:
+A service-account credential may be used instead. Static collection without query generation, offline benchmarking, and deterministic/offline harmonization controls do not require model credentials. There is no Docker interface or Docker configuration in this repository.
 
-```bash
-.env/bin/python run_fibrosis_atlas.py --resume
-.env/bin/python run_fibrosis_atlas.py --resume 20260712T215848
-```
+## Quickstart
 
-`run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It removes `snomed`, validates model credentials, then eagerly builds both the lexical caches and semantic indexes for every remaining ontology through `OntoStore.cache_all()`. It searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, performs ontology harmonization, and enables the full development trace. Any ontology cache failure aborts before dataset collection.
+The two major interfaces are the installed CLI and the Python API.
 
-Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atlas.summary.json`, `fibrosis_harmonization_details.json`, `fibrosis_atlas.log`, the ontology store, and timestamped trace bundles under `.out/dev_trace/`.
+<a id="quickstart-cli"></a>
+### CLI
 
-### Fibrosis discovery without harmonization
-
-Collect GEO-linked publications and their available text for up to 5,000 search
-results without starting thematic review, metadata download, ontology loading,
-or harmonization:
-
-```bash
-.env/bin/python run_fibrosis_discovery.py
-```
-
-The default run uses the embedded, human-focused fibrosis transcriptomics query
-and does not spend an LLM call generating search terms. To generate queries from
-the fibrosis theme instead, opt in explicitly:
-
-```bash
-.env/bin/python run_fibrosis_discovery.py --generate-query
-```
-
-This writes `.out/fibrosis_discovery.json`, its summary, and a dedicated DEBUG
-log. The output is an unreviewed collection snapshot containing accessions and
-publication text.
-
-The discovery runner is collection-only by default: it restricts datalinks to
-GEO accessions, incrementally fetches open-access publication full text with
-abstract fallback, and stops before thematic review and GEO metadata. Run
-`run_publication_reviewer.py` separately to review a stable trace snapshot.
-
-Discovery also enables its own trace under `.out/dev_trace_discovery/`. Resume
-the newest incomplete discovery run, or select a run id, with:
-
-```bash
-.env/bin/python run_fibrosis_discovery.py --resume
-.env/bin/python run_fibrosis_discovery.py --resume RUN_ID
-```
-
-Traced workflows maintain `resume_state.sqlite` alongside the readable JSON
-exports. Search pages, publication datalinks and full text, GEO resolution and
-metadata, thematic reviews, and dataset-level harmonizations are committed
-individually. Resume reuses successful and terminal outcomes, retries transient
-network/provider failures, and validates that the run configuration matches.
-
-While a traced collection is still running, review the publications whose
-datalink calls have already completed with:
-
-```bash
-.env/bin/python run_publication_reviewer.py \
-  .out/dev_trace_discovery/RUN_ID -v
-```
-
-This performs one stable snapshot and exits. Run it again later to review newly
-checkpointed publications; completed full-text fetches and thematic reviews are
-reused. The script reads the theme and repository selection from the run
-manifest. Use `--theme-file PATH` when the manifest has no theme or to confirm
-the same theme. To intentionally review a historical collector snapshot with a
-newer theme, combine it with `--allow-theme-override`; this reviewer-only
-override leaves the collector manifest and fingerprint unchanged. Incremental
-results are written atomically to `resume_review_progress.json`; the shared
-SQLite checkpoint database remains authoritative. Historical reviewer rows can
-first be moved into a separate comparison database with
-`CheckpointStore.archive_stage(...)` without touching collector stages;
-`archive_items(...)` performs the same verified move for selected checkpoint
-keys.
-
-The same workflow is available in Python:
-
-```python
-from ThematicAtlases.filterer import PublicationTextReviewer
-
-snapshot = PublicationTextReviewer().resume(".dev/RUN_ID")
-```
-
-Metadata can be downloaded independently for the same stable datalink snapshot,
-without waiting for discovery or starting thematic review:
-
-```bash
-.env/bin/python run_accession_metadata_collector.py \
-  .out/dev_trace_discovery/RUN_ID -v
-```
-
-This appends human-readable progress and stage statistics to
-`resume_metadata.log`, writes `resume_metadata_progress.json`, and stores
-reusable `geo_resolution` and `geo_metadata` rows in the trace database. Run it
-again later to pick up newly available datalinks. Each invocation rebuilds the
-deduplicated GSE list from its current snapshot but reuses completed resolution
-checkpoints without another NCBI call. Metadata checkpoints store packages independently from
-publication provenance, so a later publication pointing to an already cached
-GSE is retained when the final accession record is rebuilt.
-
-New GEO packages also checkpoint each enrichment lookup independently under
-`pubmed_enrichment`, `sra_xml`, and `ena_fastq`. Transient PubMed, NCBI SRA,
-or ENA failures retain partial GSE metadata and retry without downloading or
-parsing MINiML again. Successful, no-data, and terminal outcomes are reused by
-exact identifier, including across GSE packages.
-
-Audit older GSE checkpoints without issuing network requests:
-
-```bash
-.env/bin/python run_accession_metadata_collector.py \
-  .out/dev_trace_discovery/RUN_ID --audit-enrichment-only -v
-```
-
-This writes `resume_enrichment_candidates.json` and, when absent, an empty
-`resume_enrichment_retry_tags.json` template. Candidates are informational and
-are never retried automatically. To repair confirmed historical identifiers,
-populate a tag file with a unique non-empty `tag_id` and run:
-
-```bash
-.env/bin/python run_accession_metadata_collector.py \
-  .out/dev_trace_discovery/RUN_ID --retry-tags PATH -v
-```
-
-Each tag is idempotent. Reusing the same tag skips its completed calls; a new
-tag explicitly forces another request. Applied results are merged into every
-affected cached package without changing the atlas or MINiML package schemas.
-
-The publication reviewer uses completed metadata when it is available and does
-not wait when it is pending. Each review records `metadata_context` with the
-accessions whose compact MINiML context was used and those reviewed without it.
-If metadata becomes available later, the changed review input invalidates that
-publication's prior review and the next reviewer or full resume run reviews it
-again. Full MINiML is never sent to the reviewer.
-
-The same metadata snapshot workflow is available in Python:
-
-```python
-from ThematicAtlases.collector import AtlasCollector
-
-snapshot = AtlasCollector().resume_metadata(".dev/RUN_ID")
-audit = AtlasCollector().resume_metadata(
-    ".dev/RUN_ID", audit_enrichment_only=True
-)
-```
-
-Collect GEO datasets from a query:
+Collect GEO datasets and publication text:
 
 ```bash
 thematic-atlas collect-datasets \
-  --query "fibrosis RNA-seq human" \
-  --out atlas_datasets.json
-```
-
-Collect both GEO and ArrayExpress records:
-
-```bash
-thematic-atlas collect-datasets \
-  --query "fibrosis RNA-seq human" \
-  --metadata-repository geo \
-  --metadata-repository arrayexpress \
-  --out atlas_datasets.json
-```
-
-Limit a smoke run to the first 25 searched publications:
-
-```bash
-thematic-atlas collect-datasets \
-  --query "fibrosis RNA-seq human" \
+  --query "human fibrosis transcriptomics" \
   --max-publications 25 \
   --out atlas_datasets.json
 ```
 
-Create a final atlas object in one command:
+Create and harmonize an atlas end to end:
 
 ```bash
 thematic-atlas create-atlas \
-  --query "fibrosis RNA-seq human" \
-  --harmonization-details-out harmonization_details.json \
-  --dev-trace \
-  --dev-out-dir .dev \
+  --query "human fibrosis transcriptomics" \
   --out atlas.json
 ```
 
-Collect datasets with thematic review while skipping metadata enrichment:
+See the complete [CLI guide](#cli-guide).
 
-```bash
-thematic-atlas collect-datasets \
-  --query "fibrosis RNA-seq human" \
-  --theme "human fibrosis transcriptomics datasets" \
-  --review-filter not-relevant \
-  --skip-metadata \
-  --out atlas_datasets.json
-```
-
-Generate up to three Europe PMC queries from a theme with `agentic-curator`,
-then collect datasets using those generated queries:
-
-```bash
-thematic-atlas collect-datasets \
-  --theme-file docs/theme_fibrosis.txt \
-  --query-generator \
-  --review-filter not-relevant \
-  --out atlas_datasets.json
-```
-
-The generator defaults to one comprehensive domain-neutral query: independent
-mandatory theme concepts are AND-joined, while relevant synonyms and variants
-within each concept are OR-joined. It uses additional queries only when one
-query cannot bridge a genuine logical, semantic, syntax, or length gap.
-
-When manual `--query` values or a query `--file` are also supplied, generated
-queries are appended after them.
-
-## CLI
-
-Logging options may appear before or after the subcommand:
-
-- `-v`, `--verbose`: enable INFO progress and stats logs.
-- `-vv`: enable DEBUG logs, including request/retry/routing details.
-- `--log-file PATH`: write UTF-8 logs to a file instead of stdout.
-
-Examples:
-
-```bash
-thematic-atlas --verbose collect-datasets --query "fibrosis RNA-seq human"
-thematic-atlas collect-datasets --verbose --query "fibrosis RNA-seq human"
-```
-
-Commands:
-
-- `collect-datasets`: searches Europe PMC, collects datalinks, filters selected repositories, optionally enriches accession metadata, builds `publication_texts`, attaches `publication_text_ref`, optionally runs thematic review, and returns/writes an atlas object.
-- `create-atlas`: orchestrates `collect-datasets` followed by `harmonize-datasets`, then returns/writes the final atlas object.
-- `harmonize-datasets`: reads an existing atlas JSON, harmonizes accession MINiML metadata, and writes the transformed atlas.
-
-The CLI is a thin adapter over the Python API. It parses command arguments, normalizes CLI spellings such as `not-relevant` to API values such as `not_relevant`, instantiates `Atlas(metadata={})`, and calls the matching orchestrator method. Result JSON is written only when `--out` is supplied; successful commands keep stdout free of result data so progress logging and data output stay separate.
-
-Collection options:
-
-- `--query TEXT`: query string; may be repeated.
-- `--file PATH`: UTF-8 query file for `collect-datasets`/`create-atlas`.
-- `--query-generator`: use the theme to generate up to three additional Europe PMC queries with `agentic-curator`; requires `--theme` or `--theme-file`.
-- `--max-generated-queries N`: generated-query limit from 1 to 3; defaults to 3.
-- `--out PATH`: write JSON output.
-- `--metadata-repository {geo,arrayexpress}`: repository to keep and enrich; repeatable. Omitted means GEO-only.
-- `--max-publications N`: positive integer cap on searched Europe PMC publications before datalink fetching.
-- `--skip-metadata`: keep repository-filtered accessions but skip metadata handler enrichment.
-- `--review-before-metadata`: review repository-filtered publications without metadata context and enrich only retained accessions; requires a theme.
-- `create-atlas --dev-trace`: write a complete timestamped development trace bundle.
-- `--dev-out-dir` `PATH`: choose the `create-atlas` trace root directory; defaults to `.dev` and is used only with `--dev-trace`.
-
-Filtering options:
-
-- `--theme TEXT`: theme passed to `agentic-curator` for publication relevance review.
-- `--theme-file PATH`: read the theme from a UTF-8 file; takes precedence over `--theme`.
-- `--review-filter {none,not-relevant,not-relevant-and-unsure}`: choose whether reviewed not-relevant and unsure publications are removed. Non-`none` filters require a theme.
-
-Harmonization options:
-
-- `create-atlas --harmonization-details-out PATH`: optionally write target, workflow, path, status, and error details separately from the atlas.
-- `harmonize-datasets --file INPUT --out OUTPUT [--harmonization-details-out PATH]`: transform an existing atlas file. Input and output paths are required.
-
-Output shapes:
-
-- `collect-datasets` and `create-atlas` write an atlas object with `accessions` and `publication_texts`.
-- Successful commands do not print result JSON to stdout; use `--out` for data and logging options for progress.
-- `create-atlas --out atlas.json` also writes `atlas.summary.json` with operational counts and a deterministic scientific metadata profile.
-- `create-atlas --dev-trace` writes `resume_state.sqlite` and `00_run_manifest.json` through `07_summary.json` under `.dev/YYYYMMDDTHHMMSS/`, including collected/reviewed stages, pre/post harmonization metadata, targets/details, the final atlas, and summary.
-- The trace includes `03_pre_harmonization_accession_metadata.json`, `04_harmonization_details.json`, and `05_post_harmonization_accession_metadata.json` for accession-level comparison and target inspection.
-
-## Python API
-
-Use the root orchestrator:
+<a id="quickstart-python"></a>
+### Python
 
 ```python
 from ThematicAtlases.atlas import Atlas
 
 atlas = Atlas(metadata={})
-```
-
-Major orchestrator methods:
-
-- `Atlas.collect_datasets(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False) -> dict`
-  - Inputs: repeated query strings, optional query file, optional output path, repository selection, publication cap, metadata collection switch, and optional thematic review settings.
-  - Output: atlas object with `accessions` and `publication_texts`.
-- `Atlas.harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None) -> dict`
-  - Inputs: a `collect_datasets()` atlas object.
-  - Output: an atlas whose supported `accession_metadata` values have been replaced by harmonized MINiML JSON.
-- `Atlas.create_atlas(query=None, file=None, out=None, theme=None, review_filter="none", metadata_repositories=None, max_publications=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False) -> dict`
-  - Inputs: collection, filtering, and harmonization options.
-  - Output: final atlas object, optionally written to `out`.
-- `Atlas.resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False) -> dict`
-  - Resumes the selected traced discovery or atlas workflow from its latest durable item checkpoint.
-
-`Atlas` is the root orchestrator and dependency-injection boundary. Its constructor wires the collector, filterer, harmonizer, Europe PMC wrapper factory, metadata handlers, and publication text reviewer; tests and downstream applications can replace those components without changing the public workflow methods.
-
-Query loading, generation, ordering, and validation are method-owned; the CLI only forwards `generate_queries` and `max_generated_queries`. Applications may inject `query_generator` and `credential_checker` into `Atlas`.
-
-Advanced ontology configuration can use one Atlas-managed store:
-
-```python
-from agentic_curator.curators.ontology_harmonizer import OntoStore
-
-store = OntoStore(storage_dir=".cache/ontologies")
-store.configure_framework("snomed", remove=True)
-atlas = Atlas(
-    metadata={},
-    ontostore=store,
-    cache_ontologies=True,
+result = atlas.create_atlas(
+    query=["human fibrosis transcriptomics"],
+    max_publications=25,
+    out="atlas.json",
 )
 ```
 
-`Atlas(..., ontostore=None, cache_ontologies=False)` retains lazy behavior by default. With eager caching enabled, `create_atlas()` validates credentials, calls `store.cache_all()` once before query generation or collection, and passes the same store to the default ontology harmonizer. `cache_all()` builds semantic indexes for the selected lexical frameworks by default; upstream callers can pass `semantic_frameworks=[]` to skip that phase or a subset to limit it. A custom harmonizer cannot be combined with Atlas-managed store options.
+`result` is the same atlas object written to `atlas.json`. See the complete [Python API guide](#python-api-guide).
 
-The fixed fibrosis runner enables DEBUG logging to both stdout and
-`.out/fibrosis_atlas.log`. Cross-package logs expose safe stage, identifier,
-attempt, status, duration, count, and periodic progress fields without logging
-prompt/response bodies, publication or MINiML payloads, credentials, headers,
-or request parameters.
+### Inputs & Outputs
 
-`harmonization_options` forwards `target_paths` and independent upstream controls: `target_checker`, `direct_lookup_judge`, `rag_lookup`, `rag_lookup_judge`, `ols_lookup`, `ols_lookup_judge`, and `field_assignment_judge`. The removed `llm`, `lookup_llm_judge`, and `search_llm_judge` keys fail fast. The upstream workflow is fixed as local exact/FTS, cached semantic lookup, then OLS; details expose it as `workflow="local_rag_ols"` and retain the effective `controls`. Identical metadata/context/options are harmonized once per run. `max_workers=1` is the safe default; higher values opt into bounded parallel calls while preserving accession order. Inject `GoogleCredentialPreflight` to validate ADC/project configuration and refresh the token once without a model-generation request. Preflight runs only when an enabled stage needs a model or embeddings.
+High-level inputs are:
 
-Code flow:
+- One or more Europe PMC query strings, or a UTF-8 file containing one query per non-comment line.
+- An optional review theme supplied inline or from a UTF-8 file.
+- Repository selection (`geo` and/or `arrayexpress`), publication limits, review controls, and metadata/harmonization controls.
+- For standalone harmonization, an existing atlas JSON object containing `accessions` and `publication_texts`.
+- For resume and benchmark workflows, a trace directory, atlas JSON file, or reference-set JSON as appropriate.
 
-1. `Atlas.create_atlas()` optionally generates and merges theme queries inside the method, calls `Atlas.collect_datasets()` with collection/filtering options, then calls `Atlas.harmonize_datasets()` with the collected atlas object.
-2. `AtlasCollector` loads query strings from `query` and/or a UTF-8 query file, asks `EuropePMCWrapper` to search publications and collect dataset datalinks, filters records to the selected metadata repositories, and routes each repository group to its metadata handler.
-3. When metadata collection is enabled, `GEOWrapper` normalizes GEO rows to GSE-level records, drops GPL or unresolved records, preserves source datalink evidence in `original_datalinks`, deduplicates repeated GSEs, and stores `geo2json` metadata in `accession_metadata`.
-4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
-5. `AtlasFilterer` accepts collected rows or an atlas-shaped object, reuses existing publication text entries, fetches missing full text or abstract fallback text through `EuropePMCWrapper`, attaches `publication_text_ref`, and returns the final object with `accessions` and `publication_texts`.
-6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested. Its `resume()` method can independently review the current completed-datalink snapshot from an actively growing trace; later calls add newly discovered publications without repeating completed LLM work.
-7. `AtlasHarmonizer` builds publication context from nested titles and abstracts, calls `OntologyHarmonizer.harmonize_miniml_json()`, replaces successful `accession_metadata`, records `ontology_harmonization_run_status` as `completed`, `not_run`, or `error`, and optionally writes detailed target/strategy results. A completed run can still contain unmatched or pruned targets; target-level trace is the source of that distinction.
+The primary output shape is:
 
-Major components:
+```json
+{
+  "accessions": [],
+  "publication_texts": {}
+}
+```
 
-- `AtlasCollector`: query loading, Europe PMC accession collection, repository filtering, metadata-handler routing, and optional intermediate JSON output.
-- `AtlasFilterer`: publication text collection, `publication_text_ref` attachment, thematic review, review-based filtering, and atlas object construction.
-- `AtlasHarmonizer`: per-accession MINiML ontology harmonization, publication-context construction, failure isolation, and optional detail output.
-- `EuropePMCWrapper`: publication search, datalink collection, full-text/abstract text enrichment, retry handling, and datalink XML fallback.
-- `GEOWrapper`: GEO accession normalization to GSE and `geo2json` metadata enrichment.
-- `ArrayExpressWrapper`: placeholder ArrayExpress metadata enrichment.
-- `PublicationTextReviewer`: thematic review integration, incremental trace resume, compact 500-character MINiML context construction, review reuse, judgement parsing, and review-filter application. Full accession metadata remains stored but is not sent to the thematic-review LLM.
+Each accession retains dataset identifiers, publication provenance, repository status, and optional `accession_metadata`. The shared `publication_texts` map stores full text or abstract fallback once and is referenced by nested publications through `publication_text_ref`.
 
-Python logging is library-style: modules define loggers but do not configure global logging. Applications should configure logging themselves. The CLI configures logging from `-v`, `-vv`, and `--log-file`.
+Depending on the workflow, additional outputs include:
 
-Europe PMC requests use a conservative 0.5-second delay by default. Callers may
-set `request_delay` explicitly when constructing `EuropePMCWrapper`; retry
-backoff and `Retry-After` handling remain separate from this base cadence.
+- `atlas.summary.json`, written beside a successful `create-atlas --out atlas.json` result.
+- A harmonization-details JSON sidecar when requested.
+- Timestamped trace artifacts and `resume_state.sqlite` when tracing is enabled.
+- Incremental review and metadata snapshots for standalone workers.
+- Reference-publication recall and reference-review reports under `.out/`.
 
-## More information
+## Guide
 
-- [Codebase handoff](docs/codebase.md)
-- [Codebase index](docs/index.md)
+<a id="cli-guide"></a>
+### CLI guide
+
+The installed interface is `thematic-atlas COMMAND [OPTIONS]`. It is a thin adapter over `Atlas`; successful commands do not print result JSON, so use `--out` for data and logging options for operational messages. Its wiring is documented in the [CLI codebase entry](docs/codebase.md#cli-atlas).
+
+Global logging options may appear before or after a command:
+
+| Option | Behavior |
+| --- | --- |
+| `-v`, `--verbose` | Repeatable verbosity: once enables INFO progress/statistics; twice (`-vv`) enables DEBUG request/retry/routing logs. Default: warnings only. |
+| `--log-file LOG_FILE` | Write UTF-8 logs to the file instead of stdout. A command-local value overrides a global value. |
+
+`collect-datasets` searches, filters, optionally enriches/reviews, and writes an atlas object:
+
+```bash
+thematic-atlas collect-datasets [OPTIONS]
+```
+
+| Option | Behavior |
+| --- | --- |
+| `--query TEXT` | Europe PMC query; repeat to preserve multiple queries in order. |
+| `--file PATH` | UTF-8 query file. Blank lines and lines beginning with `#` are ignored. |
+| `--out PATH` | Write the atlas JSON. If omitted, the method still runs but CLI result data is not printed. |
+| `--max-publications N` | Positive global cap on raw searched publications before datalink fetching. |
+| `--skip-metadata` | Keep repository-filtered accessions without calling metadata handlers. |
+| `--review-before-metadata` | Review repository-filtered publications first and enrich only survivors; requires a theme. |
+| `--metadata-repository {geo,arrayexpress}` | Select a repository; repeat to select both. Default: GEO only. |
+| `--theme TEXT` | Inline thematic-review theme. |
+| `--theme-file PATH` | Read the theme from UTF-8 text; takes precedence over `--theme`. |
+| `--query-generator` | Generate additional queries from the theme; requires a theme and model credentials. |
+| `--max-generated-queries N` | Positive generated-query limit; default `3` and maximum supported by `Atlas` is `3`. |
+| `--review-filter {none,not-relevant,not-relevant-and-unsure}` | Remove selected review outcomes. Default `none`; removal requires a theme. |
+| `--review-strategy {direct,evidence_then_judgement}` | Review contract. Default `direct`; the other choice is the legacy two-stage strategy. |
+
+`create-atlas` accepts every collection option above, then harmonizes the result:
+
+```bash
+thematic-atlas create-atlas [OPTIONS]
+```
+
+It additionally supports:
+
+| Option | Behavior |
+| --- | --- |
+| `--dev-trace` | Write a timestamped manifest, SQLite checkpoints, readable stage artifacts, final atlas, and summary. |
+| `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
+| `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, paths, and errors. |
+
+`harmonize-datasets` transforms an existing atlas file without discovery or review:
+
+```bash
+thematic-atlas harmonize-datasets \
+  --file atlas_datasets.json \
+  --out atlas.json \
+  --harmonization-details-out harmonization_details.json
+```
+
+| Option | Behavior |
+| --- | --- |
+| `--file INPUT` | Required input atlas JSON. |
+| `--out OUTPUT` | Required output atlas JSON. |
+| `--harmonization-details-out PATH` | Optional details sidecar. |
+
+<a id="python-api-guide"></a>
+### Python API guide
+
+Import the orchestrator directly; the package root does not re-export it:
+
+```python
+from ThematicAtlases.atlas import Atlas
+```
+
+`Atlas(...)` is the dependency-injection boundary:
+
+```python
+Atlas(
+    metadata,
+    epmc_wrapper_factory=None,
+    metadata_handlers=None,
+    metadata_repositories=None,
+    publication_text_reviewer=None,
+    collector=None,
+    filterer=None,
+    harmonizer=None,
+    ontostore=None,
+    cache_ontologies=False,
+    query_generator=None,
+    credential_checker=None,
+)
+```
+
+`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+
+`Atlas.collect_datasets(...)` runs discovery, metadata routing, text collection, and optional review:
+
+```python
+Atlas.collect_datasets(
+    query=None, file=None, out=None, theme=None,
+    review_filter="none", review_strategy="direct",
+    metadata_repositories=None, max_publications=None,
+    max_publications_per_query=None, reviewer=None,
+    collect_metadata=True, generate_queries=False,
+    max_generated_queries=3, dev_trace=False,
+    dev_out_dir=".dev", run_id=None,
+    review_before_metadata=False, stop_before_review=False,
+)
+```
+
+- `query` is an ordered list; `file` adds queries from UTF-8 text. `max_publications` is a global raw-hit cap, while `max_publications_per_query` must align one positive integer or `None` with each ordered query.
+- `theme`, `review_filter`, `review_strategy`, and an optional injected `reviewer` control thematic review.
+- `metadata_repositories` selects handlers; `collect_metadata=False` skips enrichment. `review_before_metadata=True` reverses review/enrichment ordering and requires a theme.
+- `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
+- `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.
+- `out` writes the atlas-shaped return value.
+
+`Atlas.create_atlas(...)` runs collection and then harmonization:
+
+```python
+Atlas.create_atlas(
+    query=None, file=None, out=None, theme=None,
+    review_filter="none", review_strategy="direct",
+    metadata_repositories=None, max_publications=None,
+    max_publications_per_query=None, reviewer=None,
+    collect_metadata=True, dev_trace=False,
+    dev_out_dir=".dev", harmonization_details_out=None,
+    generate_queries=False, max_generated_queries=3,
+    harmonization_options=None, review_before_metadata=False,
+)
+```
+
+Collection parameters behave as above. `harmonization_options` is forwarded to the ontology workflow, and `harmonization_details_out` writes its sidecar. When `out` is provided, a summary is also written. See the [harmonizer internals](docs/codebase.md#harmonizer).
+
+`Atlas.harmonize_datasets(...)` accepts an atlas object and returns a copy with supported metadata harmonized:
+
+```python
+Atlas.harmonize_datasets(
+    datasets,
+    harmonization_details_out=None,
+    harmonization_options=None,
+)
+```
+
+Unsupported/null metadata is retained with status `not_run`; per-accession failures retain original metadata with status `error` while later items continue.
+
+`Atlas.resume(...)` selects a traced workflow and reuses its latest valid stage:
+
+```python
+Atlas.resume(
+    dev_out_dir=".dev",
+    run_id=None,
+    out=None,
+    stop_before_review=False,
+)
+```
+
+`run_id=None` selects the newest incomplete valid trace. `out` overrides the manifest output. `stop_before_review=True` resumes only the collection snapshot.
+
+`Atlas.amend_queries(...)` replaces one trace's query fingerprint without discarding completed item checkpoints:
+
+```python
+Atlas.amend_queries(
+    dev_out_dir=TRACE_ROOT,
+    run_id=RUN_ID,
+    queries=QUERIES,
+    max_publications_per_query=LIMITS,
+)
+```
+
+The query and limit lists must be non-empty, aligned, and contain positive limits or `None`.
+
+`Atlas.archive_existing_runs(...)` moves inactive traces and fixed artifacts into verified archives:
+
+```python
+Atlas.archive_existing_runs(
+    dev_out_dir=TRACE_ROOT,
+    archive_root=ARCHIVE_ROOT,
+    workflow="workflow_name",
+    artifact_paths=(),
+)
+```
+
+It returns ordered archive paths and rejects active workflows, unsafe names, symlinks, destination collisions, and archive roots nested inside the active trace root.
+
+Specialized public APIs are available when independently advancing or evaluating a trace:
+
+- `PublicationTextReviewer.resume(...)`: `resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict` reviews one stable datalink snapshot. See the [filterer flow](docs/codebase.md#filterer).
+- `AtlasCollector.resume_metadata(...)`: `resume_metadata(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict` collects, audits, or explicitly repairs GEO metadata enrichment for one stable snapshot. See the [collector flow](docs/codebase.md#collector).
+- `ThematicReviewerBenchmark`: `benchmark_reference_publication_recall(reference_set=None, reference_set_file=None, thematic_output=...) -> dict` requires exactly one packaged name or custom reference file; `available_reference_sets()` lists packaged sets and `load_reference_set(name)` returns a defensive copy. See the [benchmark package](docs/codebase.md#benchmark-package).
+
+Library modules define loggers without configuring global logging. Applications should configure their preferred handlers and levels.
+
+### Workflow scripts
+
+The repository includes focused scripts built on the same Python API. They require `.env/bin/python` unless noted:
+
+- `run_fibrosis_atlas.py [--resume [RUN_ID]]` runs or resumes the fixed full fibrosis atlas, including ontology caching, review, harmonization, summaries, and trace archival.
+- `run_fibrosis_discovery.py [--generate-query | --resume [RUN_ID]] [--amend-queries]` runs collection-only discovery; query amendment requires an explicit resume ID.
+- `run_publication_reviewer.py TRACE_DIR [--theme-file PATH] [--strategy {direct,evidence_then_judgement}] [--allow-theme-override] [-v|-vv]` reviews a stable growing-trace snapshot.
+- `run_accession_metadata_collector.py TRACE_DIR [-v|-vv] [--audit-enrichment-only | --retry-tags PATH]` advances or audits GEO metadata independently.
+- `run_reference_publication_recall.py THEMATIC_OUTPUT [--reference-set-file JSON ...] [--out PATH]` runs offline recall against all packaged sets plus optional custom sets.
+- `run_reference_set_review.py [--reference-set NAME]` resolves and reviews one packaged reference set through a checkpointed diagnostic workflow.
+
+Use `.env/bin/python SCRIPT --help` for the parser-generated command reference. Fixed fibrosis behavior and output locations are documented under [fibrosis run scripts](docs/codebase.md#fibrosis-run-script).
+
+### Code flow
+
+```text
+CLI or Python input
+  -> Atlas (query ordering, credentials, trace orchestration)
+     -> `AtlasCollector`
+        -> EuropePMCWrapper (search, datalinks)
+        -> GEOWrapper / ArrayExpressWrapper (metadata routing)
+     -> `AtlasFilterer`
+        -> EuropePMCWrapper (full text or abstract fallback)
+        -> `PublicationTextReviewer` (optional thematic review/filter)
+     -> `AtlasHarmonizer` (optional ontology harmonization)
+  -> atlas JSON + summary/details
+  -> optional readable trace artifacts + resume_state.sqlite
+```
+
+The collector, filterer, and harmonizer isolate the main stages while `Atlas` owns their ordering, dependency injection, output, and resume policy. External requests are checkpointed at item boundaries during traced runs, so successful/no-data and terminal outcomes are reused while transient errors can be retried.
+
+Implementation details: [collector](docs/codebase.md#collector), [filterer](docs/codebase.md#filterer), [Europe PMC](docs/codebase.md#epmc-wrapper), [GEO](docs/codebase.md#geo-wrapper), [ArrayExpress](docs/codebase.md#arrayexpress-wrapper), and [harmonizer](docs/codebase.md#harmonizer).
+
+## Docs
+
+- [Documentation index](docs/index.md) — routing index for stable codebase sections.
+- [Codebase handoff](docs/codebase.md) — canonical architecture, API, workflow, and verification reference.
+- [Project layout and purpose](docs/codebase.md#project-purpose-and-layout)
+- [Runtime and packaging](docs/codebase.md#runtime-and-packaging)
+- [Public API](docs/codebase.md#public-api)
 - [Atlas workflow](docs/codebase.md#atlas-workflow)
-- [Collector flow](docs/codebase.md#collector)
-- [Filterer flow](docs/codebase.md#filterer)
-- [Europe PMC wrapper flow](docs/codebase.md#epmc-wrapper)
-- [GEO wrapper flow](docs/codebase.md#geo-wrapper)
-- [ArrayExpress wrapper flow](docs/codebase.md#arrayexpress-wrapper)
-- [CLI flow](docs/codebase.md#cli-atlas)
+- [CLI](docs/codebase.md#cli-atlas)
+- [Test and verification status](docs/codebase.md#test-and-verification-status)
 
 ## Authors
 
