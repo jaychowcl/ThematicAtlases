@@ -43,7 +43,7 @@ class DevTraceWriter:
         os.replace(temporary, destination)
 
     def metadata(self, accessions: list[dict]) -> list[dict]:
-        keys = ("datalink_id", "metadata_repository", "metadata_source", "metadata_status", "ontology_harmonization_status", "ontology_harmonization_error")
+        keys = ("datalink_id", "metadata_repository", "metadata_source", "metadata_status", "ontology_harmonization_run_status", "ontology_harmonization_error")
         return [
             {**{key: item[key] for key in keys if key in item}, "accession_metadata": item.get("accession_metadata")}
             for item in accessions

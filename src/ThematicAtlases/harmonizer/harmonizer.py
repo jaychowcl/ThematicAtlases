@@ -59,11 +59,11 @@ class AtlasHarmonizer:
             datalink_id = record.get("datalink_id", "")
 
             if not isinstance(metadata, (dict, list)):
-                record["ontology_harmonization_status"] = "unavailable"
+                record["ontology_harmonization_run_status"] = "not_run"
                 record.pop("ontology_harmonization_error", None)
                 details[index] = {
                     "datalink_id": datalink_id,
-                    "status": "unavailable",
+                    "run_status": "not_run",
                 }
                 continue
 
@@ -118,21 +118,21 @@ class AtlasHarmonizer:
                             datalink_id,
                             error,
                         )
-                        record["ontology_harmonization_status"] = "error"
+                        record["ontology_harmonization_run_status"] = "error"
                         record["ontology_harmonization_error"] = str(error)
                         details[index] = {
                             "datalink_id": datalink_id,
-                            "status": "error",
+                            "run_status": "error",
                             "error": str(error),
                         }
                         continue
 
                     record["accession_metadata"] = harmonization["miniml_json"]
-                    record["ontology_harmonization_status"] = "available"
+                    record["ontology_harmonization_run_status"] = "completed"
                     record.pop("ontology_harmonization_error", None)
                     details[index] = {
                         "datalink_id": datalink_id,
-                        "status": "available",
+                        "run_status": "completed",
                         "harmonization_targets": harmonization.get(
                             "harmonization_targets", []
                         ),
@@ -206,11 +206,11 @@ class AtlasHarmonizer:
                 json.dump(details, handle, indent=2)
 
         logger.info(
-            "Atlas ontology harmonization stats accessions=%s available=%s unavailable=%s errors=%s details_path=%s",
+            "Atlas ontology harmonization stats accessions=%s completed=%s not_run=%s errors=%s details_path=%s",
             len(accessions),
-            sum(item["status"] == "available" for item in details),
-            sum(item["status"] == "unavailable" for item in details),
-            sum(item["status"] == "error" for item in details),
+            sum(item["run_status"] == "completed" for item in details),
+            sum(item["run_status"] == "not_run" for item in details),
+            sum(item["run_status"] == "error" for item in details),
             details_out,
         )
         return result, details

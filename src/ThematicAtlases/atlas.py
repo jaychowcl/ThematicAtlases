@@ -95,6 +95,8 @@ class Atlas:
         harmonization_options: dict | None = None,
         review_before_metadata: bool = False,
     ) -> dict:
+        if self._cache_ontologies:
+            self._preflight_credentials()
         self._prepare_ontology_cache()
         run_id = self._dev_run_id()
         trace = None
@@ -264,6 +266,8 @@ class Atlas:
                 len(result.get("publication_texts", {})),
             )
             return result
+        if self._cache_ontologies:
+            self._preflight_credentials()
         self._prepare_ontology_cache()
         if manifest.get("theme") is not None:
             self._preflight_credentials()

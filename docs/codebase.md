@@ -210,7 +210,7 @@ first/every-tenth/final progress for long loops, and stage summaries from all
 three packages. Prompt and response bodies, publication/metadata payloads,
 credentials, authorization headers, and request parameters are not logged.
 
-The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables target checking plus every direct/RAG/OLS/field stage control with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` calls `cache_all()` before collection, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
+The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables target checking plus every direct/RAG/OLS/field stage control with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` validates model credentials before calling `cache_all()`, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. `cache_all()` builds semantic indexes for the selected lexical frameworks by default. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
 
 Prepare and run it with:
 
@@ -328,7 +328,7 @@ Collection-only traces additionally use `resume_publication_collection.json`
 and its summary for the unreviewed accession/publication-text snapshot. Static
 collection-only runs do not require Google credentials; generated-query runs do.
 
-Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=True)` invokes `store.cache_all()` once at the beginning of the first `create_atlas()` call, before credentials, query generation, or collection. The upstream cache API directly streams OWL into SQLite, imports an existing legacy JSON cache when available, and supports selective refresh through `store.cache_all(force_frameworks=[...])`; `force=True` still refreshes all active frameworks. Its framework replacement is transactional and temporary staging databases are deleted after success or failure. The result is retained as `atlas.ontology_cache_result`; aggregate cache exceptions propagate and prevent collection. The same store is passed to the default `AtlasHarmonizer` and its lazily created `OntologyHarmonizer`. Supplying a custom harmonizer together with Atlas-managed store/cache options raises `ValueError`.
+Eager ontology caching is opt-in. `Atlas(..., ontostore=store, cache_ontologies=True)` validates model credentials and then invokes `store.cache_all()` once at the beginning of the first `create_atlas()` call, before query generation or collection. The upstream cache API directly streams OWL into SQLite, imports an existing legacy JSON cache when available, and supports selective refresh through `store.cache_all(force_frameworks=[...])`; `force=True` still refreshes all active frameworks. It also builds semantic indexes for every selected lexical framework by default. `semantic_frameworks=[]` disables eager semantic construction, while a named subset limits it and is validated against the lexical selection. Lexical and semantic results are reported per framework, and a required semantic failure participates in the aggregate cache error. Framework replacement is transactional and temporary staging databases are deleted after success or failure. The result is retained as `atlas.ontology_cache_result`; aggregate cache exceptions propagate and prevent collection. The same store is passed to the default `AtlasHarmonizer` and its lazily created `OntologyHarmonizer`. Supplying a custom harmonizer together with Atlas-managed store/cache options raises `ValueError`.
 
 <a id="collector"></a>
 ### Collector
@@ -456,11 +456,20 @@ within their existing pool sizes. The preference is advisory and is not passed
 to target checking or field assignment. OLS still makes exactly one
 unrestricted request, regardless of a target's existing ontology ID.
 
+The optional target checker can return `prunes` alongside `additions`. Only
+high-confidence prunes of known, unique targets are applied. Pruned targets are
+omitted from lookup and field assignment but remain unchanged in the raw
+MINiML input and are recorded with their evidence in the target-check trace.
+Rejected medium-confidence, unknown, or ambiguous prune requests are also
+retained in that trace for auditability.
+
 A successful call replaces `accession_metadata` with the returned
-`miniml_json` and sets `ontology_harmonization_status="available"`. Null or
-unsupported metadata remains `unavailable`. Exceptions are isolated per
-accession: original metadata is retained with status `error` and
-`ontology_harmonization_error`, then later accessions continue.
+`miniml_json` and sets `ontology_harmonization_run_status="completed"`. This
+means the workflow completed; it does not claim that every target matched.
+Null or unsupported metadata is retained with `not_run`. Exceptions are
+isolated per accession: original metadata is retained with run status `error`
+and `ontology_harmonization_error`, then later accessions continue. The summary
+aggregates these values under `harmonization_run_statuses`.
 
 The upstream ontology path is fixed:
 
@@ -493,7 +502,7 @@ the original `pre_hz_label`. If no term matches, field harmonization uses the
 normalized input label; terminal skips are the exception.
 
 The details sidecar records targets, `workflow`, effective `controls`, paths,
-statuses, errors, and configured `preferred_ontology_ids` by `datalink_id`.
+`run_status`, errors, and configured `preferred_ontology_ids` by `datalink_id`.
 The current upstream wrapper reports `workflow="local_rag_ols"`. Per-run
 `harmonization_options` such as `target_paths`, `target_checker`,
 `direct_lookup_judge`, `rag_lookup`, `rag_lookup_judge`, `ols_lookup`,

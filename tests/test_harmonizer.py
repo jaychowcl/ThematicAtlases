@@ -119,7 +119,7 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
         "run_status": "error",
         "error": "provider unavailable",
     }
-    assert details[1]["status"] == "available"
+    assert details[1]["run_status"] == "completed"
 
 
 def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(

@@ -10,7 +10,7 @@ The current workflow supports GEO and ArrayExpress routing. GEO accessions are n
 
 The filtering stage builds a shared `publication_texts` map, fetching open-access full text from Europe PMC when available and falling back to abstracts when full text is missing. Accession publication entries then receive `publication_text_ref` pointers into that shared map so full text is not duplicated on every accession. When a theme is supplied, ThematicAtlases can call `agentic-curator` to review publication text for thematic relevance and optionally remove not-relevant or unsure publications.
 
-`create-atlas` now passes each accession's MINiML-style `accession_metadata` to `agentic-curator` ontology harmonization. Harmonized MINiML replaces the original metadata, while status fields preserve unavailable and per-accession error outcomes. ArrayExpress metadata remains placeholder-only.
+`create-atlas` passes each accession's MINiML-style `accession_metadata` to `agentic-curator` ontology harmonization. Harmonized MINiML replaces the original metadata. The public `ontology_harmonization_run_status` distinguishes `completed`, `not_run`, and per-accession `error` outcomes; it describes whether the workflow ran, not whether every target matched. ArrayExpress metadata remains placeholder-only.
 
 ## Installation
 
@@ -65,7 +65,7 @@ latest valid completed stage:
 .env/bin/python run_fibrosis_atlas.py --resume 20260712T215848
 ```
 
-`run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It removes `snomed`, eagerly downloads/parses/indexes every remaining ontology through `OntoStore.cache_all()`, then searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, performs ontology harmonization, and enables the full development trace. Any ontology cache failure aborts before dataset collection.
+`run_fibrosis_atlas.py` prints its complete fixed configuration before making network or model calls. It removes `snomed`, validates model credentials, then eagerly builds both the lexical caches and semantic indexes for every remaining ontology through `OntoStore.cache_all()`. It searches at most 50 Europe PMC publications using generated fibrosis queries, collects GEO metadata, drops reviewed `not_relevant` publications while retaining `unsure`, performs ontology harmonization, and enables the full development trace. Any ontology cache failure aborts before dataset collection.
 
 Generated files are ignored under `.out/`: `fibrosis_atlas.json`, `fibrosis_atlas.summary.json`, `fibrosis_harmonization_details.json`, `fibrosis_atlas.log`, the ontology store, and timestamped trace bundles under `.out/dev_trace/`.
 
@@ -368,7 +368,7 @@ atlas = Atlas(
 )
 ```
 
-`Atlas(..., ontostore=None, cache_ontologies=False)` retains lazy behavior by default. With eager caching enabled, `create_atlas()` calls `store.cache_all()` once before query generation or collection and passes the same store to the default ontology harmonizer. A custom harmonizer cannot be combined with Atlas-managed store options.
+`Atlas(..., ontostore=None, cache_ontologies=False)` retains lazy behavior by default. With eager caching enabled, `create_atlas()` validates credentials, calls `store.cache_all()` once before query generation or collection, and passes the same store to the default ontology harmonizer. `cache_all()` builds semantic indexes for the selected lexical frameworks by default; upstream callers can pass `semantic_frameworks=[]` to skip that phase or a subset to limit it. A custom harmonizer cannot be combined with Atlas-managed store options.
 
 The fixed fibrosis runner enables DEBUG logging to both stdout and
 `.out/fibrosis_atlas.log`. Cross-package logs expose safe stage, identifier,
@@ -386,7 +386,7 @@ Code flow:
 4. `ArrayExpressWrapper` preserves selected ArrayExpress rows and adds placeholder repository metadata until live ArrayExpress enrichment is implemented.
 5. `AtlasFilterer` accepts collected rows or an atlas-shaped object, reuses existing publication text entries, fetches missing full text or abstract fallback text through `EuropePMCWrapper`, attaches `publication_text_ref`, and returns the final object with `accessions` and `publication_texts`.
 6. `PublicationTextReviewer` validates review options, reuses matching prior `agentic_curator` reviews, calls the reviewer when a theme is supplied, normalizes judgements, and removes not-relevant or unsure publications when requested. Its `resume()` method can independently review the current completed-datalink snapshot from an actively growing trace; later calls add newly discovered publications without repeating completed LLM work.
-7. `AtlasHarmonizer` builds publication context from nested titles and abstracts, calls `OntologyHarmonizer.harmonize_miniml_json()`, replaces successful `accession_metadata`, annotates unavailable/error outcomes, and optionally writes detailed target/strategy results.
+7. `AtlasHarmonizer` builds publication context from nested titles and abstracts, calls `OntologyHarmonizer.harmonize_miniml_json()`, replaces successful `accession_metadata`, records `ontology_harmonization_run_status` as `completed`, `not_run`, or `error`, and optionally writes detailed target/strategy results. A completed run can still contain unmatched or pruned targets; target-level trace is the source of that distinction.
 
 Major components:
 

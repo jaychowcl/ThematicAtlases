@@ -20,7 +20,10 @@ def build_atlas_summary(atlas: dict, atlas_path: str | None = None) -> dict:
     accessions = atlas.get("accessions", [])
     publication_texts = atlas.get("publication_texts", {})
     repositories = Counter(str(item.get("metadata_repository") or "unknown") for item in accessions)
-    harmonization = Counter(str(item.get("ontology_harmonization_status") or "unknown") for item in accessions)
+    harmonization = Counter(
+        str(item.get("ontology_harmonization_run_status") or "unknown")
+        for item in accessions
+    )
     reviews = Counter()
     for item in publication_texts.values():
         review = item.get("agentic_curator", {}) if isinstance(item, dict) else {}
@@ -49,7 +52,7 @@ def build_atlas_summary(atlas: dict, atlas_path: str | None = None) -> dict:
         },
         "repositories": dict(sorted(repositories.items())),
         "review_judgements": dict(sorted(reviews.items())),
-        "harmonization_statuses": dict(sorted(harmonization.items())),
+        "harmonization_run_statuses": dict(sorted(harmonization.items())),
         "scientific_profile": scientific,
     }
 
