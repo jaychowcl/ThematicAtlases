@@ -66,10 +66,12 @@ def test_configuration_documents_real_sources_and_credentials() -> None:
 def test_cli_guide_lists_every_registered_command_and_option() -> None:
     text = README.read_text(encoding="utf-8")
     options = set(re.findall(r'add_argument\("(--[a-z-]+)"', (ROOT / "src" / "ThematicAtlases" / "cli_atlas.py").read_text(encoding="utf-8")))
+    cli_guide = text.split("### CLI guide", 1)[1].split(
+        "### Python API guide", 1
+    )[0]
 
-    assert {"collect-datasets", "create-atlas", "harmonize-datasets"}.issubset(
-        text.split("### CLI guide", 1)[1].split("### Python API guide", 1)[0]
-    )
+    for command in ("collect-datasets", "create-atlas", "harmonize-datasets"):
+        assert command in cli_guide
     for option in options:
         assert f"`{option}`" in text
     assert "`-v`, `--verbose`" in text
