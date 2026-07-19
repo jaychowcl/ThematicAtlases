@@ -73,7 +73,7 @@ def test_cli_guide_lists_every_registered_command_and_option() -> None:
     for command in ("collect-datasets", "create-atlas", "harmonize-datasets"):
         assert command in cli_guide
     for option in options:
-        assert f"`{option}`" in text
+        assert re.search(rf"`{re.escape(option)}(?:`|\s)", cli_guide)
     assert "`-v`, `--verbose`" in text
 
 
