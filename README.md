@@ -1,4 +1,4 @@
-<img width="1536" height="1024" alt="ChatGPT Image Jul 27, 2026, 10_33_57 AM" src="https://github.com/user-attachments/assets/ea6a1467-8555-4493-8523-a2edb0ed22ff" />
+<img width="375" height="250" alt="ChatGPT Image Jul 27, 2026, 10_33_57 AM" src="https://github.com/user-attachments/assets/ea6a1467-8555-4493-8523-a2edb0ed22ff" />
 
 # ThematicAtlases
 
