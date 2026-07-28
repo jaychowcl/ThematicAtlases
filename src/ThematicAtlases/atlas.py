@@ -273,30 +273,14 @@ class Atlas:
             self._preflight_credentials()
         logger.info("Atlas resume selected run_id=%s run_dir=%s", run_dir.name, run_dir)
 
+        discovery_retryable = checkpoint_store.has_retryable_boundary("discovery")
+        review_retryable = checkpoint_store.has_retryable_boundary("review")
+        metadata_retryable = checkpoint_store.has_retryable_boundary("metadata")
         collection_retryable = any(
-            checkpoint_store.has_retryable(stage)
-            for stage in (
-                "datalinks",
-                "geo_resolution",
-                "geo_metadata",
-                "pubmed_enrichment",
-                "sra_xml",
-                "ena_fastq",
-                "publication_text",
-            )
+            (discovery_retryable, review_retryable, metadata_retryable)
         )
-        harmonization_retryable = checkpoint_store.has_retryable("harmonization")
-        discovery_retryable = checkpoint_store.has_retryable("datalinks")
-        review_retryable = checkpoint_store.has_retryable("publication_text")
-        metadata_retryable = any(
-            checkpoint_store.has_retryable(stage)
-            for stage in (
-                "geo_resolution",
-                "geo_metadata",
-                "pubmed_enrichment",
-                "sra_xml",
-                "ena_fastq",
-            )
+        harmonization_retryable = checkpoint_store.has_retryable_boundary(
+            "harmonization"
         )
         review_before_metadata = manifest.get("review_before_metadata", False)
         final_path = run_dir / "06_final_atlas.json"

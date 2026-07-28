@@ -354,6 +354,45 @@ def test_review_publication_texts_isolates_and_retains_failed_publication(caplog
     assert set(texts) == {"bad", "good"}
 
 
+def test_review_transient_failure_is_checkpointed_and_retried(tmp_path) -> None:
+    class RecoveringReviewer:
+        calls = 0
+
+        def review_relevancy(self, publication_text, **kwargs):
+            self.__class__.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("temporary provider timeout")
+            return FakeReviewer().review_relevancy(
+                publication_text=publication_text,
+                **kwargs,
+            )
+
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    reviewer = RecoveringReviewer()
+    publication_texts = {"1": {"text": "full text"}}
+
+    PublicationTextReviewer().review_publication_texts(
+        publication_texts=publication_texts,
+        contexts={},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+    assert store.items("thematic_review")[0]["status"] == "retryable_error"
+
+    result = PublicationTextReviewer().review_publication_texts(
+        publication_texts=publication_texts,
+        contexts={},
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+
+    assert reviewer.calls == 2
+    assert result["1"]["agentic_curator"]["judgement"] == "relevant"
+    assert store.items("thematic_review")[0]["status"] == "available"
+
+
 def test_review_publication_texts_reports_atomic_progress_after_each_result() -> None:
     snapshots = []
     PublicationTextReviewer().review_publication_texts(

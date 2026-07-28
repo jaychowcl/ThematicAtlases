@@ -323,7 +323,9 @@ class PublicationTextReviewer:
                     "thematic_review",
                     checkpoint_key,
                     index,
-                    "terminal_error",
+                    "retryable_error"
+                    if is_retryable_error(error)
+                    else "terminal_error",
                     payload={
                         "publication_text": publication_text,
                         "input_hash": input_hash,
@@ -333,6 +335,8 @@ class PublicationTextReviewer:
                         "publication_ref": publication_ref,
                     },
                     error=str(error),
+                    error_type=type(error).__name__,
+                    failure_category=failure_category(error),
                 )
             return {
                 "publication_text": publication_text,
@@ -607,3 +611,4 @@ class PublicationTextReviewer:
 
         self._resume_orchestrator_instance = TracePublicationReviewResumer(self)
         return self._resume_orchestrator_instance
+from ThematicAtlases.checkpoint import failure_category, is_retryable_error
