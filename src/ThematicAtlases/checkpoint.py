@@ -527,6 +527,11 @@ class CheckpointStore:
                         status TEXT NOT NULL,
                         payload TEXT,
                         error TEXT,
+                        attempt_count INTEGER NOT NULL DEFAULT 0,
+                        first_failed_at TEXT,
+                        last_attempt_at TEXT,
+                        error_type TEXT,
+                        failure_category TEXT,
                         updated_at TEXT NOT NULL,
                         PRIMARY KEY (archive_id, stage, item_key)
                     );
@@ -534,6 +539,24 @@ class CheckpointStore:
                         ON checkpoint_archive_items(archive_id, stage, ordinal, item_key);
                     """
                 )
+                archive_columns = {
+                    row["name"]
+                    for row in connection.execute(
+                        "PRAGMA checkpoint_archive.table_info(checkpoint_archive_items)"
+                    )
+                }
+                for name, definition in {
+                    "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                    "first_failed_at": "TEXT",
+                    "last_attempt_at": "TEXT",
+                    "error_type": "TEXT",
+                    "failure_category": "TEXT",
+                }.items():
+                    if name not in archive_columns:
+                        connection.execute(
+                            "ALTER TABLE checkpoint_archive.checkpoint_archive_items "
+                            f"ADD COLUMN {name} {definition}"
+                        )
                 if connection.execute(
                     "SELECT 1 FROM checkpoint_archive.checkpoint_archive_meta "
                     "WHERE archive_id = ?",
@@ -578,10 +601,12 @@ class CheckpointStore:
                     """
                     INSERT INTO checkpoint_archive.checkpoint_archive_items(
                         archive_id, stage, item_key, ordinal, status, payload,
-                        error, updated_at
+                        error, attempt_count, first_failed_at, last_attempt_at,
+                        error_type, failure_category, updated_at
                     )
                     SELECT ?, stage, item_key, ordinal, status, payload, error,
-                           updated_at
+                           attempt_count, first_failed_at, last_attempt_at,
+                           error_type, failure_category, updated_at
                     FROM checkpoint_items WHERE """ + selection_sql,
                     (normalized_archive_id, normalized_stage),
                 )
