@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 
-from ThematicAtlases.checkpoint import is_retryable_error
+from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,8 @@ class AtlasHarmonizer:
 
                     record["accession_metadata"] = harmonization["miniml_json"]
                     record["ontology_harmonization_run_status"] = "completed"
+                    quality_status = self._quality_status(harmonization)
+                    record["ontology_harmonization_quality_status"] = quality_status
                     record.pop("ontology_harmonization_error", None)
                     details[index] = {
                         "datalink_id": datalink_id,
@@ -138,6 +140,10 @@ class AtlasHarmonizer:
                         ),
                         "workflow": harmonization.get("workflow"),
                         "target_paths": harmonization.get("target_paths"),
+                        "quality_status": quality_status,
+                        "degraded_stages": harmonization.get(
+                            "degraded_stages", []
+                        ),
                     }
                     if "preferred_ontology_ids" in harmonization:
                         details[index]["preferred_ontology_ids"] = harmonization[
@@ -165,6 +171,8 @@ class AtlasHarmonizer:
                         if is_retryable_error(error)
                         else "terminal_error",
                         error=str(error),
+                        error_type=type(error).__name__,
+                        failure_category=failure_category(error),
                     )
 
             pending = []
@@ -214,6 +222,20 @@ class AtlasHarmonizer:
             details_out,
         )
         return result, details
+
+    @staticmethod
+    def _quality_status(harmonization: dict) -> str:
+        explicit = harmonization.get("quality_status")
+        if explicit in {"healthy", "degraded"}:
+            return explicit
+        if (harmonization.get("target_checker") or {}).get("status") == "failed":
+            return "degraded"
+        if any(
+            isinstance(target, dict) and target.get("field_assignment_fallback")
+            for target in harmonization.get("harmonization_targets", [])
+        ):
+            return "degraded"
+        return "healthy"
 
     def _work_key(
         self,

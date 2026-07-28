@@ -58,6 +58,10 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
         "hz_organism": "mus musculus",
     }
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
+    assert (
+        result["accessions"][0]["ontology_harmonization_quality_status"]
+        == "healthy"
+    )
     assert "ontology_harmonization_status" not in result["accessions"][0]
     assert details == [
         {
@@ -66,6 +70,8 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
             "harmonization_targets": [{"id": "target-1"}],
             "workflow": "local_rag_ols",
             "target_paths": [{"path": "/samples"}],
+            "quality_status": "healthy",
+            "degraded_stages": [],
             "controls": {"direct_lookup_judge": True},
         }
     ]
@@ -312,6 +318,37 @@ def test_harmonizer_details_include_preferred_ontology_trace() -> None:
     )
 
     assert details[0]["preferred_ontology_ids"] == ["custom", "efo"]
+
+
+def test_harmonizer_surfaces_degraded_upstream_result() -> None:
+    class DegradedHarmonizer:
+        def harmonize_miniml_json(self, **kwargs):
+            return {
+                "miniml_json": kwargs["miniml_json"],
+                "harmonization_targets": [],
+                "workflow": "local_rag_ols",
+                "target_paths": [],
+                "quality_status": "degraded",
+                "degraded_stages": [
+                    {
+                        "stage": "target_checker",
+                        "reason": "invalid_output_after_retry",
+                        "attempts": 2,
+                    }
+                ],
+            }
+
+    result, details = AtlasHarmonizer(
+        ontology_harmonizer=DegradedHarmonizer()
+    ).harmonize_datasets(
+        {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {}}]}
+    )
+
+    assert (
+        result["accessions"][0]["ontology_harmonization_quality_status"]
+        == "degraded"
+    )
+    assert details[0]["quality_status"] == "degraded"
 
 
 def test_null_metadata_never_constructs_ontology_harmonizer() -> None:

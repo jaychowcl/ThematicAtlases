@@ -24,6 +24,11 @@ def build_atlas_summary(atlas: dict, atlas_path: str | None = None) -> dict:
         str(item.get("ontology_harmonization_run_status") or "unknown")
         for item in accessions
     )
+    harmonization_quality = Counter(
+        str(item.get("ontology_harmonization_quality_status") or "unknown")
+        for item in accessions
+        if item.get("ontology_harmonization_run_status") == "completed"
+    )
     reviews = Counter()
     for item in publication_texts.values():
         review = item.get("agentic_curator", {}) if isinstance(item, dict) else {}
@@ -53,6 +58,9 @@ def build_atlas_summary(atlas: dict, atlas_path: str | None = None) -> dict:
         "repositories": dict(sorted(repositories.items())),
         "review_judgements": dict(sorted(reviews.items())),
         "harmonization_run_statuses": dict(sorted(harmonization.items())),
+        "harmonization_quality_statuses": dict(
+            sorted(harmonization_quality.items())
+        ),
         "scientific_profile": scientific,
     }
 

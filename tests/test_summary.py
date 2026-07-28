@@ -59,6 +59,7 @@ def test_build_atlas_summary_reports_operations_and_scientific_profile() -> None
     assert summary["repositories"] == {"arrayexpress": 1, "geo": 1}
     assert summary["review_judgements"] == {"relevant": 1, "unreviewed": 1}
     assert summary["harmonization_run_statuses"] == {"completed": 1, "not_run": 1}
+    assert summary["harmonization_quality_statuses"] == {"unknown": 1}
     assert "harmonization_statuses" not in summary
     profile = summary["scientific_profile"]
     assert profile["samples_total"] == 1
