@@ -196,6 +196,23 @@ thematic-atlas harmonize-datasets \
 | `--out OUTPUT` | Required output atlas JSON. |
 | `--harmonization-details-out PATH` | Optional details sidecar. |
 
+`resume` continues a traced run and can first requeue selected checkpoint
+boundaries:
+
+```bash
+thematic-atlas resume --dev-out-dir .dev --run-id RUN_ID [OPTIONS]
+```
+
+| Option | Behavior |
+| --- | --- |
+| `--dev-out-dir PATH` | Trace root containing the run; default `.dev`. |
+| `--run-id ID` | Run to resume. If omitted, the most recent run is used. |
+| `--out PATH` | Write the resumed atlas JSON. |
+| `--stop-before-review` | Resume collection only and stop before thematic review. |
+| `--retry-stage STAGE` | Requeue all retryable items at a registered stage; repeat for multiple stages. |
+| `--retry-item STAGE:ITEM_ID` | Requeue one checkpoint item; repeat for multiple items. |
+| `--retry-degraded-stage STAGE` | Requeue harmonization items degraded at the named internal stage; repeat as needed. |
+
 <a id="python-api-guide"></a>
 ### Python API guide
 
