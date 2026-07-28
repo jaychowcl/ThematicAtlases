@@ -316,6 +316,13 @@ rows to comparison databases while leaving the parent run active.
 
 When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run directory under `dev_out_dir` containing `resume_state.sqlite`, a manifest, readable collection/review checkpoints, and final output/summary; full atlas traces also include pre/post harmonization metadata and target details. `CheckpointStore` uses WAL mode, full synchronous commits, a configuration fingerprint, and one row per stage/item. Statuses distinguish reusable success/no-data outcomes, non-retryable consumed-call failures, and transient failures that should be attempted again. `archive_stage(...)` transactionally moves a complete stage into comparison tables in a separate SQLite database; `archive_items(stage, item_keys, ...)` performs the same verified operation for an explicit subset. Both preserve unrelated rows/stages, reject missing selections or archive-ID reuse, and delete live rows only after archive counts match.
 
+Checkpoint schema version 2 migrates existing databases in place and records
+attempt counts, failure timestamps, error type/category, and immutable history
+before replacement. A central stage registry drives resume boundaries.
+`Atlas.resume(...)` accepts selective terminal item/stage retries and degraded
+harmonization-stage retries; the generic CLI and fibrosis scripts expose the
+same controls.
+
 Review-before-metadata traces use `01_collected_accessions.json` for the raw
 repository-filtered accessions, `02_reviewed_datasets.json` for pre-metadata
 survivors, and `resume_metadata_enriched_datasets.json` for the enriched result.
@@ -431,7 +438,7 @@ skipped, failed, full-text, fallback, and missing counts.
   compact metadata context and its coverage in the effective input hash, so
   metadata arriving after an early review triggers a replacement review on the
   next reviewer or full-resume invocation. The raw MINiML object is not sent.
-- Each thematic review is checkpointed atomically under `thematic_review/<strategy>:<publication_ref>`. Direct and legacy strategies resume independently. Unversioned legacy checkpoint keys remain in SQLite but are ignored, so their publications are reviewed under the new contract. Per-item locks prevent duplicate calls across processes. A publication-level exception is stored with `review_status="failed"`, retained regardless of `review_filter`, and does not stop later reviews. Invalid or truncated consumed LLM responses are not retried; Europe PMC/network fetching retains its bounded transient retry behavior.
+- Each thematic review is checkpointed atomically under `thematic_review/<strategy>:<publication_ref>`. Direct and legacy strategies resume independently. Per-item locks prevent duplicate calls. Invalid structured output gets one immediate correction attempt and then becomes terminal; transient provider/network failures become `retryable_error` and participate in full Atlas resume gates.
 - Root `run_publication_reviewer.py TRACE_DIR [--theme-file PATH] [--allow-theme-override] [--strategy direct|evidence_then_judgement] [-v|-vv]` checks project ADC, reviews one stable datalink snapshot, prints counts, and exits so it can be invoked again as collection advances. The override flag is required when intentionally reviewing a historical collector snapshot with a newer explicit theme.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
@@ -470,6 +477,12 @@ Null or unsupported metadata is retained with `not_run`. Exceptions are
 isolated per accession: original metadata is retained with run status `error`
 and `ontology_harmonization_error`, then later accessions continue. The summary
 aggregates these values under `harmonization_run_statuses`.
+
+Completed accessions additionally expose
+`ontology_harmonization_quality_status="healthy"|"degraded"`. Target-checker
+and field-assignment invalid-output fallbacks are degraded available outcomes;
+provider failures propagate for retry classification. Details and summaries
+include the same quality signal.
 
 The upstream ontology path is fixed:
 
@@ -533,6 +546,11 @@ of stage controls does not require credentials.
 ### EuropePMC Wrapper
 
 `ThematicAtlases.wrappers.epmc.EuropePMCWrapper` handles Europe PMC publication search.
+
+Generated queries are checkpointed under `query_generation` using a stable
+input hash. Query-level search state is checkpointed under `search_queries`
+with page/cursor progress alongside `search_pages`; transient search failures
+resume without refetching completed pages.
 
 Current public methods:
 
