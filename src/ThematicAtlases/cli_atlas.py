@@ -151,6 +151,23 @@ def _build_parser() -> argparse.ArgumentParser:
     harmonize.add_argument("--out", required=True)
     harmonize.add_argument("--harmonization-details-out", default=None)
 
+    resume = subparsers.add_parser(
+        "resume",
+        help="Resume a traced workflow and optionally requeue selected failures.",
+    )
+    _add_logging_options(
+        resume,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
+    )
+    resume.add_argument("--dev-out-dir", default=".dev")
+    resume.add_argument("--run-id", default=None)
+    resume.add_argument("--out", default=None)
+    resume.add_argument("--stop-before-review", action="store_true", default=False)
+    resume.add_argument("--retry-stage", action="append", default=[])
+    resume.add_argument("--retry-item", action="append", default=[])
+    resume.add_argument("--retry-degraded-stage", action="append", default=[])
+
     return parser
 
 
@@ -198,6 +215,16 @@ def _resolved_logging_options(args: argparse.Namespace) -> tuple[int, str | None
     log_file = command_log_file if command_log_file is not None else global_log_file
 
     return verbosity or 0, log_file
+
+
+def _retry_items(values: list[str]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for value in values:
+        stage, separator, key = value.partition(":")
+        if not separator or not stage.strip() or not key.strip():
+            raise ValueError("--retry-item must use STAGE:KEY")
+        result.setdefault(stage.strip(), []).append(key.strip())
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -253,6 +280,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
+    elif args.command == "resume":
+        atlas.resume(
+            dev_out_dir=args.dev_out_dir,
+            run_id=args.run_id,
+            out=args.out,
+            stop_before_review=args.stop_before_review,
+            retry_stages=args.retry_stage,
+            retry_items=_retry_items(args.retry_item),
+            retry_degraded_stages=args.retry_degraded_stage,
+        )
     else:
         parser.error(f"unknown command: {args.command}")
 

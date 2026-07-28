@@ -103,7 +103,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="RUN_ID",
         help="resume RUN_ID, or the latest incomplete development trace when omitted",
     )
+    parser.add_argument("--retry-stage", action="append", default=[])
+    parser.add_argument("--retry-item", action="append", default=[])
+    parser.add_argument("--retry-degraded-stage", action="append", default=[])
     return parser.parse_args(argv)
+
+
+def retry_items(values: list[str]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for value in values:
+        stage, separator, key = value.partition(":")
+        if not separator or not stage or not key:
+            raise SystemExit("--retry-item must use STAGE:KEY")
+        result.setdefault(stage, []).append(key)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
                 dev_out_dir=config["dev_out_dir"],
                 run_id=args.resume or None,
                 out=config["atlas_out"],
+                retry_stages=args.retry_stage,
+                retry_items=retry_items(args.retry_item),
+                retry_degraded_stages=args.retry_degraded_stage,
             )
             return 0
         atlas.create_atlas(

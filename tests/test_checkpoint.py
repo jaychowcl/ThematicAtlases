@@ -88,6 +88,39 @@ def test_checkpoint_store_migrates_version_one_database(tmp_path) -> None:
     assert store.get("datalinks", "MED:1")["attempt_count"] == 0
 
 
+def test_checkpoint_store_selectively_requeues_terminal_and_degraded_items(
+    tmp_path,
+) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put("thematic_review", "direct:1", 1, "terminal_error", error="bad")
+    store.put(
+        "harmonization",
+        "work-1",
+        1,
+        "available",
+        payload={
+            "quality_status": "degraded",
+            "degraded_stages": [{"stage": "target_checker"}],
+        },
+    )
+
+    assert store.request_retries(
+        stages=["thematic_review"],
+        degraded_stages=["target_checker"],
+    ) == 2
+    assert store.get("thematic_review", "direct:1")["status"] == "retryable_error"
+    assert store.get("harmonization", "work-1")["status"] == "retryable_error"
+    assert store.history("harmonization", "work-1")[0]["status"] == "available"
+
+
+def test_checkpoint_store_rejects_ineligible_retry_selection(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put("datalinks", "MED:1", 1, "available")
+
+    with pytest.raises(ValueError, match="not failed"):
+        store.request_retries(items={"datalinks": ["MED:1"]})
+
+
 def test_checkpoint_store_validates_run_fingerprint(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume_state.sqlite")
     store.validate_fingerprint({"query": ["fibrosis"], "max_publications": 50})

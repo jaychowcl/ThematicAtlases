@@ -152,5 +152,8 @@ def test_fibrosis_run_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
     assert calls["resume"] == {
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace"),
         "run_id": "20260712T215848",
-        "out": str(tmp_path / ".out" / "fibrosis_atlas.json"),
-    }
+            "out": str(tmp_path / ".out" / "fibrosis_atlas.json"),
+            "retry_stages": [],
+            "retry_items": {},
+            "retry_degraded_stages": [],
+        }

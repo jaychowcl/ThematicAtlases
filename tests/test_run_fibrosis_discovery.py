@@ -208,6 +208,9 @@ def test_discovery_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:
         "run_id": "discovery-run",
         "out": str(tmp_path / ".out" / "fibrosis_discovery.json"),
         "stop_before_review": True,
+        "retry_stages": [],
+        "retry_items": {},
+        "retry_degraded_stages": [],
     }
 
 

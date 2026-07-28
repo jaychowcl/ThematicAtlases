@@ -223,12 +223,20 @@ class Atlas:
         run_id: str | None = None,
         out: str | None = None,
         stop_before_review: bool = False,
+        retry_stages=None,
+        retry_items=None,
+        retry_degraded_stages=None,
     ) -> dict:
         """Resume an incomplete development trace from its latest valid stage."""
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
         manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
         trace = DevTraceWriter.existing(run_dir)
         checkpoint_store = trace.checkpoint_store
+        checkpoint_store.request_retries(
+            stages=retry_stages or (),
+            items=retry_items,
+            degraded_stages=retry_degraded_stages or (),
+        )
         output_path = out if out is not None else manifest.get("atlas_out")
         if stop_before_review:
             logger.info(

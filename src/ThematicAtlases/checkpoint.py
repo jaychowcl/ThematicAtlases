@@ -371,6 +371,64 @@ class CheckpointStore:
             ).fetchall()
         return [self._item(row) for row in rows]
 
+    def request_retries(
+        self,
+        *,
+        stages=(),
+        items: dict[str, list[str]] | None = None,
+        degraded_stages=(),
+    ) -> int:
+        """Requeue explicitly selected terminal or degraded work items."""
+        selected: dict[tuple[str, str], dict] = {}
+        for stage in stages:
+            if stage not in STAGE_POLICIES:
+                raise ValueError(f"unknown checkpoint stage: {stage!r}")
+            for item in self.items(stage):
+                if item["status"] == "terminal_error":
+                    selected[(stage, item["key"])] = item
+        for stage, keys in (items or {}).items():
+            if stage not in STAGE_POLICIES:
+                raise ValueError(f"unknown checkpoint stage: {stage!r}")
+            for key in keys:
+                item = self.get(stage, key)
+                if item is None:
+                    raise ValueError(
+                        f"checkpoint item was not found: {stage}:{key}"
+                    )
+                if item["status"] not in {"terminal_error", "retryable_error"}:
+                    raise ValueError(
+                        f"checkpoint item is not failed: {stage}:{key}"
+                    )
+                selected[(stage, key)] = item
+        requested_degraded = {str(value) for value in degraded_stages}
+        for stage in requested_degraded:
+            if stage not in {"target_checker", "field_assignment"}:
+                raise ValueError(f"unknown degraded harmonization stage: {stage!r}")
+        if requested_degraded:
+            for item in self.items("harmonization"):
+                payload = item.get("payload") or {}
+                observed = {
+                    str(entry.get("stage"))
+                    for entry in payload.get("degraded_stages", [])
+                    if isinstance(entry, dict)
+                }
+                if item["status"] == "available" and observed & requested_degraded:
+                    selected[("harmonization", item["key"])] = item
+        if (stages or items or degraded_stages) and not selected:
+            raise ValueError("retry selection did not match any eligible items")
+        for (stage, key), item in selected.items():
+            self.put(
+                stage,
+                key,
+                item["ordinal"],
+                "retryable_error",
+                payload=item.get("payload"),
+                error="operator requested retry",
+                error_type="ManualRetry",
+                failure_category="manual_retry",
+            )
+        return len(selected)
+
     def archive_stage(
         self,
         stage: str,
