@@ -27,6 +27,11 @@ def test_checkpoint_store_round_trips_items_and_meta(tmp_path) -> None:
         "status": "available",
         "payload": {"rows": [{"datalink_id": "GSE1"}]},
         "error": None,
+        "attempt_count": 0,
+        "first_failed_at": None,
+        "last_attempt_at": reopened.get("datalinks", "MED:1")["last_attempt_at"],
+        "error_type": None,
+        "failure_category": None,
     }
     assert reopened.items("datalinks")[0]["key"] == "MED:1"
 
@@ -44,6 +49,43 @@ def test_checkpoint_store_replaces_item_atomically(tmp_path) -> None:
 
     assert store.get("geo_metadata", "GSE1")["status"] == "available"
     assert store.has_retryable("geo_metadata") is False
+    assert store.get("geo_metadata", "GSE1")["attempt_count"] == 1
+    assert store.history("geo_metadata", "GSE1")[0]["status"] == "retryable_error"
+
+
+def test_checkpoint_store_rejects_unknown_status(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+
+    with pytest.raises(ValueError, match="unsupported checkpoint status"):
+        store.put("stage", "key", 1, "typo")
+
+
+def test_checkpoint_store_migrates_version_one_database(tmp_path) -> None:
+    path = tmp_path / "resume_state.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE checkpoint_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO checkpoint_meta VALUES ('schema_version', '1');
+            CREATE TABLE checkpoint_items (
+                stage TEXT NOT NULL,
+                item_key TEXT NOT NULL,
+                ordinal INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                payload TEXT,
+                error TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (stage, item_key)
+            );
+            INSERT INTO checkpoint_items(stage, item_key, ordinal, status)
+            VALUES ('datalinks', 'MED:1', 1, 'retryable_error');
+            """
+        )
+
+    store = CheckpointStore(path)
+
+    assert store.get_meta("schema_version") == 2
+    assert store.get("datalinks", "MED:1")["attempt_count"] == 0
 
 
 def test_checkpoint_store_validates_run_fingerprint(tmp_path) -> None:

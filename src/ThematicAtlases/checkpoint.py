@@ -10,10 +10,33 @@ from contextlib import contextmanager
 import fcntl
 
 
+CHECKPOINT_STATUSES = {
+    "pending",
+    "available",
+    "no_data",
+    "retryable_error",
+    "terminal_error",
+}
+
+STAGE_POLICIES = {
+    "query_generation": "discovery",
+    "search_queries": "discovery",
+    "datalinks": "discovery",
+    "publication_text": "review",
+    "geo_resolution": "metadata",
+    "geo_metadata": "metadata",
+    "pubmed_enrichment": "metadata",
+    "sra_xml": "metadata",
+    "ena_fastq": "metadata",
+    "thematic_review": "review",
+    "harmonization": "harmonization",
+}
+
+
 class CheckpointStore:
     """Transactional, run-local storage for resumable workflow items."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -52,16 +75,56 @@ class CheckpointStore:
                     status TEXT NOT NULL,
                     payload TEXT,
                     error TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    first_failed_at TEXT,
+                    last_attempt_at TEXT,
+                    error_type TEXT,
+                    failure_category TEXT,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (stage, item_key)
                 );
                 CREATE INDEX IF NOT EXISTS checkpoint_items_stage_order
                     ON checkpoint_items(stage, ordinal, item_key);
+                CREATE TABLE IF NOT EXISTS checkpoint_attempt_history (
+                    history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    stage TEXT NOT NULL,
+                    item_key TEXT NOT NULL,
+                    ordinal INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    payload TEXT,
+                    error TEXT,
+                    attempt_count INTEGER NOT NULL,
+                    first_failed_at TEXT,
+                    last_attempt_at TEXT,
+                    error_type TEXT,
+                    failure_category TEXT,
+                    replaced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(checkpoint_items)")
+            }
+            additions = {
+                "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                "first_failed_at": "TEXT",
+                "last_attempt_at": "TEXT",
+                "error_type": "TEXT",
+                "failure_category": "TEXT",
+            }
+            for name, definition in additions.items():
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE checkpoint_items ADD COLUMN {name} {definition}"
+                    )
             connection.execute(
                 "INSERT OR IGNORE INTO checkpoint_meta(key, value) VALUES (?, ?)",
                 ("schema_version", json.dumps(self.SCHEMA_VERSION)),
+            )
+            connection.execute(
+                "UPDATE checkpoint_meta SET value = ? WHERE key = ?",
+                (json.dumps(self.SCHEMA_VERSION), "schema_version"),
             )
 
     @staticmethod
@@ -175,29 +238,92 @@ class CheckpointStore:
         status: str,
         payload=None,
         error: str | None = None,
+        error_type: str | None = None,
+        failure_category: str | None = None,
     ) -> None:
+        if status not in CHECKPOINT_STATUSES:
+            raise ValueError(f"unsupported checkpoint status: {status!r}")
         payload_json = None if payload is None else self._json(payload)
         with self._lock, self._connection() as connection:
+            previous = connection.execute(
+                "SELECT * FROM checkpoint_items WHERE stage = ? AND item_key = ?",
+                (stage, key),
+            ).fetchone()
+            if previous is not None:
+                connection.execute(
+                    """
+                    INSERT INTO checkpoint_attempt_history(
+                        stage, item_key, ordinal, status, payload, error,
+                        attempt_count, first_failed_at, last_attempt_at,
+                        error_type, failure_category
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        previous["stage"],
+                        previous["item_key"],
+                        previous["ordinal"],
+                        previous["status"],
+                        previous["payload"],
+                        previous["error"],
+                        previous["attempt_count"],
+                        previous["first_failed_at"],
+                        previous["last_attempt_at"],
+                        previous["error_type"],
+                        previous["failure_category"],
+                    ),
+                )
+            failed = status in {"retryable_error", "terminal_error"}
+            prior_attempts = 0 if previous is None else previous["attempt_count"]
+            attempt_count = prior_attempts + (1 if failed else 0)
+            first_failed_at = (
+                previous["first_failed_at"] if previous is not None else None
+            )
             connection.execute(
                 """
                 INSERT INTO checkpoint_items(
-                    stage, item_key, ordinal, status, payload, error, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    stage, item_key, ordinal, status, payload, error,
+                    attempt_count, first_failed_at, last_attempt_at,
+                    error_type, failure_category, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?,
+                    CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE ? END,
+                    CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP
+                )
                 ON CONFLICT(stage, item_key) DO UPDATE SET
                     ordinal=excluded.ordinal,
                     status=excluded.status,
                     payload=excluded.payload,
                     error=excluded.error,
+                    attempt_count=excluded.attempt_count,
+                    first_failed_at=COALESCE(
+                        checkpoint_items.first_failed_at,
+                        excluded.first_failed_at
+                    ),
+                    last_attempt_at=excluded.last_attempt_at,
+                    error_type=excluded.error_type,
+                    failure_category=excluded.failure_category,
                     updated_at=CURRENT_TIMESTAMP
                 """,
-                (stage, key, ordinal, status, payload_json, error),
+                (
+                    stage,
+                    key,
+                    ordinal,
+                    status,
+                    payload_json,
+                    error,
+                    attempt_count,
+                    failed,
+                    first_failed_at,
+                    error_type,
+                    failure_category,
+                ),
             )
 
     def get(self, stage: str, key: str) -> dict | None:
         with self._lock, self._connection() as connection:
             row = connection.execute(
                 """
-                SELECT stage, item_key, ordinal, status, payload, error
+                SELECT *
                 FROM checkpoint_items WHERE stage = ? AND item_key = ?
                 """,
                 (stage, key),
@@ -208,7 +334,7 @@ class CheckpointStore:
         with self._lock, self._connection() as connection:
             rows = connection.execute(
                 """
-                SELECT stage, item_key, ordinal, status, payload, error
+                SELECT *
                 FROM checkpoint_items WHERE stage = ?
                 ORDER BY ordinal, item_key
                 """,
@@ -225,6 +351,25 @@ class CheckpointStore:
         query += " LIMIT 1"
         with self._lock, self._connection() as connection:
             return connection.execute(query, params).fetchone() is not None
+
+    def has_retryable_boundary(self, boundary: str) -> bool:
+        stages = [
+            stage for stage, stage_boundary in STAGE_POLICIES.items()
+            if stage_boundary == boundary
+        ]
+        return any(self.has_retryable(stage) for stage in stages)
+
+    def history(self, stage: str, key: str) -> list[dict]:
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM checkpoint_attempt_history
+                WHERE stage = ? AND item_key = ?
+                ORDER BY history_id
+                """,
+                (stage, key),
+            ).fetchall()
+        return [self._item(row) for row in rows]
 
     def archive_stage(
         self,
@@ -438,6 +583,11 @@ class CheckpointStore:
             "status": row["status"],
             "payload": None if payload is None else json.loads(payload),
             "error": row["error"],
+            "attempt_count": row["attempt_count"],
+            "first_failed_at": row["first_failed_at"],
+            "last_attempt_at": row["last_attempt_at"],
+            "error_type": row["error_type"],
+            "failure_category": row["failure_category"],
         }
 
 
@@ -462,3 +612,17 @@ def is_retryable_error(error: Exception) -> bool:
     return bool(trace and trace.get("status") == "failed") or any(
         marker in message for marker in markers
     )
+
+
+def failure_category(error: Exception) -> str:
+    try:
+        from agentic_curator.curators.structured_response import (
+            InvalidModelOutputError,
+        )
+    except ImportError:
+        InvalidModelOutputError = ()  # type: ignore[assignment]
+    if InvalidModelOutputError and isinstance(error, InvalidModelOutputError):
+        return "invalid_output"
+    if is_retryable_error(error):
+        return "transient"
+    return "permanent"
