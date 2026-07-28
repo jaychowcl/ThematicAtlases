@@ -5,6 +5,8 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+
 logger = logging.getLogger(__name__)
 
 # Downstream parsers depend on this exact sentinel format in publication text.
@@ -114,6 +116,13 @@ class EuropePMCWrapper:
 
             query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
             if checkpoint_store is not None:
+                query_checkpoint = checkpoint_store.get(
+                    "search_queries", query_hash
+                )
+                if query_checkpoint and query_checkpoint["status"] == "terminal_error":
+                    raise RuntimeError(
+                        query_checkpoint.get("error") or "Europe PMC search failed"
+                    )
                 saved_pages = [
                     item
                     for item in checkpoint_store.items("search_pages")
@@ -163,6 +172,18 @@ class EuropePMCWrapper:
                         page,
                         collected_hits,
                     )
+                    checkpoint_store.put(
+                        "search_queries",
+                        query_hash,
+                        query_index,
+                        "available" if collected_hits else "no_data",
+                        payload={
+                            "query": query,
+                            "pages": page,
+                            "next_cursor": cursor,
+                            "collected_hits": collected_hits,
+                        },
+                    )
                     continue
 
             while cursor is not None and page < page_limit:
@@ -172,7 +193,41 @@ class EuropePMCWrapper:
                     cursor,
                     page + 1,
                 )
-                response_data = self._search(query=query, cursor=cursor)
+                if checkpoint_store is not None:
+                    checkpoint_store.put(
+                        "search_queries",
+                        query_hash,
+                        query_index,
+                        "pending",
+                        payload={
+                            "query": query,
+                            "pages": page,
+                            "next_cursor": cursor,
+                            "collected_hits": collected_hits,
+                        },
+                    )
+                try:
+                    response_data = self._search(query=query, cursor=cursor)
+                except Exception as error:
+                    if checkpoint_store is not None:
+                        checkpoint_store.put(
+                            "search_queries",
+                            query_hash,
+                            query_index,
+                            "retryable_error"
+                            if is_retryable_error(error)
+                            else "terminal_error",
+                            payload={
+                                "query": query,
+                                "pages": page,
+                                "next_cursor": cursor,
+                                "collected_hits": collected_hits,
+                            },
+                            error=str(error),
+                            error_type=type(error).__name__,
+                            failure_category=failure_category(error),
+                        )
+                    raise
                 hits = response_data.get("resultList", {}).get("result", [])
 
                 if total_hits is None:
@@ -245,6 +300,19 @@ class EuropePMCWrapper:
                 page_limit_reached,
                 cursor,
             )
+            if checkpoint_store is not None:
+                checkpoint_store.put(
+                    "search_queries",
+                    query_hash,
+                    query_index,
+                    "available" if collected_hits else "no_data",
+                    payload={
+                        "query": query,
+                        "pages": page,
+                        "next_cursor": cursor,
+                        "collected_hits": collected_hits,
+                    },
+                )
 
         deduplicated = self._deduplicate_publications(
             publications,

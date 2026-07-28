@@ -4,6 +4,7 @@ import logging
 import pytest
 
 from ThematicAtlases.atlas import Atlas
+from ThematicAtlases.checkpoint import CheckpointStore
 
 
 class RecordingCollector:
@@ -171,6 +172,29 @@ def test_collect_datasets_runs_injected_credential_preflight_once_before_llm() -
 
     assert RecordingCredentialChecker.calls == 1
     assert RecordingCollector.calls
+
+
+def test_generated_queries_are_checkpointed(tmp_path) -> None:
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        query_generator=RecordingQueryGenerator(),
+    ).collect_datasets(
+        theme="fibrosis",
+        generate_queries=True,
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+        run_id="query-checkpoint",
+    )
+
+    store = CheckpointStore(
+        tmp_path / "query-checkpoint" / "resume_state.sqlite"
+    )
+    items = store.items("query_generation")
+    assert len(items) == 1
+    assert items[0]["status"] == "available"
+    assert items[0]["payload"]["queries"]
 
 
 def test_credential_preflight_failure_prevents_collection() -> None:

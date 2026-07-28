@@ -100,6 +100,23 @@ def test_collect_publications_resumes_from_completed_search_page(tmp_path) -> No
     assert calls == ["*", "page-2"]
     assert resumed_calls == ["page-2"]
     assert [publication["epmc_id"] for publication in publications] == ["1", "2"]
+    assert store.items("search_queries")[0]["status"] == "available"
+
+
+def test_collect_publications_checkpoints_transient_query_failure(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    wrapper = EuropePMCWrapper(page_limit=1)
+    wrapper._search = lambda **kwargs: (_ for _ in ()).throw(
+        requests.Timeout("temporary timeout")
+    )
+
+    with pytest.raises(requests.Timeout):
+        wrapper.collect_publications(["fibrosis"], checkpoint_store=store)
+
+    item = store.items("search_queries")[0]
+    assert item["status"] == "retryable_error"
+    assert item["failure_category"] == "transient"
+    assert item["payload"]["next_cursor"] == "*"
 
 
 def test_collect_datalinks_resumes_after_last_completed_publication(tmp_path) -> None:

@@ -5,7 +5,11 @@ import hashlib
 import inspect
 from pathlib import Path
 
-from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.checkpoint import (
+    CheckpointStore,
+    failure_category,
+    is_retryable_error,
+)
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
@@ -614,22 +618,84 @@ class Atlas:
         if generate_queries or (theme is not None and not stop_before_review):
             self._preflight_credentials()
         if generate_queries:
+            generation_input = {
+                "query": list(query or []),
+                "file_queries": self._load_queries(file=file)
+                if file is not None
+                else [],
+                "theme": theme,
+                "max_generated_queries": max_generated_queries,
+                "contract_version": 1,
+            }
+            generation_key = hashlib.sha256(
+                json.dumps(
+                    generation_input,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
             resolved_queries = (
                 checkpoint_store.get_meta("resolved_queries")
                 if checkpoint_store is not None
                 else None
             )
+            generation_checkpoint = (
+                checkpoint_store.get("query_generation", generation_key)
+                if checkpoint_store is not None
+                else None
+            )
             if resolved_queries is not None:
                 query = resolved_queries
-            else:
-                query = self._queries_with_generated(
-                    query=query,
-                    file=file,
-                    theme=theme,
-                    max_generated_queries=max_generated_queries,
+            elif (
+                generation_checkpoint
+                and generation_checkpoint["status"] == "available"
+            ):
+                query = (generation_checkpoint.get("payload") or {}).get(
+                    "queries", []
                 )
+            elif (
+                generation_checkpoint
+                and generation_checkpoint["status"] == "terminal_error"
+            ):
+                raise RuntimeError(
+                    generation_checkpoint.get("error")
+                    or "query generation failed"
+                )
+            else:
+                try:
+                    query = self._queries_with_generated(
+                        query=query,
+                        file=file,
+                        theme=theme,
+                        max_generated_queries=max_generated_queries,
+                    )
+                except Exception as error:
+                    if checkpoint_store is not None:
+                        checkpoint_store.put(
+                            "query_generation",
+                            generation_key,
+                            0,
+                            "retryable_error"
+                            if is_retryable_error(error)
+                            else "terminal_error",
+                            error=str(error),
+                            error_type=type(error).__name__,
+                            failure_category=failure_category(error),
+                        )
+                    raise
                 if checkpoint_store is not None:
-                    checkpoint_store.set_meta("resolved_queries", query)
+                    checkpoint_store.put(
+                        "query_generation",
+                        generation_key,
+                        0,
+                        "available",
+                        payload={
+                            "queries": query,
+                            "input": generation_input,
+                        },
+                    )
+            if checkpoint_store is not None:
+                checkpoint_store.set_meta("resolved_queries", query)
             file = None
         if checkpoint_store is not None:
             fingerprint_configuration = {
