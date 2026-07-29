@@ -8,7 +8,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns atlas-shaped JSON with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata; ArrayExpress routing is supported with placeholder metadata while its live fetcher remains pending.
 
-The pipeline can fetch open-access full text with abstract fallback, review publications against a theme with `agentic-curator`, filter review outcomes, and harmonize supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
+The pipeline fetches open-access full text, deterministically discovers repository accessions from that text by default, falls back to abstracts for review only, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
 
 ## Installation
 
@@ -137,6 +137,7 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--max-publications N` | Positive global cap on raw searched publications before datalink fetching. |
 | `--skip-metadata` | Keep repository-filtered accessions without calling metadata handlers. |
 | `--review-before-metadata` | Review repository-filtered publications first and enrich only survivors; requires a theme. |
+| `--scrape-fulltext-accessions`, `--no-scrape-fulltext-accessions` | Enable or disable deterministic accession discovery from available Europe PMC full text. Enabled by default; abstract fallback is never scanned. |
 | `--metadata-repository {geo,arrayexpress}` | Select a repository; repeat to select both. Default: GEO only. |
 | `--theme TEXT` | Inline thematic-review theme. |
 | `--theme-file PATH` | Read the theme from UTF-8 text; takes precedence over `--theme`. |
@@ -144,6 +145,14 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--max-generated-queries N` | Positive generated-query limit; default `3` and maximum supported by `Atlas` is `3`. |
 | `--review-filter {none,not-relevant,not-relevant-and-unsure}` | Remove selected review outcomes. Default `none`; removal requires a theme. |
 | `--review-strategy {direct,evidence_then_judgement}` | Review contract. Default `direct`; the other choice is the legacy two-stage strategy. |
+
+Full-text discovery recognizes GEO, ArrayExpress/BioStudies, BioProject,
+INSDC/SRA/ENA/DRA, and BioSample object-level accessions. It records
+`discovery_sources` and per-publication `accession_discovery_sources`, merges
+case-insensitive duplicates with Europe PMC Datalinks, and then applies the
+existing repository selection. Unsupported identifier families are
+checkpointed/logged but remain absent from the final atlas until a metadata
+handler is added.
 
 `create-atlas` accepts every collection option above, then harmonizes the result:
 

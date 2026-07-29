@@ -301,7 +301,13 @@ Use `--query <keyword>` when the id is unknown.
   title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
   anchor: epmc-wrapper
   purpose: Search, pagination, deduplication, datalinks, full text, fallback, checkpoint, and endpoint detail.
-  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, abstract, max_publications_per_query
+  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, accession extraction, discovery provenance, abstract, max_publications_per_query
+
+- id: fulltext-accession-discovery
+  title: [Full-text Accession Discovery](codebase.md#fulltext-accession-discovery)
+  anchor: fulltext-accession-discovery
+  purpose: Default-on deterministic accession extraction, registry families, provenance merging, checkpointing, and repository filtering.
+  keywords: scrape_fulltext_accessions, fulltext_regex, discovery_sources, GEO, ArrayExpress, BioStudies, BioProject, INSDC, BioSample
 
 - id: rate-handling
   title: [Rate Handling](codebase.md#rate-handling)

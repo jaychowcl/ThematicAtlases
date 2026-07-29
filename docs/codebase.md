@@ -452,11 +452,12 @@ The CLI/Python collection path resolves queries, finds dataset links, routes
 metadata, maps publication text, and optionally reviews/filter records.
 
 ```text
-queries -> search -> datalinks -> repository filter
-   |          |          |             |
- invalid    no hits    no links      unsupported
-   v          v          v             v
- error     empty atlas empty atlas   dropped/status
+queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
+   |          |             | unavailable/disabled             |
+ invalid    no hits         +----------> datalinks only         v
+   v          v                                      repository filter
+ error     empty atlas                               | unsupported
+                                                    +--> dropped/checkpointed
                                       |
                      +----------------+----------------+
                      v                                 v
@@ -472,8 +473,10 @@ queries -> search -> datalinks -> repository filter
 1. `Atlas.collect_datasets` validates and orders query sources.
 2. Optional generated queries follow explicit and file queries; credential or
    generation failure terminates before discovery.
-3. `AtlasCollector.collect_jsons` calls Europe PMC, drops unsupported
-   repositories, and either skips metadata or routes it to GEO/ArrayExpress.
+3. `AtlasCollector.collect_jsons` calls Europe PMC Datalinks and, by default,
+   scans every available `fullTextXML` response with the deterministic
+   accession registry. It merges case-insensitive IDs with provenance before
+   dropping unsupported repositories.
 4. `AtlasFilterer.filter_jsons` maps full text with abstract/no-text outcomes,
    optionally calls review, applies the selected filter, and assembles output.
 5. An output path and traced run persist JSON/checkpoints; otherwise the mapping
@@ -484,7 +487,8 @@ queries -> search -> datalinks -> repository filter
 ```text
 Atlas.collect_datasets(args)                    # interface/orchestrator
   -> AtlasCollector.collect_jsons(...)          # internal call
-     -> EuropePMCWrapper.collect_accessions     # internal -> external HTTP
+     -> EuropePMCWrapper.collect_accessions     # search/datalinks/fullTextXML
+        -> extract_accessions_from_text         # internal deterministic scan
      -> metadata_handler.collect_accession...   # internal -> external/system
   -> AtlasFilterer.filter_jsons(...)            # internal call
   <- {"accessions": ..., "publication_texts": ...}
@@ -1454,10 +1458,12 @@ resume without refetching completed pages.
 
 Current public methods:
 
-- `collect_accessions(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches publications, deduplicates publications across queries, fetches datalinks once per unique publication, deduplicates by normalized `datalink_id`, and returns accession records before publication text enrichment.
+- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, fetches Datalinks, scans every available full text by default, merges normalized accession records with provenance, and returns candidates before repository filtering.
 - `collect_publications(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches Europe PMC for each query and returns normalized, cross-query-deduplicated publication rows. The per-query limit list aligns with query order; configured limits can expand pagination beyond the default five pages.
 - `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
 - `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records.
+- `accessions_from_fulltexts(publications, checkpoint_store=None) -> list[dict]`: extracts registry matches only from available `fullTextXML` records and checkpoints each publication.
+- `merge_accessions(datalink_accessions, scraped_accessions) -> list[dict]`: performs case-insensitive accession and publication merging while retaining discovery provenance.
 - `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
 
 The wrapper uses `requests.get()` against:
@@ -1496,18 +1502,42 @@ firstPublicationDate
 
 `abstractText` comes directly from the Europe PMC `/search` response for each hit. Europe PMC may omit the field or return it empty; the wrapper normalizes missing values to `abstractText=""` in collected publication provenance. This is independent of datalink collection, so a datalink JSON timeout followed by successful XML fallback can still produce accession records whose publication has an empty `abstractText`.
 
-`collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by the dataset collection workflow after accession collection and optional metadata routing.
+`collect_publications()` and `collect_datalinks()` are intermediate stages inside
+`collect_accessions()`. With scraping enabled, `collect_publication_texts()` is
+also called there so publications with no Datalinks can still contribute
+accessions. The enriched publication rows are carried forward and reused by
+`AtlasFilterer`, avoiding a second full-text request.
 
-Current-state risk: the uncached page loop in `collect_publications()` invokes
-`_search(query, cursor)` twice consecutively and consumes only the second
-response. This means two otherwise identical Europe PMC search requests per
-uncached page. Checkpoint-page reuse avoids those calls. No repository evidence
-states that the duplicate request is intentional; maintainers should treat it
-as observed behavior, not a supported compatibility requirement.
+<a id="fulltext-accession-discovery"></a>
+#### Full-text accession discovery
+
+The option is enabled by default across Python, the installed CLI, and fixed
+fibrosis runners. `--no-scrape-fulltext-accessions` restores Datalinks-only
+discovery. Resume treats a missing manifest field as the legacy disabled
+behavior; new enabled traces include the field in the fingerprint.
+
+The registry accepts canonical contiguous tokens, case-insensitively, and
+normalizes them to uppercase:
+
+- GEO: `GSE`, `GSM`, `GPL`, and `GDS`;
+- ArrayExpress: experiment/study `E-*` and array-design `A-*`;
+- BioStudies `S-*`;
+- BioProject `PRJNA`, `PRJEB`, and `PRJDB`;
+- INSDC study/sample/experiment/run/analysis/submission families
+  `?RP`, `?RS`, `?RX`, `?RR`, `?RZ`, and `?RA` for `S`, `E`, or `D`;
+- BioSample `SAMN`, `SAMEA`, and `SAMD`.
+
+Abstract fallback is never scanned. Datalink fields win conflicts, while
+`discovery_sources` and nested `accession_discovery_sources` retain
+`europe_pmc_datalink`, `fulltext_regex`, or both. Each publication's normalized
+candidates are stored under `fulltext_accession_discovery`, a retryable
+discovery boundary. The existing `AtlasCollector.filter_accessions()` remains
+authoritative: currently supported GEO and selected ArrayExpress experiment
+IDs continue, while every other family is visible only in checkpoints/logs.
 
 During traced workflows, every completed search page, publication datalink
-lookup, and publication full-text/fallback result is committed independently to
-SQLite. A resumed call reconstructs ordered results from these rows and only
+lookup, publication full-text/fallback result, and full-text accession extraction
+is committed independently to SQLite. A resumed call reconstructs ordered results from these rows and only
 reissues missing or transiently failed requests.
 
 `collect_accessions()` returns deduplicated accession records with:
@@ -1706,14 +1736,23 @@ change.
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 - `resume [--verbose] [--log-file LOG_FILE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
-The CLI forwards explicit queries, the query-file path, `--query-generator`, `--max-generated-queries`, `--review-before-metadata`, and `--review-strategy`; `Atlas.collect_datasets()` owns loading, ordering, generation, validation, and review dispatch. Explicit values precede file queries, followed by generated queries. Without the query-generator flag no query-generation LLM call occurs. Review-before-metadata requires a theme. `--dev-trace` is supported by `create-atlas` only; `--dev-out-dir` chooses its root directory.
+The CLI forwards explicit queries, the query-file path, `--query-generator`,
+`--max-generated-queries`, `--review-before-metadata`,
+`--scrape-fulltext-accessions`/`--no-scrape-fulltext-accessions`, and
+`--review-strategy`; `Atlas.collect_datasets()` owns loading, ordering,
+generation, validation, accession discovery, and review dispatch. Full-text
+accession discovery defaults on. Explicit query values precede file queries,
+followed by generated queries. Without the query-generator flag no
+query-generation LLM call occurs. Review-before-metadata requires a theme.
+`--dev-trace` is supported by `create-atlas` only; `--dev-out-dir` chooses its
+root directory.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
