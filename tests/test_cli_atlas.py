@@ -184,6 +184,26 @@ def test_review_before_metadata_flag_is_forwarded(monkeypatch) -> None:
     assert RecordingCollectionAtlas.calls[0]["review_before_metadata"] is True
 
 
+def test_fulltext_accession_scraping_defaults_on_and_can_be_disabled(
+    monkeypatch,
+) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    assert main(["collect-datasets", "--query", "fibrosis"]) == 0
+    assert RecordingCollectionAtlas.calls[-1]["scrape_fulltext_accessions"] is True
+
+    assert main(
+        [
+            "create-atlas",
+            "--query",
+            "fibrosis",
+            "--no-scrape-fulltext-accessions",
+        ]
+    ) == 0
+    assert RecordingCollectionAtlas.calls[-1]["scrape_fulltext_accessions"] is False
+
+
 def test_collect_datasets_does_not_emit_stdout(
     capsys: pytest.CaptureFixture[str],
     monkeypatch,

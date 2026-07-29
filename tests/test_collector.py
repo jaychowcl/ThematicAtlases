@@ -7,14 +7,17 @@ from ThematicAtlases.collector import collector as collector_module
 class FakeEuropePMCWrapper:
     queries: list[str] | None = None
     max_publications: int | None = None
+    scrape_fulltext_accessions: bool | None = None
 
     def collect_accessions(
         self,
         queries: list[str],
         max_publications: int | None = None,
+        scrape_fulltext_accessions: bool = True,
     ) -> list[dict]:
         self.__class__.queries = queries
         self.__class__.max_publications = max_publications
+        self.__class__.scrape_fulltext_accessions = scrape_fulltext_accessions
         return [
             {
                 "datalink_id": "GSE1",
@@ -109,6 +112,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     ]
     assert FakeEuropePMCWrapper.queries == ["a", "b"]
     assert FakeEuropePMCWrapper.max_publications is None
+    assert FakeEuropePMCWrapper.scrape_fulltext_accessions is True
     assert FakeGEOWrapper.accessions == ["GSE1"]
     assert FakeGEOWrapper.jsons == [
         {
@@ -130,6 +134,18 @@ def test_collect_jsons_passes_max_publications_to_epmc_wrapper(monkeypatch) -> N
 
     assert FakeEuropePMCWrapper.queries == ["a"]
     assert FakeEuropePMCWrapper.max_publications == 25
+
+
+def test_collect_jsons_can_disable_fulltext_accession_scraping(monkeypatch) -> None:
+    monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
+    monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
+
+    AtlasCollector().collect_jsons(
+        query=["a"],
+        scrape_fulltext_accessions=False,
+    )
+
+    assert FakeEuropePMCWrapper.scrape_fulltext_accessions is False
 
 
 def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:
