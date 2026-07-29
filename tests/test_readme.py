@@ -19,7 +19,6 @@ def test_readme_uses_the_required_user_facing_structure() -> None:
         "## Description",
         "## Installation",
         "### Requirements",
-        "## Configuration",
         "## Quickstart",
         "### CLI",
         "### Python",
@@ -28,6 +27,7 @@ def test_readme_uses_the_required_user_facing_structure() -> None:
         "### CLI guide",
         "### Python API guide",
         "### Workflow scripts",
+        "### Configuration",
         "### Code flow",
         "## Docs",
         "## Authors",
@@ -70,7 +70,12 @@ def test_cli_guide_lists_every_registered_command_and_option() -> None:
         "### Python API guide", 1
     )[0]
 
-    for command in ("collect-datasets", "create-atlas", "harmonize-datasets"):
+    for command in (
+        "collect-datasets",
+        "create-atlas",
+        "harmonize-datasets",
+        "resume",
+    ):
         assert command in cli_guide
     for option in options:
         assert re.search(rf"`{re.escape(option)}(?:`|\s)", cli_guide)
@@ -94,6 +99,10 @@ def test_python_guide_covers_public_workflow_methods_and_specialists() -> None:
         "`PublicationTextReviewer.resume(...)`",
         "`AtlasCollector.resume_metadata(...)`",
         "`ThematicReviewerBenchmark`",
+        "`CheckpointStore`",
+        "`EuropePMCWrapper`",
+        "`GEOWrapper`",
+        "`ArrayExpressWrapper`",
     ]
 
     for symbol in required_symbols:
@@ -114,7 +123,7 @@ def test_readme_describes_inputs_outputs_flow_docs_and_author() -> None:
         "`AtlasHarmonizer`",
         "[Codebase handoff](docs/codebase.md)",
         "[Documentation index](docs/index.md)",
-        "Created by [jaychowcl](https://github.com/jaychowcl) @ [Saez-Rodriguez Group](https://saezlab.org) & [EMBL-EBI Functional Genomics Team](https://www.ebi.ac.uk/about/teams/functional-genomics/) on May 2026",
+        "Created by [jaychowcl](https://github.com/jaychowcl) on May 2026",
     ]
 
     for phrase in required_phrases:
@@ -129,3 +138,19 @@ def test_readme_codebase_anchor_links_resolve() -> None:
     assert anchors
     for anchor in anchors:
         assert f'<a id="{anchor}"></a>' in codebase_text
+
+
+def test_readme_documents_every_supported_focused_runner() -> None:
+    text = README.read_text(encoding="utf-8")
+    scripts = sorted(path.name for path in ROOT.glob("run_*.py"))
+
+    assert scripts == [
+        "run_accession_metadata_collector.py",
+        "run_fibrosis_atlas.py",
+        "run_fibrosis_discovery.py",
+        "run_publication_reviewer.py",
+        "run_reference_publication_recall.py",
+        "run_reference_set_review.py",
+    ]
+    for script in scripts:
+        assert f"`{script}`" in text
