@@ -1,100 +1,176 @@
 # codebase.md Index
 
-Stable anchors route into `docs/codebase.md`. Read this file first, choose the relevant section id or keyword, then retrieve only the anchored section.
-
-Agent retrieval template:
+Stable anchors route into `docs/codebase.md`. Read this file first, choose the
+relevant section id or keyword, then retrieve only that anchored section.
 
 ```bash
 $HOME/.codex/retrieve_codebase_section.py --id <section-id>
 ```
 
-Use `--query <keyword>` when the section id is not known. Anchors are stable and do not require index maintenance when surrounding text changes.
+Use `--query <keyword>` when the id is unknown.
 
-## Main Sections
+## Canonical architecture routes
+
+- id: architecture
+  title: [Architecture](codebase.md#architecture)
+  anchor: architecture
+  purpose: High-level purpose, runtime topology, subsystem ownership, and whole-codebase navigation.
+  keywords: architecture, Atlas, CLI, collector, filterer, harmonizer, checkpoint, benchmark
+
+- id: system-context-and-boundaries
+  title: [System Context And Boundaries](codebase.md#system-context-and-boundaries)
+  anchor: system-context-and-boundaries
+  purpose: External actors, delegated packages, persistence, network, trust, privacy, and failure ownership.
+  keywords: Europe PMC, NCBI, ENA, Google ADC, agentic-curator, meta-standards-converter, SQLite, privacy
+
+- id: architectural-decisions
+  title: [Architectural Decisions](codebase.md#architectural-decisions)
+  anchor: architectural-decisions
+  purpose: Evidence-safe documented and observed design choices, consequences, and affected components.
+  keywords: AD-001, AD-002, AD-003, AD-004, observed, documented, rationale, decisions
+
+- id: design-invariants-and-expectations
+  title: [Design Invariants And Expectations](codebase.md#design-invariants-and-expectations)
+  anchor: design-invariants-and-expectations
+  purpose: Compatibility, ordering, validation, state, retry, archive, logging, and privacy rules future changes must preserve.
+  keywords: query order, publication_text_ref, fingerprint, retryable, terminal, archive, logging, schema
+
+- id: component-relationships-and-data-flow
+  title: [Component Relationships And Data Flow](codebase.md#component-relationships-and-data-flow)
+  anchor: component-relationships-and-data-flow
+  purpose: Directional contracts, lifecycle ownership, exchanged data, and failure propagation between components.
+  keywords: AtlasCollector, AtlasFilterer, PublicationTextReviewer, AtlasHarmonizer, CheckpointStore, data flow
+
+- id: entrypoints-and-interfaces
+  title: [Entrypoints And Interfaces](codebase.md#entrypoints-and-interfaces)
+  anchor: entrypoints-and-interfaces
+  purpose: Installed CLI, Python imports, focused scripts, supported inputs, and emitted artifacts.
+  keywords: thematic-atlas, collect-datasets, create-atlas, harmonize-datasets, resume, run scripts
+
+- id: orchestrators-and-core-types
+  title: [Orchestrators And Core Types](codebase.md#orchestrators-and-core-types)
+  anchor: orchestrators-and-core-types
+  purpose: Responsibilities, dependencies, state ownership, and failure behavior of the main implementation types.
+  keywords: Atlas, AtlasCollector, AtlasFilterer, AtlasHarmonizer, CheckpointStore, DevTraceWriter
+
+- id: public-api-reference
+  title: [Public API Reference](codebase.md#public-api-reference)
+  anchor: public-api-reference
+  purpose: Exhaustive exported symbols, supported workflow methods, signatures, outputs, failures, side effects, and sources.
+  keywords: exports, __all__, methods, signatures, wrappers, benchmark_ThematicAtlases, CheckpointStore
+
+- id: principal-workflows
+  title: [Principal Workflows](codebase.md#principal-workflows)
+  anchor: principal-workflows
+  purpose: Branch-complete diagrams, stages, pseudocode, and call labels for all nine production workflows.
+  keywords: collection, creation, harmonization, resume, retry, amendment, archive, review, metadata repair, runners, benchmark
+
+- id: extension-and-change-guidance
+  title: [Extension And Change Guidance](codebase.md#extension-and-change-guidance)
+  anchor: extension-and-change-guidance
+  purpose: Supported extension patterns, compatibility impact, tests, docs, and coupling to avoid.
+  keywords: extension points, repository adapter, CLI option, checkpoint stage, provider, schema, tests
+
+## Detailed and legacy-stable routes
 
 - id: project-purpose-and-layout
-  title: Project Purpose And Layout
+  title: [Project Purpose And Layout](codebase.md#project-purpose-and-layout)
   anchor: project-purpose-and-layout
-  keywords: purpose, layout, src, docs, tests, package files, collector, filterer, harmonizer, wrappers, ae, arrayexpress
+  purpose: Detailed package, runner, documentation, and test layout.
+  keywords: purpose, layout, src, docs, tests, collector, filterer, harmonizer, wrappers
 
 - id: runtime-and-packaging
-  title: Runtime And Packaging
+  title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
-  keywords: pyproject, requirements.txt, setuptools, version, agentic-curator, google-auth, requests, meta_standards_converter, dependencies, pytest, editable install, console script, thematic-atlas
+  purpose: Python, setuptools, dependency, editable-install, and console-command contract.
+  keywords: pyproject, Python 3.10, requirements, dependencies, pytest, thematic-atlas
 
 - id: public-api
-  title: Public API
+  title: [Legacy Public API Route](codebase.md#public-api)
   anchor: public-api
-  keywords: import, __init__, exports, Atlas, archive_existing_runs, whole-run archive, directly resumable archive, agentic_curator, agentic-curator, ThematicReviewer, theme, collect_datasets, no ThematicAtlases.curator, no curator CLI, separate package
+  purpose: Preserved compatibility route for the package-root and Atlas import guidance.
+  keywords: Atlas import, empty __init__, agentic-curator, archive_existing_runs
 
 - id: benchmark-package
-  title: Benchmark Package
+  title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  keywords: benchmark_ThematicAtlases, thematic_reviewer, ontology_harmonizer, ThematicReviewerBenchmark, benchmark_reference_publication_recall, available_reference_sets, load_reference_set, leonie_2026_fibrosis, taylor_2020_nafld_fibrosis, run_reference_publication_recall.py, run_reference_set_review.py, exact DOI resolution, GEO-linked reference review, reference audit, aggregate report, reference-set-file, custom reference set, packaged JSON, reference set, publication recall, golden example, complete input output, mixed outcomes, DOI, PMID, statistics, atlas output, dev trace, resume_review_progress, reviewed datasets, discovery recall, relevant recall, candidate recall, judgement counts, duplicate publications, conflicts
+  purpose: Reference-set schemas, exact matching, reports, runners, and packaged fixtures.
+  keywords: ThematicReviewerBenchmark, DOI, PMID, reference set, recall, conflict, fixtures
 
 - id: fibrosis-curation-theme
-  title: Fibrosis Curation Theme
+  title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)
   anchor: fibrosis-curation-theme
-  keywords: fibrosis, theme_fibrosis, human, bulk, single-cell, single-nucleus, spatial, transcriptomics, comprehensive query, AND concepts, OR synonyms, unbridgeable gap, relevant, unsure, not relevant, induced model, controls, review-filter
+  purpose: Fixed fibrosis scope, inclusion concepts, and review expectations.
+  keywords: fibrosis, theme_fibrosis, transcriptomics, human, review-filter
 
 - id: fibrosis-run-script
-  title: Fibrosis Run Script
+  title: [Fibrosis Run Scripts](codebase.md#fibrosis-run-script)
   anchor: fibrosis-run-script
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, config/fibrosis_discovery_queries.json, query catalog, discovery only, collection only, stop before review, publication text snapshot, separate reviewer, static query, complementary queries, per-query limits, cross-query deduplication, --amend-queries, query archive, automatic whole-run archive, previous_runs, workflow activity lock, orphan artifacts, --generate-query, LLM query generation, no harmonization, --resume, resume_state.sqlite, incremental resume, DEBUG, verbose, safe telemetry, periodic progress, request duration, full run, max publications, GEO, dev trace, checkpoints, OntoStore, snomed, ADC, .env, .out, summary
+  purpose: Full-atlas and discovery-only fixed configuration, resume, amendment, archival, and artifacts.
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, query catalog, OntoStore, .out
 
 - id: cli-atlas
-  title: CLI Atlas
+  title: [CLI Atlas](codebase.md#cli-atlas)
   anchor: cli-atlas
-  keywords: cli_atlas, argparse, query, file, query-generator, max-generated-queries, method-owned generation, out, create-atlas, collect-datasets, harmonize-datasets, metadata-repository, theme, review-filter, review-strategy, direct, evidence_then_judgement, dev-trace, summary, logging
+  purpose: Parser wiring, commands, options, logging precedence, and output behavior.
+  keywords: argparse, collect-datasets, create-atlas, harmonize-datasets, resume, logging
 
 - id: archive-reference
-  title: Archive Reference
+  title: [Archive Reference](codebase.md#archive-reference)
   anchor: archive-reference
+  purpose: Historical source boundary and porting warning.
   keywords: oldd, archive, reference, porting
 
 - id: test-and-verification-status
-  title: Test And Verification Status
+  title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
-  keywords: tests, fixtures, golden report, complete benchmark example, py_compile, pytest, .env, smoke check, mocked network, README, documentation, atlas orchestration, collector, query generator, query ordering, repository selection, arrayexpress, filterer, harmonizer, publication text, section parsing, thematic review, filterer.review, GEO wrapper, atlas CLI
-
-## API Sections
+  purpose: Current automated coverage and verification commands.
+  keywords: pytest, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
-  title: Atlas Workflow
+  title: [Atlas Workflow](codebase.md#atlas-workflow)
   anchor: atlas-workflow
-  keywords: Atlas, resume, retry_stages, retry_items, retry_degraded_stages, selective retry, checkpoint schema version 2, attempt history, failure category, query_generation, search_queries, thematic_review, retryable_error, terminal_error, CheckpointStore, create_atlas, collect_datasets, harmonize_datasets
+  purpose: Detailed Atlas signatures, tracing, resume, retries, amendments, outputs, and archival.
+  keywords: Atlas, create_atlas, collect_datasets, harmonize_datasets, resume, retry, amend_queries
 
 - id: collector
-  title: Collector
+  title: [Collector](codebase.md#collector)
   anchor: collector
-  keywords: AtlasCollector, query loading, collect_jsons, collect_metadata, skip metadata, resume_metadata, audit_enrichment_only, retry_tags, resume_enrichment_candidates, retry tag template, TraceMetadataResumer, run_accession_metadata_collector.py, resume_metadata_progress, resume_metadata.log, metadata logging, checkpoint stats, metadata snapshot, concurrent metadata, EuropePMCWrapper, collect_accessions, max_publications, filter_accessions, is_handled_accession, collect_accession_metadata, metadata_repository, metadata_handler, metadata_repositories, GEO, GSE, GSM, GDS, GPL, arrayexpress, E-MTAB, E-GEOD, E-MEXP, original_datalinks, accession_metadata
+  purpose: Discovery, repository routing, metadata collection, independent resume, and repair detail.
+  keywords: AtlasCollector, TraceMetadataResumer, metadata_repository, GEO, ArrayExpress, retry tags
 
 - id: filterer
-  title: Filterer
+  title: [Filterer](codebase.md#filterer)
   anchor: filterer
-  keywords: AtlasFilterer, internal filter_jsons, collect_datasets, atlas_parts, publication_texts, publication_text_ref, compact metadata context, metadata_context, metadata coverage, metadata-aware rereview, build_miniml_metadata_context, GSE accessions, direct review, review_revision, revision 2, low confidence uncertain, accession assessments, human samples, transcriptomics assay, established fibrosis, accession linkage, derived judgement, contract version 4, evidence_then_judgement, review_strategy, theme override, allow_theme_override, allow-theme-override, accession exclusions, trace only, PublicationTextReviewer, PublicationTextReviewer.resume, TracePublicationReviewResumer, run_publication_reviewer.py, incremental review, strategy checkpoint, active trace, datalink checkpoint snapshot, resume_review_progress, item lock, filterer.review, agentic_curator, thematic reviewer, review_filter, not_relevant, unsure, abstractText, fullTextXML, text_source, fallback
+  purpose: Publication text mapping, direct and legacy review, filtering, and independent resume detail.
+  keywords: AtlasFilterer, PublicationTextReviewer, review_strategy, publication_text_ref, review_filter
 
 - id: harmonizer
-  title: Harmonizer
+  title: [Harmonizer](codebase.md#harmonizer)
   anchor: harmonizer
-  keywords: AtlasHarmonizer, OntologyHarmonizer, quality_status, degraded_stages, ontology_harmonization_quality_status, target_checker invalid output, field assignment fallback, transient provider retry, local_rag_ols, direct_lookup_judge, rag_lookup, ols_lookup, harmonization_run_statuses
+  purpose: Ontology workflow controls, work-key caching, degradation, concurrency, and fallback detail.
+  keywords: AtlasHarmonizer, local_rag_ols, quality_status, degraded_stages, preferred ontology
 
 - id: epmc-wrapper
-  title: EuropePMC Wrapper
+  title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
   anchor: epmc-wrapper
-  keywords: EuropePMCWrapper, collect_accessions, collect_publications, max_publications, max_publications_per_query, multiple queries, publication provenance, cross-query deduplication, collect_publication_texts, collect_datalinks, search_pages, datalinks, publication_text, SQLite checkpoint, first every tenth final, periodic progress, request duration, DEBUG, fullTextXML, abstract fallback, deduplicate, publication_texts, XML fallback, failed publications, stats logs, search stats
+  purpose: Search, pagination, deduplication, datalinks, full text, fallback, checkpoint, and endpoint detail.
+  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, abstract, max_publications_per_query
 
 - id: rate-handling
-  title: Rate Handling
+  title: [Rate Handling](codebase.md#rate-handling)
   anchor: rate-handling
-  keywords: rate limits, retry, Retry-After, timeout, page_limit, page_size, request_delay, 0.5-second cadence, explicit override
+  purpose: Remote request cadence, retry, timeout, and Retry-After behavior.
+  keywords: retry, Retry-After, timeout, request_delay, page_limit
 
 - id: arrayexpress-wrapper
-  title: ArrayExpress Wrapper
+  title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)
   anchor: arrayexpress-wrapper
-  keywords: ArrayExpressWrapper, arrayexpress, placeholder, metadata_repository, metadata_source, metadata_status, accession_metadata, E-MTAB, E-GEOD, E-MEXP
+  purpose: Current placeholder behavior and record status contract for ArrayExpress accessions.
+  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, metadata_status, placeholder
 
 - id: geo-wrapper
-  title: GEO Wrapper
+  title: [GEO Wrapper](codebase.md#geo-wrapper)
   anchor: geo-wrapper
-  keywords: GEOWrapper, collect_accession_metadata, get_gse, GSE, GSM, GDS, GPL, GSE normalization, MINiML JSON, geo2json, MINiMLEnricher, PubMed, SRA, ENA, identifier checkpoint, partial metadata, enrichment repair, related_series, metadata_status, accession_metadata, NCBI E-utilities, ESearch, ESummary, api_key, tool, email, progress logs, stats logs, debug logs
+  purpose: GEO normalization, NCBI lookup, MINiML conversion, enrichment, checkpoints, repair, and record shape.
+  keywords: GEOWrapper, GSE, GSM, GDS, GPL, NCBI, MINiML, PubMed, SRA, ENA

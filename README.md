@@ -1,5 +1,3 @@
-<img width="375" height="250" alt="ChatGPT Image Jul 27, 2026, 10_33_57 AM" src="https://github.com/user-attachments/assets/ea6a1467-8555-4493-8523-a2edb0ed22ff" />
-
 # ThematicAtlases
 
 Build publication-driven, reviewable, and ontology-harmonized atlases of biomedical datasets.
@@ -37,28 +35,6 @@ The editable install provides the `thematic-atlas` console command. The equivale
 - `pytest>=8` only when installing the optional `dev` dependencies.
 
 The project is licensed under [GPL-3.0-or-later](LICENSE).
-
-## Configuration
-
-There is no central application configuration file. Generic workflows are configured with CLI flags or Python arguments; purpose-built fibrosis runners use repository files and constants. Explicit CLI/Python values take precedence over library defaults. On the CLI, `--theme-file` takes precedence over `--theme`, and subcommand-local logging options take precedence over global logging options.
-
-Important defaults and configuration sources:
-
-- Omitting `metadata_repositories` or `--metadata-repository` selects the GEO-only path. Repeat the option or pass a list to include `arrayexpress`.
-- Publication review defaults to strategy `direct` and filter `none`. A non-`none` filter and `review_before_metadata` require a theme.
-- Query generation is opt-in and defaults to at most three generated queries. Explicit queries come first, query-file entries follow, and generated queries are appended.
-- `docs/theme_fibrosis.txt` is the fixed fibrosis theme. `config/fibrosis_discovery_queries.json` is the ordered, versioned static-query catalog used by the discovery runner.
-- CLI result data is written with `--out`; logging goes to stdout unless `--log-file` is supplied. Development traces default to `.dev/`, while fixed runner artifacts are written under `.out/`.
-- The repository's `.env/` directory is the Python virtual environment required by the purpose-built runners; it is not a dotenv file and is not automatically loaded as environment configuration.
-
-Model-backed query generation, thematic review, ontology caching, semantic lookup, and judge/assignment stages require Google Application Default Credentials. Configure user credentials with:
-
-```bash
-gcloud auth application-default login
-gcloud auth application-default set-quota-project PROJECT_ID
-```
-
-A service-account credential may be used instead. Static collection without query generation, offline benchmarking, and deterministic/offline harmonization controls do not require model credentials. There is no Docker interface or Docker configuration in this repository.
 
 ## Quickstart
 
@@ -302,10 +278,16 @@ Atlas.resume(
     run_id=None,
     out=None,
     stop_before_review=False,
+    retry_stages=None,
+    retry_items=None,
+    retry_degraded_stages=None,
 )
 ```
 
 `run_id=None` selects the newest incomplete valid trace. `out` overrides the manifest output. `stop_before_review=True` resumes only the collection snapshot.
+`retry_stages` requeues complete registered boundaries, `retry_items` maps
+stage names to item IDs, and `retry_degraded_stages` requeues harmonization
+items whose recorded quality status names the selected internal stage.
 
 `Atlas.amend_queries(...)` replaces one trace's query fingerprint without discarding completed item checkpoints:
 
@@ -339,20 +321,66 @@ Specialized public APIs are available when independently advancing or evaluating
 - `AtlasCollector.resume_metadata(...)`: `resume_metadata(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict` collects, audits, or explicitly repairs GEO metadata enrichment for one stable snapshot. See the [collector flow](docs/codebase.md#collector).
 - `ThematicReviewerBenchmark`: `benchmark_reference_publication_recall(reference_set=None, reference_set_file=None, thematic_output=...) -> dict` requires exactly one packaged name or custom reference file; `available_reference_sets()` lists packaged sets and `load_reference_set(name)` returns a defensive copy. See the [benchmark package](docs/codebase.md#benchmark-package).
 
+Lower-level supported types are documented exhaustively in the
+[public API reference](docs/codebase.md#public-api-reference):
+`CheckpointStore`, `EuropePMCWrapper`, `GEOWrapper`, `ArrayExpressWrapper`,
+`AtlasFilterer`, `AtlasHarmonizer`, trace helpers, enrichment helpers, and all
+formally exported constants and methods.
+
 Library modules define loggers without configuring global logging. Applications should configure their preferred handlers and levels.
 
 ### Workflow scripts
 
 The repository includes focused scripts built on the same Python API. They require `.env/bin/python` unless noted:
 
-- `run_fibrosis_atlas.py [--resume [RUN_ID]]` runs or resumes the fixed full fibrosis atlas, including ontology caching, review, harmonization, summaries, and trace archival.
-- `run_fibrosis_discovery.py [--generate-query | --resume [RUN_ID]] [--amend-queries]` runs collection-only discovery; query amendment requires an explicit resume ID.
-- `run_publication_reviewer.py TRACE_DIR [--theme-file PATH] [--strategy {direct,evidence_then_judgement}] [--allow-theme-override] [-v|-vv]` reviews a stable growing-trace snapshot.
-- `run_accession_metadata_collector.py TRACE_DIR [-v|-vv] [--audit-enrichment-only | --retry-tags PATH]` advances or audits GEO metadata independently.
-- `run_reference_publication_recall.py THEMATIC_OUTPUT [--reference-set-file JSON ...] [--out PATH]` runs offline recall against all packaged sets plus optional custom sets.
-- `run_reference_set_review.py [--reference-set NAME]` resolves and reviews one packaged reference set through a checkpointed diagnostic workflow.
+- `run_fibrosis_atlas.py`: `[--resume [RUN_ID]]` runs or resumes the fixed full fibrosis atlas, including ontology caching, review, harmonization, summaries, and trace archival.
+- `run_fibrosis_discovery.py`: `[--generate-query | --resume [RUN_ID]] [--amend-queries]` runs collection-only discovery; query amendment requires an explicit resume ID.
+- `run_publication_reviewer.py`: `TRACE_DIR [--theme-file PATH] [--strategy {direct,evidence_then_judgement}] [--allow-theme-override] [-v|-vv]` reviews a stable growing-trace snapshot.
+- `run_accession_metadata_collector.py`: `TRACE_DIR [-v|-vv] [--audit-enrichment-only | --retry-tags PATH]` advances or audits GEO metadata independently.
+- `run_reference_publication_recall.py`: `THEMATIC_OUTPUT [--reference-set-file JSON ...] [--out PATH]` runs offline recall against all packaged sets plus optional custom sets.
+- `run_reference_set_review.py`: `[--reference-set NAME]` resolves and reviews one packaged reference set through a checkpointed diagnostic workflow.
 
 Use `.env/bin/python SCRIPT --help` for the parser-generated command reference. Fixed fibrosis behavior and output locations are documented under [fibrosis run scripts](docs/codebase.md#fibrosis-run-script).
+
+### Configuration
+
+There is no central application configuration file. Generic workflows are
+configured with CLI flags or Python arguments; purpose-built fibrosis runners
+use repository files and constants. Explicit CLI/Python values take precedence
+over library defaults. On the CLI, `--theme-file` takes precedence over
+`--theme`, and subcommand-local logging options take precedence over global
+logging options.
+
+Important defaults and configuration sources:
+
+- Omitting `metadata_repositories` or `--metadata-repository` selects the
+  GEO-only path. Repeat the option or pass a list to include `arrayexpress`.
+- Publication review defaults to strategy `direct` and filter `none`. A
+  non-`none` filter and `review_before_metadata` require a theme.
+- Query generation is opt-in and defaults to at most three generated queries.
+  Explicit queries come first, query-file entries follow, and generated queries
+  are appended.
+- `docs/theme_fibrosis.txt` is the fixed fibrosis theme.
+  `config/fibrosis_discovery_queries.json` is the ordered, versioned static
+  query catalog used by the discovery runner.
+- CLI data is written with `--out`; logging goes to stdout unless `--log-file`
+  is supplied. Traces default to `.dev/`; fixed runners use `.out/`.
+- `.env/` is the Python virtual environment required by the focused runners; it
+  is not a dotenv file and is not loaded as environment configuration.
+
+Model-backed query generation, thematic review, ontology caching, semantic
+lookup, and judge/assignment stages require Google Application Default
+Credentials:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project PROJECT_ID
+```
+
+A service-account credential may be used instead. Static collection without
+query generation, offline benchmarking, and deterministic/offline
+harmonization controls do not require model credentials. There is no Docker interface
+or Docker configuration in this repository.
 
 ### Code flow
 
@@ -370,7 +398,11 @@ CLI or Python input
   -> optional readable trace artifacts + resume_state.sqlite
 ```
 
-The collector, filterer, and harmonizer isolate the main stages while `Atlas` owns their ordering, dependency injection, output, and resume policy. External requests are checkpointed at item boundaries during traced runs, so successful/no-data and terminal outcomes are reused while transient errors can be retried.
+The [Atlas orchestrator](docs/codebase.md#orchestrators-and-core-types) owns
+ordering, dependency injection, output, and resume policy. External requests
+are checkpointed at item boundaries during traced runs, so successful/no-data
+and terminal outcomes are reused while transient errors can be retried. See all
+[nine principal workflows](docs/codebase.md#principal-workflows).
 
 Implementation details: [collector](docs/codebase.md#collector), [filterer](docs/codebase.md#filterer), [Europe PMC](docs/codebase.md#epmc-wrapper), [GEO](docs/codebase.md#geo-wrapper), [ArrayExpress](docs/codebase.md#arrayexpress-wrapper), and [harmonizer](docs/codebase.md#harmonizer).
 
@@ -378,13 +410,11 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 
 - [Documentation index](docs/index.md) — routing index for stable codebase sections.
 - [Codebase handoff](docs/codebase.md) — canonical architecture, API, workflow, and verification reference.
-- [Project layout and purpose](docs/codebase.md#project-purpose-and-layout)
-- [Runtime and packaging](docs/codebase.md#runtime-and-packaging)
-- [Public API](docs/codebase.md#public-api)
-- [Atlas workflow](docs/codebase.md#atlas-workflow)
-- [CLI](docs/codebase.md#cli-atlas)
-- [Test and verification status](docs/codebase.md#test-and-verification-status)
+- [Architecture and boundaries](docs/codebase.md#architecture)
+- [Public API reference](docs/codebase.md#public-api-reference)
+- [Principal workflows](docs/codebase.md#principal-workflows)
+- [Extension guidance](docs/codebase.md#extension-and-change-guidance)
 
 ## Authors
 
-Created by [jaychowcl](https://github.com/jaychowcl) @ [Saez-Rodriguez Group](https://saezlab.org) & [EMBL-EBI Functional Genomics Team](https://www.ebi.ac.uk/about/teams/functional-genomics/) on May 2026
+Created by [jaychowcl](https://github.com/jaychowcl) on May 2026
