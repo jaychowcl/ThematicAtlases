@@ -98,6 +98,7 @@ class Atlas:
         max_generated_queries: int = 3,
         harmonization_options: dict | None = None,
         review_before_metadata: bool = False,
+        scrape_fulltext_accessions: bool = True,
     ) -> dict:
         if self._cache_ontologies:
             self._preflight_credentials()
@@ -137,6 +138,7 @@ class Atlas:
                     "harmonization_options": harmonization_options,
                     "harmonization_details_out": harmonization_details_out,
                     "review_before_metadata": review_before_metadata,
+                    "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 },
             )
         logger.info("Atlas create_atlas progress stage=collect-datasets")
@@ -154,6 +156,7 @@ class Atlas:
             generate_queries=generate_queries,
             max_generated_queries=max_generated_queries,
             review_before_metadata=review_before_metadata,
+            scrape_fulltext_accessions=scrape_fulltext_accessions,
         )
         if max_publications_per_query is not None:
             collect_kwargs["max_publications_per_query"] = (
@@ -263,6 +266,10 @@ class Atlas:
                 generate_queries=manifest.get("generate_queries", False),
                 max_generated_queries=manifest.get("max_generated_queries", 3),
                 review_before_metadata=manifest.get("review_before_metadata", False),
+                scrape_fulltext_accessions=manifest.get(
+                    "scrape_fulltext_accessions",
+                    False,
+                ),
                 stop_before_review=True,
                 _trace_writer=trace,
             )
@@ -399,6 +406,10 @@ class Atlas:
                         generate_queries=manifest.get("generate_queries", False),
                         max_generated_queries=manifest.get("max_generated_queries", 3),
                         review_before_metadata=review_before_metadata,
+                        scrape_fulltext_accessions=manifest.get(
+                            "scrape_fulltext_accessions",
+                            False,
+                        ),
                         _trace_writer=trace,
                     )
 
@@ -571,6 +582,7 @@ class Atlas:
         run_id: str | None = None,
         review_before_metadata: bool = False,
         stop_before_review: bool = False,
+        scrape_fulltext_accessions: bool = True,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
         if review_before_metadata and theme is None:
@@ -610,6 +622,7 @@ class Atlas:
                     "max_generated_queries": max_generated_queries,
                     "review_before_metadata": review_before_metadata,
                     "stop_before_review": stop_before_review,
+                    "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 },
             )
         checkpoint_store = (
@@ -717,6 +730,8 @@ class Atlas:
                 fingerprint_configuration["review_strategy"] = review_strategy
             if review_before_metadata:
                 fingerprint_configuration["review_before_metadata"] = True
+            if scrape_fulltext_accessions:
+                fingerprint_configuration["scrape_fulltext_accessions"] = True
             checkpoint_store.validate_fingerprint(fingerprint_configuration)
         logger.info("Atlas collect_datasets progress stage=collect-accessions")
         accessions = self._collect_jsons(
@@ -727,6 +742,7 @@ class Atlas:
             max_publications=max_publications,
             max_publications_per_query=max_publications_per_query,
             collect_metadata=collect_metadata and not review_before_metadata,
+            scrape_fulltext_accessions=scrape_fulltext_accessions,
             checkpoint_store=checkpoint_store,
         )
         if _trace_writer is not None:
@@ -878,6 +894,7 @@ class Atlas:
         max_publications: int | None = None,
         max_publications_per_query: list[int | None] | None = None,
         collect_metadata: bool = True,
+        scrape_fulltext_accessions: bool = True,
         checkpoint_store=None,
     ) -> list[dict]:
         options = dict(
@@ -887,6 +904,7 @@ class Atlas:
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
             collect_metadata=collect_metadata,
+            scrape_fulltext_accessions=scrape_fulltext_accessions,
         )
         if max_publications_per_query is not None:
             options["max_publications_per_query"] = max_publications_per_query

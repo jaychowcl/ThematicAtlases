@@ -118,12 +118,20 @@ def test_full_fibrosis_run_wires_fixed_configuration(tmp_path, monkeypatch, caps
             "ols_lookup_judge": True,
             "field_assignment_judge": True,
         },
+        "scrape_fulltext_accessions": True,
     }
 
     displayed = json.loads(capsys.readouterr().out)
     assert displayed["max_publications"] == 50
     assert displayed["removed_ontology_frameworks"] == ["snomed"]
     assert displayed["dev_trace"] is True
+    assert displayed["scrape_fulltext_accessions"] is True
+
+
+def test_full_run_can_disable_fulltext_accession_scraping() -> None:
+    args = script.parse_args(["--no-scrape-fulltext-accessions"])
+
+    assert args.scrape_fulltext_accessions is False
 
 
 def test_fibrosis_run_can_resume_explicit_trace(tmp_path, monkeypatch) -> None:

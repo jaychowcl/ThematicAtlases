@@ -48,6 +48,18 @@ def _add_dev_trace_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dev-out-dir", default=".dev")
 
 
+def _add_fulltext_accession_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--scrape-fulltext-accessions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "scan available Europe PMC full text for repository accessions "
+            "(enabled by default)"
+        ),
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thematic-atlas",
@@ -77,6 +89,7 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument(
         "--review-before-metadata", action="store_true", default=False
     )
+    _add_fulltext_accession_options(collect)
     collect.add_argument(
         "--metadata-repository",
         action="append",
@@ -115,6 +128,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--review-before-metadata", action="store_true", default=False
     )
+    _add_fulltext_accession_options(create)
     _add_dev_trace_options(create)
     create.add_argument(
         "--metadata-repository",
@@ -251,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
             generate_queries=args.query_generator,
             max_generated_queries=args.max_generated_queries,
             review_before_metadata=args.review_before_metadata,
+            scrape_fulltext_accessions=args.scrape_fulltext_accessions,
         )
     elif args.command == "create-atlas":
         theme = _input_value(value=args.theme, file=args.theme_file)
@@ -270,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
             generate_queries=args.query_generator,
             max_generated_queries=args.max_generated_queries,
             review_before_metadata=args.review_before_metadata,
+            scrape_fulltext_accessions=args.scrape_fulltext_accessions,
         )
     elif args.command == "harmonize-datasets":
         with open(args.file, encoding="utf-8") as handle:

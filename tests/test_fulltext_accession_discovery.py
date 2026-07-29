@@ -1,6 +1,8 @@
-from ThematicAtlases.collector.accession_extraction import (
+from ThematicAtlases.accession_extraction import (
     extract_accessions_from_text,
 )
+from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
 
@@ -62,9 +64,9 @@ def test_extract_accessions_from_text_recognizes_all_registered_object_levels() 
         "object_type": "series",
     }
     assert matches[7]["object_type"] == "array_design"
-    assert matches[13]["object_type"] == "study"
-    assert matches[22]["object_type"] == "run"
-    assert matches[31]["object_type"] == "submission"
+    assert matches[14]["object_type"] == "study"
+    assert matches[23]["object_type"] == "run"
+    assert matches[29]["object_type"] == "submission"
     assert matches[-1]["object_type"] == "biosample"
 
 
@@ -202,3 +204,66 @@ def test_collect_accessions_can_disable_fulltext_scraping(monkeypatch) -> None:
         queries=["q"],
         scrape_fulltext_accessions=False,
     ) == expected
+
+
+def test_fulltext_accession_discovery_is_checkpointed_and_reused(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    wrapper = EuropePMCWrapper()
+    publication = {
+        "source": "MED",
+        "epmc_id": "1",
+        "text": "GSE123 and PRJNA456",
+        "text_source": "fullTextXML",
+        "full_text_status": "available",
+    }
+
+    first = wrapper.accessions_from_fulltexts(
+        [publication],
+        checkpoint_store=store,
+    )
+    second = wrapper.accessions_from_fulltexts(
+        [{**publication, "text": "GSE999"}],
+        checkpoint_store=store,
+    )
+
+    assert [record["datalink_id"] for record in first] == ["GSE123", "PRJNA456"]
+    assert second == first
+    assert (
+        store.get("fulltext_accession_discovery", "MED:1")["status"]
+        == "available"
+    )
+    assert store.has_retryable_boundary("discovery") is False
+
+
+def test_filterer_reuses_prefetched_fulltext_without_another_request() -> None:
+    filterer = AtlasFilterer(
+        epmc_wrapper_factory=lambda: (_ for _ in ()).throw(
+            AssertionError("full text should be reused")
+        )
+    )
+
+    result = filterer.collect_publication_texts(
+        jsons=[
+            {
+                "datalink_id": "GSE1",
+                "publications": [
+                    {
+                        "source": "MED",
+                        "epmc_id": "1",
+                        "pmid": "1",
+                        "text": "GSE1",
+                        "text_source": "fullTextXML",
+                        "full_text_status": "available",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert result == {
+        "1": {
+            "text": "GSE1",
+            "text_source": "fullTextXML",
+            "full_text_status": "available",
+        }
+    }

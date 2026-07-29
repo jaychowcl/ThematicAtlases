@@ -6,6 +6,9 @@ import xml.etree.ElementTree as ET
 import requests
 
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+from ThematicAtlases.accession_extraction import (
+    extract_accessions_from_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,7 @@ class EuropePMCWrapper:
         max_publications: int | None = None,
         max_publications_per_query: list[int | None] | None = None,
         checkpoint_store=None,
+        scrape_fulltext_accessions: bool = True,
     ) -> list[dict]:
         publication_options = {
             "queries": queries,
@@ -71,10 +75,224 @@ class EuropePMCWrapper:
             publication_options["checkpoint_store"] = checkpoint_store
             datalink_options["checkpoint_store"] = checkpoint_store
         publications = self.collect_publications(**publication_options)
-        return self.collect_datalinks(
+        accessions = self.collect_datalinks(
             publications=publications,
             **datalink_options,
         )
+        if not scrape_fulltext_accessions:
+            return accessions
+        text_options = {"publications": publications}
+        if checkpoint_store is not None:
+            text_options["checkpoint_store"] = checkpoint_store
+        enriched_publications = self.collect_publication_texts(**text_options)
+        accessions = self._accessions_with_enriched_publications(
+            accessions,
+            enriched_publications,
+        )
+        scraped = self.accessions_from_fulltexts(
+            enriched_publications,
+            checkpoint_store=checkpoint_store,
+        )
+        return self.merge_accessions(accessions, scraped)
+
+    def accessions_from_fulltexts(
+        self,
+        publications: list[dict],
+        checkpoint_store=None,
+    ) -> list[dict]:
+        """Extract accession-shaped records from available full text."""
+
+        records = []
+        repository_counts: dict[str, int] = {}
+        for index, publication in enumerate(publications, start=1):
+            source = str(publication.get("source", ""))
+            epmc_id = str(publication.get("epmc_id", ""))
+            checkpoint_key = f"{source}:{epmc_id}"
+            checkpoint = (
+                checkpoint_store.get(
+                    "fulltext_accession_discovery",
+                    checkpoint_key,
+                )
+                if checkpoint_store is not None
+                else None
+            )
+            if checkpoint and checkpoint["status"] in {
+                "available",
+                "no_data",
+                "terminal_error",
+            }:
+                records.extend((checkpoint.get("payload") or {}).get("records", []))
+                continue
+
+            matches = []
+            if (
+                publication.get("text_source") == "fullTextXML"
+                and publication.get("full_text_status") == "available"
+            ):
+                matches = extract_accessions_from_text(
+                    str(publication.get("text", ""))
+                )
+            publication_records = [
+                {
+                    "datalink_id": match["accession"],
+                    "datalink_id_scheme": match["datalink_id_scheme"],
+                    "datalink_url": "",
+                    "datalink_category": match["datalink_category"],
+                    "accession_repository": match["repository"],
+                    "accession_object_type": match["object_type"],
+                    "discovery_sources": ["fulltext_regex"],
+                    "publications": [
+                        {
+                            **publication,
+                            "accession_discovery_sources": ["fulltext_regex"],
+                        }
+                    ],
+                }
+                for match in matches
+            ]
+            for match in matches:
+                repository = match["repository"]
+                repository_counts[repository] = (
+                    repository_counts.get(repository, 0) + 1
+                )
+            records.extend(publication_records)
+            if checkpoint_store is not None:
+                checkpoint_store.put(
+                    "fulltext_accession_discovery",
+                    checkpoint_key,
+                    index,
+                    "available" if publication_records else "no_data",
+                    payload={"records": publication_records},
+                )
+        logger.info(
+            "EuropePMC fulltext accession stats publications_checked=%s "
+            "accessions_discovered=%s repositories=%s",
+            len(publications),
+            len(records),
+            ",".join(
+                f"{repository}:{count}"
+                for repository, count in sorted(repository_counts.items())
+            ),
+        )
+        return records
+
+    def merge_accessions(
+        self,
+        datalink_accessions: list[dict],
+        scraped_accessions: list[dict],
+    ) -> list[dict]:
+        """Merge datalink and full-text discoveries without losing provenance."""
+
+        merged: list[dict] = []
+        indexes: dict[str, int] = {}
+        for record, source in (
+            *((record, "europe_pmc_datalink") for record in datalink_accessions),
+            *((record, "fulltext_regex") for record in scraped_accessions),
+        ):
+            accession = str(record.get("datalink_id", "")).strip()
+            if not accession:
+                continue
+            key = accession.upper()
+            normalized = {
+                **record,
+                "discovery_sources": self._ordered_unique(
+                    [
+                        *record.get("discovery_sources", []),
+                        source,
+                    ]
+                ),
+                "publications": [
+                    {
+                        **publication,
+                        "accession_discovery_sources": self._ordered_unique(
+                            [
+                                *publication.get(
+                                    "accession_discovery_sources",
+                                    [],
+                                ),
+                                source,
+                            ]
+                        ),
+                    }
+                    for publication in record.get("publications", [])
+                ],
+            }
+            if key not in indexes:
+                indexes[key] = len(merged)
+                merged.append(normalized)
+                continue
+            current = merged[indexes[key]]
+            current["discovery_sources"] = self._ordered_unique(
+                [
+                    *current.get("discovery_sources", []),
+                    *normalized.get("discovery_sources", []),
+                ]
+            )
+            self._merge_accession_publications(current, normalized)
+        return merged
+
+    def _merge_accession_publications(
+        self,
+        current: dict,
+        incoming: dict,
+    ) -> None:
+        indexes = {
+            self._publication_key(publication): index
+            for index, publication in enumerate(current.get("publications", []))
+        }
+        for publication in incoming.get("publications", []):
+            key = self._publication_key(publication)
+            if key not in indexes:
+                indexes[key] = len(current.setdefault("publications", []))
+                current["publications"].append(publication)
+                continue
+            index = indexes[key]
+            existing = current["publications"][index]
+            sources = self._ordered_unique(
+                [
+                    *existing.get("accession_discovery_sources", []),
+                    *publication.get("accession_discovery_sources", []),
+                ]
+            )
+            current["publications"][index] = {
+                **existing,
+                **{
+                    name: value
+                    for name, value in publication.items()
+                    if value
+                },
+                "accession_discovery_sources": sources,
+            }
+
+    def _accessions_with_enriched_publications(
+        self,
+        accessions: list[dict],
+        publications: list[dict],
+    ) -> list[dict]:
+        enriched = {
+            self._publication_key(publication): publication
+            for publication in publications
+        }
+        return [
+            {
+                **record,
+                "publications": [
+                    {
+                        **publication,
+                        **enriched.get(
+                            self._publication_key(publication),
+                            {},
+                        ),
+                    }
+                    for publication in record.get("publications", [])
+                ],
+            }
+            for record in accessions
+        ]
+
+    @staticmethod
+    def _ordered_unique(values: list[str]) -> list[str]:
+        return list(dict.fromkeys(value for value in values if value))
 
     def collect_publications(
         self,

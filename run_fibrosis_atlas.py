@@ -66,7 +66,7 @@ def configure_logging(path: Path) -> None:
     )
 
 
-def resolved_configuration() -> dict:
+def resolved_configuration(*, scrape_fulltext_accessions: bool = True) -> dict:
     output_dir = OUTPUT_DIR
     return {
         "theme_file": str(THEME_FILE),
@@ -88,6 +88,7 @@ def resolved_configuration() -> dict:
         "metadata_repositories": METADATA_REPOSITORIES,
         "max_publications": MAX_PUBLICATIONS,
         "collect_metadata": COLLECT_METADATA,
+        "scrape_fulltext_accessions": scrape_fulltext_accessions,
         "review_filter": REVIEW_FILTER,
         "max_workers": MAX_WORKERS,
         "harmonization_options": HARMONIZATION_OPTIONS,
@@ -106,6 +107,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retry-stage", action="append", default=[])
     parser.add_argument("--retry-item", action="append", default=[])
     parser.add_argument("--retry-degraded-stage", action="append", default=[])
+    parser.add_argument(
+        "--scrape-fulltext-accessions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     return parser.parse_args(argv)
 
 
@@ -123,7 +129,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     require_project_venv(root=ROOT, executable=sys.executable)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    config = resolved_configuration()
+    config = resolved_configuration(
+        scrape_fulltext_accessions=args.scrape_fulltext_accessions,
+    )
     new_run = args.resume is None
     with workflow_activity_lock(
         config["dev_out_dir"], exclusive=new_run, blocking=False
@@ -182,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             generate_queries=GENERATE_QUERIES,
             max_generated_queries=MAX_GENERATED_QUERIES,
             harmonization_options=HARMONIZATION_OPTIONS,
+            scrape_fulltext_accessions=config["scrape_fulltext_accessions"],
         )
         return 0
 

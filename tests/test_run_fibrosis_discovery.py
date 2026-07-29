@@ -86,6 +86,7 @@ def test_discovery_collects_publications_without_review_or_harmonization(
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
         "review_before_metadata": True,
         "stop_before_review": True,
+        "scrape_fulltext_accessions": True,
     }
     assert calls["archive_existing_runs"] == {
         "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
@@ -108,6 +109,7 @@ def test_discovery_collects_publications_without_review_or_harmonization(
     }
     displayed = json.loads(capsys.readouterr().out)
     assert displayed["max_publications"] is None
+    assert displayed["scrape_fulltext_accessions"] is True
     assert displayed["max_publications_per_query"] == [5000, 15000, 15000, 15000]
     assert len(displayed["query"]) == 4
     assert displayed["harmonization"] is False
@@ -116,6 +118,14 @@ def test_discovery_collects_publications_without_review_or_harmonization(
     assert displayed["review_before_metadata"] is True
     assert displayed["review_strategy"] == "direct"
     assert displayed["stop_before_review"] is True
+
+
+def test_discovery_can_disable_fulltext_accession_scraping() -> None:
+    args = script._build_parser().parse_args(
+        ["--no-scrape-fulltext-accessions"]
+    )
+
+    assert args.scrape_fulltext_accessions is False
 
 
 def test_static_query_has_narrowed_mandatory_concepts() -> None:

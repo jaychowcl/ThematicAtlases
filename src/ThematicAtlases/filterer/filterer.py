@@ -170,6 +170,19 @@ class AtlasFilterer:
 
                 if publication_ref in publication_texts:
                     continue
+                if (
+                    publication.get("text_source")
+                    or publication.get("full_text_status")
+                ):
+                    publication_texts[publication_ref] = {
+                        "text": publication.get("text", ""),
+                        "text_source": publication.get("text_source", "none"),
+                        "full_text_status": publication.get(
+                            "full_text_status",
+                            "unavailable",
+                        ),
+                    }
+                    continue
 
                 publication_key = self.publication_key(publication=publication)
 

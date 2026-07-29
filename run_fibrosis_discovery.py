@@ -101,6 +101,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-stage", action="append", default=[])
     parser.add_argument("--retry-item", action="append", default=[])
     parser.add_argument("--retry-degraded-stage", action="append", default=[])
+    parser.add_argument(
+        "--scrape-fulltext-accessions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     return parser
 
 
@@ -114,7 +119,11 @@ def retry_items(values: list[str]) -> dict[str, list[str]]:
     return result
 
 
-def resolved_configuration(*, generate_query: bool = False) -> dict:
+def resolved_configuration(
+    *,
+    generate_query: bool = False,
+    scrape_fulltext_accessions: bool = True,
+) -> dict:
     return {
         "theme_file": str(THEME_FILE),
         "discovery_out": str(OUTPUT_DIR / "fibrosis_discovery.json"),
@@ -139,6 +148,7 @@ def resolved_configuration(*, generate_query: bool = False) -> dict:
         "dev_out_dir": str(OUTPUT_DIR / "dev_trace_discovery"),
         "review_before_metadata": REVIEW_BEFORE_METADATA,
         "stop_before_review": STOP_BEFORE_REVIEW,
+        "scrape_fulltext_accessions": scrape_fulltext_accessions,
     }
 
 
@@ -148,7 +158,10 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--amend-queries requires an explicit --resume RUN_ID")
     require_project_venv(root=ROOT, executable=sys.executable)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    config = resolved_configuration(generate_query=args.generate_query)
+    config = resolved_configuration(
+        generate_query=args.generate_query,
+        scrape_fulltext_accessions=args.scrape_fulltext_accessions,
+    )
     new_run = args.resume is None
     with workflow_activity_lock(
         config["dev_out_dir"], exclusive=new_run, blocking=False
@@ -209,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             dev_out_dir=config["dev_out_dir"],
             review_before_metadata=REVIEW_BEFORE_METADATA,
             stop_before_review=STOP_BEFORE_REVIEW,
+            scrape_fulltext_accessions=config["scrape_fulltext_accessions"],
         )
         summary = build_atlas_summary(
             atlas=result,

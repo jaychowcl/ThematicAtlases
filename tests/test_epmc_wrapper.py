@@ -154,7 +154,14 @@ def test_collect_datalinks_resumes_after_last_completed_publication(tmp_path) ->
 
 def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     publications = [{"epmc_id": "1", "source": "MED"}]
-    expected = [{"datalink_id": "GSE1", "publications": []}]
+    datalinks = [{"datalink_id": "GSE1", "publications": []}]
+    expected = [
+        {
+            "datalink_id": "GSE1",
+            "publications": [],
+            "discovery_sources": ["europe_pmc_datalink"],
+        }
+    ]
     calls = []
 
     def fake_collect_publications(
@@ -170,7 +177,7 @@ def test_collect_accessions_calls_collect_publications(monkeypatch) -> None:
     def fake_collect_datalinks(self, publications: list[dict]) -> list[dict]:
         calls.append("datalinks")
         assert publications == [{"epmc_id": "1", "source": "MED"}]
-        return expected
+        return datalinks
 
     monkeypatch.setattr(
         EuropePMCWrapper,

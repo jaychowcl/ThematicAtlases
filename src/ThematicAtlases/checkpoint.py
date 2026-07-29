@@ -22,6 +22,7 @@ STAGE_POLICIES = {
     "query_generation": "discovery",
     "search_queries": "discovery",
     "datalinks": "discovery",
+    "fulltext_accession_discovery": "discovery",
     "publication_text": "review",
     "geo_resolution": "metadata",
     "geo_metadata": "metadata",

@@ -67,6 +67,7 @@ class AtlasCollector:
         max_publications_per_query: list[int | None] | None = None,
         collect_metadata: bool = True,
         checkpoint_store=None,
+        scrape_fulltext_accessions: bool = True,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -82,6 +83,7 @@ class AtlasCollector:
         accession_options = {
             "queries": queries,
             "max_publications": max_publications,
+            "scrape_fulltext_accessions": scrape_fulltext_accessions,
         }
         if max_publications_per_query is not None:
             accession_options["max_publications_per_query"] = (

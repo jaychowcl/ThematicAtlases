@@ -18,6 +18,7 @@ class RecordingCollector:
         metadata_repositories=None,
         max_publications=None,
         collect_metadata=True,
+        scrape_fulltext_accessions=True,
     ):
         self.__class__.calls.append(
             {
@@ -474,6 +475,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                     "generate_queries": False,
                     "max_generated_queries": 3,
                     "review_before_metadata": False,
+                    "scrape_fulltext_accessions": True,
                 },
         ),
         (

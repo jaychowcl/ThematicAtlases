@@ -30,6 +30,7 @@ class FakeEuropePMCWrapper:
         self,
         queries: list[str],
         max_publications: int | None = None,
+        scrape_fulltext_accessions: bool = True,
     ) -> list[dict]:
         logging.getLogger("ThematicAtlases.test").info("fake info")
         logging.getLogger("ThematicAtlases.test").debug("fake debug")
@@ -502,13 +503,14 @@ def test_collect_datasets_passes_options_to_atlas(
             review_filter="none",
             review_strategy="direct",
             metadata_repositories=None,
-            max_publications=None,
-            reviewer=None,
-            collect_metadata=True,
+                max_publications=None,
+                reviewer=None,
+                collect_metadata=True,
                 generate_queries=False,
                 max_generated_queries=3,
                 review_before_metadata=False,
-        ):
+                scrape_fulltext_accessions=True,
+            ):
             self.__class__.calls.append(
                 {
                     "query": query,
@@ -521,9 +523,10 @@ def test_collect_datasets_passes_options_to_atlas(
                     "max_publications": max_publications,
                     "reviewer": reviewer,
                     "collect_metadata": collect_metadata,
-                    "generate_queries": generate_queries,
-                    "max_generated_queries": max_generated_queries,
-                    "review_before_metadata": review_before_metadata,
+                        "generate_queries": generate_queries,
+                        "max_generated_queries": max_generated_queries,
+                        "review_before_metadata": review_before_metadata,
+                        "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -571,6 +574,7 @@ def test_collect_datasets_passes_options_to_atlas(
                 "generate_queries": False,
                 "max_generated_queries": 3,
                 "review_before_metadata": False,
+                "scrape_fulltext_accessions": True,
         }
     ]
 
@@ -610,12 +614,13 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             reviewer=None,
             collect_metadata=True,
             dev_trace=False,
-            dev_out_dir=".dev",
-            harmonization_details_out=None,
+                dev_out_dir=".dev",
+                harmonization_details_out=None,
                 generate_queries=False,
                 max_generated_queries=3,
                 review_before_metadata=False,
-        ):
+                scrape_fulltext_accessions=True,
+            ):
             self.__class__.calls.append(
                 {
                     "query": query,
@@ -631,9 +636,10 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "dev_trace": dev_trace,
                     "dev_out_dir": dev_out_dir,
                     "harmonization_details_out": harmonization_details_out,
-                    "generate_queries": generate_queries,
-                    "max_generated_queries": max_generated_queries,
-                    "review_before_metadata": review_before_metadata,
+                        "generate_queries": generate_queries,
+                        "max_generated_queries": max_generated_queries,
+                        "review_before_metadata": review_before_metadata,
+                        "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -687,6 +693,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "generate_queries": False,
                 "max_generated_queries": 3,
                 "review_before_metadata": False,
+                "scrape_fulltext_accessions": True,
         }
     ]
 
