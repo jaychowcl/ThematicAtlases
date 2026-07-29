@@ -143,3 +143,126 @@ def test_principal_workflows_cover_the_nine_supported_paths() -> None:
     for anchor in anchors:
         assert f'<a id="{anchor}"></a>' in section
     assert section.count("```text") >= len(anchors) * 2
+
+
+def test_individual_contracts_have_stable_routes() -> None:
+    index_text = INDEX.read_text(encoding="utf-8")
+    codebase_text = CODEBASE.read_text(encoding="utf-8")
+    anchors = (
+        "interface-thematic-atlas-cli",
+        "interface-python-atlas",
+        "interface-focused-runners",
+        "decision-checkpointed-traces",
+        "decision-shared-publication-texts",
+        "decision-delegated-model-work",
+        "decision-safe-run-archival",
+        "type-atlas",
+        "type-atlas-collector",
+        "type-publication-text-reviewer",
+        "type-atlas-harmonizer",
+        "type-checkpoint-store",
+        "type-europe-pmc-wrapper",
+        "type-geo-wrapper",
+        "type-thematic-reviewer-benchmark",
+        "workflow-collection",
+        "workflow-atlas-creation",
+        "workflow-harmonization",
+        "workflow-resume-and-retry",
+        "workflow-query-amendment-and-archive",
+        "workflow-independent-review",
+        "workflow-metadata-repair",
+        "workflow-fixed-runners",
+        "workflow-benchmarking",
+    )
+
+    for anchor in anchors:
+        assert f'<a id="{anchor}"></a>' in codebase_text
+        assert re.search(
+            rf"- id: {re.escape(anchor)}\n"
+            rf"  title: .+\n"
+            rf"  anchor: {re.escape(anchor)}\n"
+            rf"  purpose: .+\n"
+            rf"  keywords: .+",
+            index_text,
+        ), f"{anchor} lacks a complete index route"
+
+
+def test_public_api_contracts_are_source_linked_and_classified() -> None:
+    text = CODEBASE.read_text(encoding="utf-8")
+    section = text.split('<a id="public-api-reference"></a>', 1)[1].split(
+        '<a id="principal-workflows"></a>', 1
+    )[0]
+
+    for symbol in (
+        "TracePublicationReviewResumer",
+        "DevTraceWriter",
+        "GoogleCredentialPreflight",
+        "RetryTags",
+        "CheckpointedPubmedFetcher",
+        "CheckpointedINSDCFetcher",
+        "EnrichmentAuditor",
+        "build_atlas_summary",
+        "summary_path",
+        "load_query_catalog",
+        "workflow_activity_lock",
+    ):
+        assert symbol in section
+
+    assert "Formal exports" in section
+    assert "Supported importable production helpers" in section
+    assert "Evidence gap" in section
+    assert "../src/" in section
+
+
+def test_principal_workflows_have_complete_contract_sections() -> None:
+    text = CODEBASE.read_text(encoding="utf-8")
+    section = text.split('<a id="principal-workflows"></a>', 1)[1].split(
+        '<a id="extension-and-change-guidance"></a>', 1
+    )[0]
+    anchors = (
+        "workflow-collection",
+        "workflow-atlas-creation",
+        "workflow-harmonization",
+        "workflow-resume-and-retry",
+        "workflow-query-amendment-and-archive",
+        "workflow-independent-review",
+        "workflow-metadata-repair",
+        "workflow-fixed-runners",
+        "workflow-benchmarking",
+    )
+
+    for position, anchor in enumerate(anchors):
+        marker = f'<a id="{anchor}"></a>'
+        start = section.index(marker)
+        end = (
+            section.index(f'<a id="{anchors[position + 1]}"></a>', start)
+            if position + 1 < len(anchors)
+            else len(section)
+        )
+        workflow = section[start:end]
+        assert "#### Numbered stages" in workflow
+        assert "#### Pseudocode" in workflow
+        assert "#### Evidence" in workflow
+        assert "```text" in workflow
+        assert re.search(r"\]\(\.\./(?:src/|run_)", workflow)
+
+
+def test_docs_correct_known_runtime_claims_and_layout() -> None:
+    text = CODEBASE.read_text(encoding="utf-8")
+
+    assert "50,000 raw hits before cross-query deduplication" in text
+    assert "reviewer.review_relevancy" in text
+    assert "reviewer.review(" not in text
+    assert "PublicationTextReviewer.review(" not in text
+    assert "PublicationTextReviewer.review_relevancy" not in text
+    assert "No mode flag selects normal metadata resume" in text
+    assert "oldd/` contains" not in text
+    for path in (
+        "collector/resume.py",
+        "filterer/resume.py",
+        "wrappers/enrichment.py",
+        "query_catalog.py",
+        "run_archive.py",
+        "credentials.py",
+    ):
+        assert path in text

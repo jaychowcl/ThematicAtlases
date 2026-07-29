@@ -173,3 +173,36 @@ def test_readme_documents_every_supported_focused_runner() -> None:
     ]
     for script in scripts:
         assert f"`{script}`" in text
+
+
+def test_readme_documents_runner_retry_controls_and_discovery_limits() -> None:
+    text = README.read_text(encoding="utf-8")
+    workflow_scripts = text.split("### Workflow scripts", 1)[1].split(
+        "### Configuration", 1
+    )[0]
+
+    for script in ("run_fibrosis_atlas.py", "run_fibrosis_discovery.py"):
+        entry = next(
+            line for line in workflow_scripts.splitlines() if f"`{script}`" in line
+        )
+        for option in (
+            "--retry-stage",
+            "--retry-item",
+            "--retry-degraded-stage",
+        ):
+            assert option in entry
+
+    assert "50,000 raw hits" in text
+    assert "before cross-query deduplication" in text
+    assert "Generated-query mode does not use those four static caps" in text
+
+
+def test_readme_documents_metadata_worker_modes_accurately() -> None:
+    text = README.read_text(encoding="utf-8")
+    workflow_scripts = text.split("### Workflow scripts", 1)[1].split(
+        "### Configuration", 1
+    )[0]
+
+    assert "with no mode flag, resumes normal GEO metadata collection" in workflow_scripts
+    assert "--audit-enrichment-only" in workflow_scripts
+    assert "--retry-tags PATH" in workflow_scripts
