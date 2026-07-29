@@ -335,10 +335,10 @@ Library modules define loggers without configuring global logging. Applications 
 
 The repository includes focused scripts built on the same Python API. They require `.env/bin/python` unless noted:
 
-- `run_fibrosis_atlas.py`: `[--resume [RUN_ID]]` runs or resumes the fixed full fibrosis atlas, including ontology caching, review, harmonization, summaries, and trace archival.
-- `run_fibrosis_discovery.py`: `[--generate-query | --resume [RUN_ID]] [--amend-queries]` runs collection-only discovery; query amendment requires an explicit resume ID.
+- `run_fibrosis_atlas.py`: `[--resume [RUN_ID]] [--retry-stage STAGE] [--retry-item STAGE:ITEM_ID] [--retry-degraded-stage STAGE]` runs or resumes the fixed full fibrosis atlas, including ontology caching, review, harmonization, summaries, and trace archival; each retry option is repeatable and applies during resume.
+- `run_fibrosis_discovery.py`: `[--generate-query | --resume [RUN_ID]] [--amend-queries] [--retry-stage STAGE] [--retry-item STAGE:ITEM_ID] [--retry-degraded-stage STAGE]` runs collection-only discovery; each retry option is repeatable and query amendment requires an explicit resume ID.
 - `run_publication_reviewer.py`: `TRACE_DIR [--theme-file PATH] [--strategy {direct,evidence_then_judgement}] [--allow-theme-override] [-v|-vv]` reviews a stable growing-trace snapshot.
-- `run_accession_metadata_collector.py`: `TRACE_DIR [-v|-vv] [--audit-enrichment-only | --retry-tags PATH]` advances or audits GEO metadata independently.
+- `run_accession_metadata_collector.py`: `TRACE_DIR [-v|-vv] [--audit-enrichment-only | --retry-tags PATH]`; with no mode flag, resumes normal GEO metadata collection, `--audit-enrichment-only` reports cached enrichment gaps without network calls, and `--retry-tags PATH` repairs the explicitly tagged PubMed/SRA/ENA identifiers.
 - `run_reference_publication_recall.py`: `THEMATIC_OUTPUT [--reference-set-file JSON ...] [--out PATH]` runs offline recall against all packaged sets plus optional custom sets.
 - `run_reference_set_review.py`: `[--reference-set NAME]` resolves and reviews one packaged reference set through a checkpointed diagnostic workflow.
 
@@ -364,7 +364,10 @@ Important defaults and configuration sources:
   are appended.
 - `docs/theme_fibrosis.txt` is the fixed fibrosis theme.
   `config/fibrosis_discovery_queries.json` is the ordered, versioned static
-  query catalog used by the discovery runner.
+  query catalog used by the discovery runner. Its per-query caps are 5,000,
+  15,000, 15,000, and 15,000: at most 50,000 raw hits before cross-query deduplication.
+  Generated-query mode does not use those four static caps; it
+  generates at most three queries and leaves the global publication cap unset.
 - CLI data is written with `--out`; logging goes to stdout unless `--log-file`
   is supplied. Traces default to `.dev/`; fixed runners use `.out/`.
 - `.env/` is the Python virtual environment required by the focused runners; it

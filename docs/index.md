@@ -71,6 +71,152 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Supported extension patterns, compatibility impact, tests, docs, and coupling to avoid.
   keywords: extension points, repository adapter, CLI option, checkpoint stage, provider, schema, tests
 
+## Individual interface, decision, type, and workflow routes
+
+- id: interface-thematic-atlas-cli
+  title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)
+  anchor: interface-thematic-atlas-cli
+  purpose: Installed command registration, subcommands, option forwarding, outputs, and failures.
+  keywords: thematic-atlas, collect-datasets, create-atlas, harmonize-datasets, resume, argparse
+
+- id: interface-python-atlas
+  title: [Python Atlas interface](codebase.md#interface-python-atlas)
+  anchor: interface-python-atlas
+  purpose: Supported Python import, workflow methods, and specialist package exports.
+  keywords: Python, Atlas, import, workflow API, public symbols
+
+- id: interface-focused-runners
+  title: [Focused runner interfaces](codebase.md#interface-focused-runners)
+  anchor: interface-focused-runners
+  purpose: Directly executable repository scripts and their fixed workflow contracts.
+  keywords: run_fibrosis_atlas, run_fibrosis_discovery, reviewer, metadata collector, benchmark
+
+- id: decision-checkpointed-traces
+  title: [Checkpointed trace decision](codebase.md#decision-checkpointed-traces)
+  anchor: decision-checkpointed-traces
+  purpose: Observed decision to combine readable artifacts with fingerprinted item checkpoints.
+  keywords: AD-002, SQLite, checkpoints, fingerprints, retry, trace
+
+- id: decision-shared-publication-texts
+  title: [Shared publication text decision](codebase.md#decision-shared-publication-texts)
+  anchor: decision-shared-publication-texts
+  purpose: Observed normalization of publication text into one referenced shared map.
+  keywords: AD-003, publication_texts, publication_text_ref, deduplication
+
+- id: decision-delegated-model-work
+  title: [Delegated stage and model work decision](codebase.md#decision-delegated-model-work)
+  anchor: decision-delegated-model-work
+  purpose: Observed root-orchestrator delegation to stage components and external model packages.
+  keywords: AD-001, Atlas, delegation, agentic-curator, components
+
+- id: decision-safe-run-archival
+  title: [Verified run archival decision](codebase.md#decision-safe-run-archival)
+  anchor: decision-safe-run-archival
+  purpose: Observed lock, verification, and atomic-publication rules for whole-run archives.
+  keywords: AD-005, archive, activity lock, checksum, atomic, symlink
+
+- id: type-atlas
+  title: [Atlas orchestrator](codebase.md#type-atlas)
+  anchor: type-atlas
+  purpose: Root workflow ownership, dependency injection, output, resume, and archive responsibilities.
+  keywords: Atlas, create_atlas, collect_datasets, resume, harmonize
+
+- id: type-atlas-collector
+  title: [AtlasCollector](codebase.md#type-atlas-collector)
+  anchor: type-atlas-collector
+  purpose: Discovery, repository routing, metadata collection, and metadata-resume ownership.
+  keywords: AtlasCollector, TraceMetadataResumer, GEO, ArrayExpress
+
+- id: type-publication-text-reviewer
+  title: [Publication text review types](codebase.md#type-publication-text-reviewer)
+  anchor: type-publication-text-reviewer
+  purpose: Text mapping, review dispatch, filtering, and independent-review ownership.
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer
+
+- id: type-atlas-harmonizer
+  title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
+  anchor: type-atlas-harmonizer
+  purpose: Eligible metadata selection, work caching, provider delegation, and fallback behavior.
+  keywords: AtlasHarmonizer, ontology, work key, degraded, details
+
+- id: type-checkpoint-store
+  title: [CheckpointStore](codebase.md#type-checkpoint-store)
+  anchor: type-checkpoint-store
+  purpose: SQLite schema, fingerprints, item history, retry selection, and comparison archives.
+  keywords: CheckpointStore, SQLite, request_retries, history, item lock
+
+- id: type-europe-pmc-wrapper
+  title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
+  anchor: type-europe-pmc-wrapper
+  purpose: Europe PMC search, datalink, text, retry, fallback, and normalization boundary.
+  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, abstract
+
+- id: type-geo-wrapper
+  title: [GEOWrapper](codebase.md#type-geo-wrapper)
+  anchor: type-geo-wrapper
+  purpose: GEO resolution, MINiML metadata, enrichment, checkpoint, and repair boundary.
+  keywords: GEOWrapper, NCBI, GEO, MINiML, SRA, ENA
+
+- id: type-thematic-reviewer-benchmark
+  title: [ThematicReviewerBenchmark](codebase.md#type-thematic-reviewer-benchmark)
+  anchor: type-thematic-reviewer-benchmark
+  purpose: Offline exact DOI/PMID comparison and reference-set validation.
+  keywords: ThematicReviewerBenchmark, DOI, PMID, recall, reference set
+
+- id: workflow-collection
+  title: [Collection workflow](codebase.md#workflow-collection)
+  anchor: workflow-collection
+  purpose: Query validation through discovery, metadata routing, text mapping, review, and atlas output.
+  keywords: collection, query, datalink, metadata, review, empty result
+
+- id: workflow-atlas-creation
+  title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)
+  anchor: workflow-atlas-creation
+  purpose: End-to-end collection, harmonization, output, summary, details, and tracing.
+  keywords: create_atlas, preflight, cache, summary, trace
+
+- id: workflow-harmonization
+  title: [Harmonization workflow](codebase.md#workflow-harmonization)
+  anchor: workflow-harmonization
+  purpose: Eligible work selection, memoization, ontology calls, fallback, and details.
+  keywords: harmonization, work key, ontology, not_run, degraded, error
+
+- id: workflow-resume-and-retry
+  title: [Resume and retry workflow](codebase.md#workflow-resume-and-retry)
+  anchor: workflow-resume-and-retry
+  purpose: Trace selection, fingerprint validation, selective requeue, reuse, and continuation.
+  keywords: resume, retry-stage, retry-item, degraded, CheckpointStore
+
+- id: workflow-query-amendment-and-archive
+  title: [Query amendment and archive workflow](codebase.md#workflow-query-amendment-and-archive)
+  anchor: workflow-query-amendment-and-archive
+  purpose: Safe query-fingerprint replacement and verified whole-run relocation.
+  keywords: amend_queries, archive_existing_runs, checksum, activity lock
+
+- id: workflow-independent-review
+  title: [Independent review workflow](codebase.md#workflow-independent-review)
+  anchor: workflow-independent-review
+  purpose: Stable-snapshot text collection, review_relevancy dispatch, checkpointing, and progress.
+  keywords: publication reviewer, TracePublicationReviewResumer, review_relevancy
+
+- id: workflow-metadata-repair
+  title: [Metadata resume, audit, and repair workflow](codebase.md#workflow-metadata-repair)
+  anchor: workflow-metadata-repair
+  purpose: Default metadata resume, offline audit, explicit tag repair, and checkpoint reuse.
+  keywords: metadata worker, audit-enrichment-only, retry-tags, GEO
+
+- id: workflow-fixed-runners
+  title: [Fixed fibrosis runner workflow](codebase.md#workflow-fixed-runners)
+  anchor: workflow-fixed-runners
+  purpose: Full-atlas and discovery-only configuration, limits, resume, retries, and artifacts.
+  keywords: fibrosis, 50000, static queries, generated queries, .out
+
+- id: workflow-benchmarking
+  title: [Benchmarking and reference-review workflow](codebase.md#workflow-benchmarking)
+  anchor: workflow-benchmarking
+  purpose: Offline exact recall and checkpointed live reference-review diagnostics.
+  keywords: benchmark, reference review, DOI, PMID, exact match
+
 ## Detailed and legacy-stable routes
 
 - id: project-purpose-and-layout
@@ -118,8 +264,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: archive-reference
   title: [Archive Reference](codebase.md#archive-reference)
   anchor: archive-reference
-  purpose: Historical source boundary and porting warning.
-  keywords: oldd, archive, reference, porting
+  purpose: Clarifies that no source archive is tracked and distinguishes ignored resumable run archives.
+  keywords: archive, previous_runs, runtime artifacts, version control, resumable
 
 - id: test-and-verification-status
   title: [Test And Verification Status](codebase.md#test-and-verification-status)

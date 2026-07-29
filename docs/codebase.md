@@ -68,6 +68,7 @@ and [project layout](#project-purpose-and-layout).
 ## Architectural decisions
 
 <a id="ad-001-stage-components"></a>
+<a id="decision-delegated-model-work"></a>
 ### AD-001: One root orchestrator delegates stage implementation
 
 - **Status:** Observed
@@ -83,6 +84,7 @@ and [project layout](#project-purpose-and-layout).
   [`test_atlas.py`](../tests/test_atlas.py).
 
 <a id="ad-002-item-checkpoints"></a>
+<a id="decision-checkpointed-traces"></a>
 ### AD-002: Traced work is checkpointed at stage and item boundaries
 
 - **Status:** Observed
@@ -98,6 +100,7 @@ and [project layout](#project-purpose-and-layout).
   [`test_checkpoint.py`](../tests/test_checkpoint.py).
 
 <a id="ad-003-publication-text-map"></a>
+<a id="decision-shared-publication-texts"></a>
 ### AD-003: Publication text is normalized into a shared map
 
 - **Status:** Observed
@@ -125,6 +128,23 @@ and [project layout](#project-purpose-and-layout).
 - **Evidence:** [`README.md`](../README.md),
   [`review.py`](../src/ThematicAtlases/filterer/review.py), and
   [`test_review.py`](../tests/test_review.py).
+
+<a id="decision-safe-run-archival"></a>
+### AD-005: Whole-run archival is verified before sources are removed
+
+- **Status:** Observed
+- **Decision:** A new fixed workflow relocates inactive traces and artifacts
+  through an exclusive activity lock, staging copy, checksum verification, and
+  atomic publication before deleting any source.
+- **Rationale:** Not documented.
+- **Consequences:** Existing runs survive interrupted or conflicting archival,
+  while active workflows, symlinks, unsafe names, and destination collisions
+  stop a new run instead of being overwritten.
+- **Affected components:** fixed runners, `Atlas.archive_existing_runs`,
+  `workflow_activity_lock`, trace manifests, SQLite stores, and fixed artifacts.
+- **Evidence:** [`run_archive.py`](../src/ThematicAtlases/run_archive.py),
+  [`run_fibrosis_atlas.py`](../run_fibrosis_atlas.py), and
+  [`test_run_archive.py`](../tests/test_run_archive.py).
 
 <a id="design-invariants-and-expectations"></a>
 ## Design invariants and expectations
@@ -171,6 +191,9 @@ validation when they modify a trace.
 <a id="entrypoints-and-interfaces"></a>
 ## Entrypoints and interfaces
 
+<a id="interface-thematic-atlas-cli"></a>
+### Installed `thematic-atlas` CLI
+
 - **Installed CLI:** `thematic-atlas` maps to
   `ThematicAtlases.cli_atlas:main` and dispatches `collect-datasets`,
   `create-atlas`, `harmonize-datasets`, or `resume`. The parser is defined in
@@ -191,85 +214,232 @@ The CLI is a thin adapter: it constructs `Atlas(metadata={})`, translates
 hyphenated review filter values, resolves logging precedence, and forwards
 validated arguments. Complete user options live in the [README CLI guide](../README.md#cli-guide).
 
+<a id="interface-python-atlas"></a>
+### Python `Atlas` interface
+
+Import `Atlas` from `ThematicAtlases.atlas`; the package root intentionally
+exports no names. Its supported workflow methods and specialist package exports
+are inventoried in the [public API reference](#public-api-reference).
+
+<a id="interface-focused-runners"></a>
+### Focused runner interfaces
+
+The six repository-root `run_*.py` scripts are directly executable interfaces,
+not installed console commands. Their exact parsers and fixed behavior are
+documented in the [README workflow-script guide](../README.md#workflow-scripts)
+and [fixed-runner workflow](#workflow-fixed-runners).
+
 <a id="orchestrators-and-core-types"></a>
 ## Orchestrators and core types
 
+<a id="type-atlas"></a>
 - [`Atlas`](../src/ThematicAtlases/atlas.py) owns component wiring, query
   resolution, credential/cache preflight, stage order, tracing, resume,
   amendment, archival delegation, outputs, and summaries.
+<a id="type-atlas-collector"></a>
 - [`AtlasCollector`](../src/ThematicAtlases/collector/collector.py) owns Europe
   PMC discovery, accession filtering, metadata repository routing, and
   metadata collection. `TraceMetadataResumer` advances or audits a saved trace.
+<a id="type-publication-text-reviewer"></a>
 - [`AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) owns text
   collection/reference attachment, review dispatch, review filtering, and final
   atlas assembly. `PublicationTextReviewer` owns direct/legacy review contracts;
   `TracePublicationReviewResumer` restores independent review state.
+<a id="type-atlas-harmonizer"></a>
 - [`AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) owns
   eligible metadata selection, work-key memoization, bounded parallelism,
   upstream ontology-harmonizer construction, details, and fallback status.
+<a id="type-checkpoint-store"></a>
 - [`CheckpointStore`](../src/ThematicAtlases/checkpoint.py) owns SQLite schema,
   fingerprint validation/amendment, item state/history, retry selection, item
   locks, and comparison archives. `DevTraceWriter` owns the readable run layout.
+<a id="type-europe-pmc-wrapper"></a>
 - [`EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py),
+<a id="type-geo-wrapper"></a>
   [`GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py), and
   [`ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) isolate remote
   or repository-specific behavior.
+<a id="type-thematic-reviewer-benchmark"></a>
 - [`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py)
   owns offline exact DOI/PMID comparison and reference-set validation.
 
 <a id="public-api-reference"></a>
 ## Public API reference
 
-`ThematicAtlases.__init__` exports nothing. The supported orchestrator is
-`ThematicAtlases.atlas.Atlas(metadata, ..., credential_checker=None)`.
+### Support classification
 
-| Qualified public symbol | Signature / shape | Contract, output, failure, and side effects |
+- **Formal exports:** names in a package `__all__`. These are the declared
+  reusable component surface.
+- **Supported workflow API:** `ThematicAtlases.atlas.Atlas`, the installed CLI,
+  and the six root runners. `ThematicAtlases.__init__` exports nothing.
+- **Supported importable production helpers:** public names used across live
+  production modules or root runners, but not promised by a package `__all__`.
+  They are documented so maintainers can reason about real coupling.
+- **Evidence gap:** the repository has no versioning or compatibility policy
+  stating whether any non-`__all__` helper is stable for third-party callers.
+  Treat those helpers as internal integration surfaces unless a future policy
+  promotes them.
+
+### Supported workflow API
+
+[`Atlas(metadata, epmc_wrapper_factory=None, metadata_handlers=None,
+metadata_repositories=None, publication_text_reviewer=None, collector=None,
+filterer=None, harmonizer=None, ontostore=None, cache_ontologies=False,
+query_generator=None, credential_checker=None)`](../src/ThematicAtlases/atlas.py)
+owns dependency injection. It raises `ValueError` when a supplied harmonizer is
+combined with Atlas-managed ontology-store/cache options.
+
+| Member | Exact signature | Return, failure, and side effects |
 | --- | --- | --- |
-| `Atlas.create_atlas` | `(query=None, file=None, out=None, ..., harmonization_options=None) -> dict` | collection then harmonization; may write atlas, summary, details, trace; validation/provider errors may fail |
-| `Atlas.collect_datasets` | `(query=None, file=None, out=None, ..., stop_before_review=False) -> dict` | returns atlas-shaped collection/review result; may write output/trace |
-| `Atlas.harmonize_datasets` | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | returns metadata-updated copy and optional details |
-| `Atlas.resume` | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | validates trace, optionally requeues failures, reuses checkpoints, may write output |
-| `Atlas.amend_queries` | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | atomically archives/replaces query fingerprint; rejects invalid or active amendment |
-| `Atlas.archive_existing_runs` | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | verifies and relocates inactive runs/artifacts; rejects unsafe names, symlinks, collisions, active work |
+| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False) -> dict` | Runs collection then harmonization; writes requested atlas/details, automatic summary, and optional trace. Invalid options, credentials, cache preparation, files, or uncaught provider failures raise. |
+| [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, _trace_writer=None) -> dict` | Returns `{"accessions": list, "publication_texts": dict}` and may write output/trace. Validates aligned positive limits, review/theme combinations, query generation, and trace fingerprints before eligible network/model work. `_trace_writer` is an internal continuation hook, not a caller option. |
+| [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Returns a copied atlas with per-record status and may write details. Unsupported/null metadata is `not_run`; caught item failures retain original metadata as `error`. |
+| [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects and validates a trace, optionally archives/requeues selected rows, reuses completed boundaries, and may write resumed output. Missing/ambiguous runs, fingerprint mismatches, or invalid retry requests raise. |
+| [`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | Archives the prior fingerprint and installs aligned normalized queries atomically. Empty/misaligned limits, active work, or unsafe state raise. |
+| [`Atlas.archive_existing_runs`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | Returns published archive paths after verification; active runs, symlinks, unsafe names, nested roots, and collisions raise without deleting sources. |
 
-Formal package exports:
+[`ThematicAtlases.cli_atlas.main(argv=None) -> int`](../src/ThematicAtlases/cli_atlas.py)
+parses `collect-datasets`, `create-atlas`, `harmonize-datasets`, and `resume`;
+success returns `0`, parser errors terminate with argparse status `2`, and
+workflow exceptions propagate. Complete flags are in the
+[README CLI guide](../README.md#cli-guide). Each
+[`run_*.py`](../README.md#workflow-scripts) `main(argv=None) -> int` is a
+supported direct script interface with its own parser and fixed output policy.
 
-| Qualified exported symbol | Constructor/value and public members |
+### Formal exports
+
+The following table is exhaustive across live package `__all__` declarations.
+All mutable results are newly assembled lists/mappings unless the row says
+otherwise.
+
+| Qualified export | Constructor/value and public contract |
 | --- | --- |
-| `ThematicAtlases.collector.AtlasCollector` | constructor accepts wrapper/handler factories; `resume_metadata`, `collect_jsons`, `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, `metadata_handler` |
-| `ThematicAtlases.collector.TraceMetadataResumer` | `resume(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict`; advances/audits trace and writes checkpoints |
-| `ThematicAtlases.filterer.ACCESSIONS` | string key `"accessions"` |
-| `ThematicAtlases.filterer.AGENTIC_CURATOR` | string key for reviewer payload |
-| `ThematicAtlases.filterer.PUBLICATIONS` | string key `"publications"` |
-| `ThematicAtlases.filterer.PUBLICATION_TEXTS` | string key `"publication_texts"` |
-| `ThematicAtlases.filterer.PUBLICATION_TEXT_REF` | string key `"publication_text_ref"` |
-| `ThematicAtlases.filterer.REVIEW_FILTERS` | supported review-filter set |
-| `ThematicAtlases.filterer.AtlasFilterer` | `filter_jsons`, `publication_key`, `publication_text_ref`, `atlas_parts`, `filter_inputs`, `collect_publication_texts`, `accessions_with_publication_text_refs`, `publication_with_text_ref`, `review_and_filter_publications`, `atlas_object` |
-| `ThematicAtlases.filterer.PublicationTextReviewer` | `resume`, `validate_options`, `review_and_filter`, `publication_review_contexts`, `review_publication_texts`, `filtered_result`, `agentic_curator_review`, `json_object`, `removed_review_judgements`, `normalized_review_judgement` |
-| `ThematicAtlases.harmonizer.AtlasHarmonizer` | `harmonize_datasets(...)->(dict,list[dict])`, `publication_context`, `harmonize_jsons(...)->dict`; may call model/ontology providers and write details |
-| `ThematicAtlases.wrappers.ArrayExpressWrapper` | `collect_accession_metadata(jsons, checkpoint_store=None) -> list[dict]`; current placeholder records no live remote metadata |
-| `ThematicAtlases.wrappers.EuropePMCWrapper` | `collect_accessions`, `collect_publications`, `publication_text_sections`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`; outbound Europe PMC calls and normalized mappings |
-| `ThematicAtlases.wrappers.GEOWrapper` | `collect_accession_metadata`, `available_accession_metadata`, `get_gse`; outbound NCBI/delegated conversion calls and normalized GSE records |
-| `benchmark_ThematicAtlases.ThematicReviewerBenchmark` | `benchmark_reference_publication_recall(...)->dict`, `available_reference_sets()->tuple[str,...]`, `load_reference_set(name)->dict`; reads JSON/trace/package data, no network |
+| [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler` expose routing. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
+| [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
+| [`ThematicAtlases.filterer.ACCESSIONS`](../src/ThematicAtlases/filterer/review.py) | `"accessions"` atlas key. |
+| [`ThematicAtlases.filterer.AGENTIC_CURATOR`](../src/ThematicAtlases/filterer/review.py) | `"agentic_curator"` review-payload key. |
+| [`ThematicAtlases.filterer.PUBLICATIONS`](../src/ThematicAtlases/filterer/review.py) | `"publications"` record key. |
+| [`ThematicAtlases.filterer.PUBLICATION_TEXTS`](../src/ThematicAtlases/filterer/review.py) | `"publication_texts"` shared-map key. |
+| [`ThematicAtlases.filterer.PUBLICATION_TEXT_REF`](../src/ThematicAtlases/filterer/review.py) | `"publication_text_ref"` foreign-key field. |
+| [`ThematicAtlases.filterer.REVIEW_FILTERS`](../src/ThematicAtlases/filterer/review.py) | Mutable set `{"none", "not_relevant", "not_relevant_and_unsure"}`; callers should treat it as a supported-value registry, not mutate it. |
+| [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
+| [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
+| [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Invalid worker/options or required credentials raise; caught item failures preserve input metadata; details may be written. |
+| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `collect_accession_metadata(jsons, checkpoint_store=None) -> list[dict]`; no network call, returns placeholder status and `accession_metadata=None`. |
+| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints; validates limits, retries configured statuses, uses abstract fallback, and checkpoints item outcomes. |
+| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=30, request_delay=0.34, max_retries=3)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities and delegated MINiML/PubMed/SRA/ENA handlers; normalizes to GSE, drops unresolved/GPL-only records, deduplicates, and represents metadata errors/status. |
+| [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
 
-The same `ThematicReviewerBenchmark` is re-exported by
-`benchmark_ThematicAtlases.thematic_reviewer`. Supporting public module types
-include `CheckpointStore(path)`, whose methods are `set_meta`, `get_meta_json`,
-`get_meta`, `validate_fingerprint`, `amend_fingerprint`, `put`, `get`, `items`,
-`has_retryable`, `has_retryable_boundary`, `history`,
-`CheckpointStore.request_retries`, `archive_stage`, `archive_items`, and
-`item_lock`; `DevTraceWriter`, `GoogleCredentialPreflight`, `RetryTags`,
-`CheckpointedPubmedFetcher`, `CheckpointedINSDCFetcher`, and
-`EnrichmentAuditor`. Their public members are respectively
-`checkpoint_store`/`existing`/`write`/`metadata`, `check`,
-`normalized_dict`/`digest`, `pubmed_summary`,
-`fetch_ena_fastq_files`/`fetch_ena_file_report`, and `audit`. These support
-workflows but are not re-exported from a package `__all__`.
+Complete public-member signatures for the exported classes:
 
-All methods accept and return plain Python mappings/lists unless annotated
-otherwise. Detailed record shapes, endpoint behavior, fallbacks, and exceptions
-are preserved under the legacy stable entries [collector](#collector),
-[filterer](#filterer), [harmonizer](#harmonizer), [Europe PMC](#epmc-wrapper),
+- [`AtlasCollector`](../src/ThematicAtlases/collector/collector.py):
+  `resume_metadata(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`;
+  `collect_jsons(query=None, file=None, out=None, metadata_repositories=None,
+  max_publications=None, max_publications_per_query=None, collect_metadata=True,
+  checkpoint_store=None) -> list[dict]`;
+  `filter_accessions(accessions, metadata_repositories=None) -> list[dict]`;
+  `is_handled_accession(record, metadata_repositories=None) -> bool`;
+  `collect_accession_metadata(jsons, metadata_repositories=None,
+  checkpoint_store=None, retry_tags=None) -> list[dict]`;
+  `available_accession_metadata(jsons, metadata_repositories=None,
+  checkpoint_store=None) -> list[dict]`;
+  `metadata_repository(record, metadata_repositories=None) -> str | None`;
+  `metadata_handler(repository) -> callable`.
+- [`TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py):
+  `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`.
+- [`AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py):
+  `filter_jsons(jsons=None, file=None, theme=None, review_filter="none",
+  review_strategy="direct", reviewer=None, _review_progress_callback=None,
+  _checkpoint_store=None) -> dict`;
+  `publication_key(publication) -> tuple`;
+  `publication_text_ref(publication) -> str`;
+  `atlas_parts(jsons=None) -> tuple[list[dict], dict]`;
+  `filter_inputs(jsons, file) -> tuple[list[dict], dict]`;
+  `collect_publication_texts(jsons, publication_texts=None,
+  checkpoint_store=None) -> dict`;
+  `accessions_with_publication_text_refs(jsons, publication_texts) -> list[dict]`;
+  `publication_with_text_ref(publication, publication_texts) -> dict`;
+  `review_and_filter_publications(accessions, publication_texts, theme,
+  review_filter, review_strategy="direct", reviewer=None,
+  progress_callback=None, checkpoint_store=None) -> tuple[list[dict], dict]`;
+  `atlas_object(accessions, publication_texts) -> dict`. Underscore-prefixed
+  parameters are internal continuation hooks, not supported caller controls.
+- [`PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py):
+  `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct",
+  allow_theme_override=False) -> dict`;
+  `validate_options(theme, review_filter, strategy="direct") -> None`;
+  `review_and_filter(accessions, publication_texts, theme, review_filter,
+  reviewer=None, strategy="direct") -> tuple[list[dict], dict]`;
+  `publication_review_contexts(accessions) -> dict`;
+  `review_publication_texts(publication_texts, contexts, theme, reviewer=None,
+  progress_callback=None, checkpoint_store=None, strategy="direct") -> dict`;
+  `filtered_result(accessions, publication_texts, review_filter) -> tuple[list[dict], dict]`;
+  `agentic_curator_review(theme, review, strategy="direct",
+  review_input_hash=None, metadata_context=None) -> dict`;
+  `json_object(value) -> dict`; `removed_review_judgements(review_filter) -> set[str]`;
+  `normalized_review_judgement(publication_text) -> str`.
+- [`AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py):
+  `harmonize_datasets(datasets, details_out=None, harmonization_options=None,
+  checkpoint_store=None) -> tuple[dict, list[dict]]`;
+  `publication_context(record) -> str | None`;
+  `harmonize_jsons(datasets, details_out=None, harmonization_options=None) -> dict`.
+- [`ArrayExpressWrapper.collect_accession_metadata`](../src/ThematicAtlases/wrappers/ae.py):
+  `(jsons, checkpoint_store=None) -> list[dict]`.
+- [`EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py):
+  `collect_accessions(queries, max_publications=None,
+  max_publications_per_query=None, checkpoint_store=None) -> list[dict]`;
+  `collect_publications(...) -> list[dict]`;
+  `publication_text_sections(text) -> list[dict]`;
+  `collect_publication_texts(publications, checkpoint_store=None) -> dict`;
+  `collect_datalinks(publications, checkpoint_store=None) -> list[dict]`;
+  `accessions_from_datalinks(datalinks) -> list[dict]`.
+- [`GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py):
+  `collect_accession_metadata(jsons, checkpoint_store=None,
+  retry_tags=None) -> list[dict]`;
+  `available_accession_metadata(jsons, checkpoint_store) -> list[dict]`;
+  `get_gse(accession) -> str | None`.
+- [`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py):
+  `benchmark_reference_publication_recall(*, reference_set=None,
+  reference_set_file=None, thematic_output) -> dict`;
+  `available_reference_sets() -> tuple[str, ...]`;
+  `load_reference_set(reference_set) -> dict`.
+
+### Supported importable production helpers
+
+- [`CheckpointStore(path)`](../src/ThematicAtlases/checkpoint.py): public
+  `set_meta`, `get_meta_json`, `get_meta`, `validate_fingerprint`,
+  `amend_fingerprint`, `put`, `get`, `items`, `has_retryable`,
+  `has_retryable_boundary`, `history`, `request_retries`, `archive_stage`,
+  `archive_items`, and `item_lock` methods own SQLite state and can raise
+  `ValueError`, `RuntimeError`, filesystem, or SQLite errors without partial
+  source deletion. `is_retryable_error(error) -> bool` and
+  `failure_category(error) -> str` classify failures.
+  The selective retry entry is `CheckpointStore.request_retries`.
+- [`TracePublicationReviewResumer.resume(trace_dir, *, theme=None,
+  strategy="direct", reviewer=None, allow_theme_override=False) -> dict`](../src/ThematicAtlases/filterer/resume.py)
+  validates a trace, reviews the current datalink snapshot, and writes review
+  progress. [`DevTraceWriter`](../src/ThematicAtlases/trace.py) exposes
+  `checkpoint_store`, `existing`, `write`, and `metadata` for readable artifacts.
+- [`GoogleCredentialPreflight.check() -> str`](../src/ThematicAtlases/credentials.py)
+  refreshes ADC and verifies a quota project, raising actionable runtime errors.
+  [`load_query_catalog(path) -> dict`](../src/ThematicAtlases/query_catalog.py)
+  validates the versioned static query JSON.
+- [`RetryTags`](../src/ThematicAtlases/wrappers/enrichment.py) exposes
+  `normalized_dict` and `digest`; `load_retry_tags(path)` validates tag JSON.
+  `CheckpointedPubmedFetcher.pubmed_summary`, `CheckpointedINSDCFetcher.fetch_ena_fastq_files`,
+  `CheckpointedINSDCFetcher.fetch_ena_file_report`, and
+  `EnrichmentAuditor.audit` implement checkpointed enrichment and offline gap
+  inspection.
+- [`summary_path(atlas_path) -> Path` and
+  `build_atlas_summary(atlas, atlas_path=None) -> dict`](../src/ThematicAtlases/summary.py)
+  derive deterministic output paths/content.
+  [`workflow_activity_lock(dev_out_dir, *, exclusive, blocking=False)` and
+  `archive_existing_runs(...)`](../src/ThematicAtlases/run_archive.py) own
+  cross-process locking and verified relocation.
+
+Detailed record shapes, endpoint fallbacks, and checkpoint behavior continue
+under [collector](#collector), [filterer](#filterer),
+[harmonizer](#harmonizer), [Europe PMC](#epmc-wrapper),
 [GEO](#geo-wrapper), and [benchmark package](#benchmark-package).
 
 <a id="principal-workflows"></a>
@@ -283,6 +453,10 @@ metadata, maps publication text, and optionally reviews/filter records.
 
 ```text
 queries -> search -> datalinks -> repository filter
+   |          |          |             |
+ invalid    no hits    no links      unsupported
+   v          v          v             v
+ error     empty atlas empty atlas   dropped/status
                                       |
                      +----------------+----------------+
                      v                                 v
@@ -293,9 +467,19 @@ queries -> search -> datalinks -> repository filter
                               atlas-shaped result
 ```
 
+#### Numbered stages
+
 1. `Atlas.collect_datasets` validates and orders query sources.
-2. `AtlasCollector.collect_jsons` calls Europe PMC and repository handlers.
-3. `AtlasFilterer` maps text, optionally reviews, filters, and assembles output.
+2. Optional generated queries follow explicit and file queries; credential or
+   generation failure terminates before discovery.
+3. `AtlasCollector.collect_jsons` calls Europe PMC, drops unsupported
+   repositories, and either skips metadata or routes it to GEO/ArrayExpress.
+4. `AtlasFilterer.filter_jsons` maps full text with abstract/no-text outcomes,
+   optionally calls review, applies the selected filter, and assembles output.
+5. An output path and traced run persist JSON/checkpoints; otherwise the mapping
+   is returned in memory. Empty searches and links return an empty atlas shape.
+
+#### Pseudocode
 
 ```text
 Atlas.collect_datasets(args)                    # interface/orchestrator
@@ -306,6 +490,14 @@ Atlas.collect_datasets(args)                    # interface/orchestrator
   <- {"accessions": ..., "publication_texts": ...}
 ```
 
+#### Evidence
+
+Definitions and decisive calls:
+[`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py),
+[`AtlasCollector.collect_jsons`](../src/ThematicAtlases/collector/collector.py),
+[`AtlasFilterer.filter_jsons`](../src/ThematicAtlases/filterer/filterer.py), and
+[`EuropePMCWrapper.collect_accessions`](../src/ThematicAtlases/wrappers/epmc.py).
+
 <a id="workflow-atlas-creation"></a>
 ### Workflow 2: Atlas creation
 
@@ -314,15 +506,26 @@ atlas, summary, details, and optional trace.
 
 ```text
 create_atlas -> preflight/cache -> collect -> harmonize
-     |                                         |
-     +-- validation/provider error             +-- item fallback
+     |              |                          |
+     +-- error       +-- empty ----------------+--> empty atlas
+                                                |
+                                  item failure -> original + error status
                                                |
                                       JSON + summary/details
 ```
 
+#### Numbered stages
+
 1. `Atlas.create_atlas` performs eligible credential/cache preflight.
-2. It calls collection, then harmonization, then deterministic summary writing.
-3. Tracing commits readable stage outputs and final markers.
+2. Invalid query/review/cache configuration or failed credential/cache
+   preparation raises before collection.
+3. It calls `collect_datasets`; an empty collection remains a valid empty atlas.
+4. It calls `harmonize_datasets`; caught item failures retain original metadata.
+5. Requested atlas/details and the automatic summary are written atomically
+   enough for their individual file operations; tracing commits readable stage
+   outputs and final markers. Filesystem errors propagate.
+
+#### Pseudocode
 
 ```text
 Atlas.create_atlas(args)                        # interface/orchestrator
@@ -332,6 +535,14 @@ Atlas.create_atlas(args)                        # interface/orchestrator
   -> _write_json + build_atlas_summary          # persistence/internal
   <- final atlas
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py),
+[`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py),
+[`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py), and
+[`build_atlas_summary`](../src/ThematicAtlases/summary.py).
 
 <a id="workflow-harmonization"></a>
 ### Workflow 3: Harmonization
@@ -344,13 +555,27 @@ dataset -> eligible? -- no --> not_run/original
               |
              yes -> cached? -- yes --> reuse
                         |
-                        no -> upstream harmonizer -> success / degraded / error
+                        no -> credentials/options valid?
+                                  | no -> invocation error
+                                  v
+                         upstream harmonizer
+                           | success/degraded
+                           + caught item error -> original + error
 ```
 
+#### Numbered stages
+
 1. `AtlasHarmonizer` validates controls and computes work keys.
-2. Unique eligible work calls the delegated ontology harmonizer, serially or
+2. Non-mapping/list metadata is retained with `not_run`; duplicate work keys
+   share one result without changing accession order.
+3. Model-enabled controls preflight credentials; invalid options or credentials
+   fail the invocation before provider work.
+4. Unique eligible work calls the delegated ontology harmonizer, serially or
    with bounded workers.
-3. Results and details are memoized/checkpointed; failures remain item-local.
+5. Results and details are memoized/checkpointed; caught item failures remain
+   local and retain original metadata. Requested details-file errors propagate.
+
+#### Pseudocode
 
 ```text
 Atlas.harmonize_datasets(datasets)              # interface
@@ -359,6 +584,13 @@ Atlas.harmonize_datasets(datasets)              # interface
      -> CheckpointStore.put                     # persistence call
   <- updated atlas + optional details sidecar
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py),
+[`AtlasHarmonizer.harmonize_datasets`](../src/ThematicAtlases/harmonizer/harmonizer.py),
+and [`CheckpointStore.put`](../src/ThematicAtlases/checkpoint.py).
 
 <a id="workflow-resume-and-retry"></a>
 ### Workflow 4: Resume and selective retry
@@ -369,15 +601,29 @@ then continues at the newest reusable checkpoint.
 ```text
 select trace -> validate fingerprint -> retry request?
        |                 |                    |
-   none/error      mismatch/error        archive selected rows
+   none/error      mismatch/error      invalid selection/error
+                                             |
+                                      archive selected rows
                                              |
                               final? reuse : continue missing stages
+                                             |
+                                  retryable failure remains resumable
 ```
 
+#### Numbered stages
+
 1. CLI retry flags become stage/item/degraded-stage selections.
-2. `CheckpointStore.request_retries` validates and archives selected rows.
-3. `Atlas.resume` reconstructs successful work and invokes only missing or
-   retryable stages.
+2. `Atlas.resume` selects an explicit or newest incomplete trace and validates
+   its manifest and fingerprint; missing, ambiguous, or incompatible state raises.
+3. `CheckpointStore.request_retries` validates requested boundaries and
+   archives selected rows; invalid stages/items leave live rows unchanged.
+4. Resume reconstructs completed search, datalink, text, metadata, review, and
+   harmonization boundaries and invokes only missing/requeued work.
+5. A reusable final result is returned/written immediately. Retryable item
+   failures remain resumable; terminal item outcomes are reused unless explicitly
+   selected by supported retry policy.
+
+#### Pseudocode
 
 ```text
 thematic-atlas resume(args)                     # interface
@@ -388,6 +634,13 @@ thematic-atlas resume(args)                     # interface
   <- resumed output or validation error
 ```
 
+#### Evidence
+
+Definitions/calls:
+[`cli_atlas.main`](../src/ThematicAtlases/cli_atlas.py),
+[`Atlas.resume`](../src/ThematicAtlases/atlas.py), and
+[`CheckpointStore.request_retries`](../src/ThematicAtlases/checkpoint.py).
+
 <a id="workflow-query-amendment-and-archive"></a>
 ### Workflow 5: Query amendment and whole-run archive
 
@@ -396,13 +649,24 @@ whole-run archival safely relocates inactive traces and fixed artifacts.
 
 ```text
 amend -> validate aligned query limits -> archive fingerprint -> install new
+  \-> unchanged normalized configuration -----------------------> no-op/current
 archive run -> exclusive lock -> stage/copy/checksum -> publish -> delete source
                               \-> active/symlink/collision => error, keep source
 ```
 
+#### Numbered stages
+
 1. `Atlas.amend_queries` normalizes queries and calls fingerprint amendment.
-2. `Atlas.archive_existing_runs` delegates to lock-aware archive functions.
-3. Checksums and atomic publication precede source deletion.
+2. Empty/misaligned/non-positive inputs or unsafe/active trace state raise;
+   equivalent normalized configuration does not duplicate work.
+3. `Atlas.archive_existing_runs` delegates to lock-aware archive functions,
+   assigning fixed artifacts to the newest trace or an orphan archive.
+4. The archive implementation rejects active locks, symlinks, unsafe names,
+   nested roots, and collisions before deletion.
+5. SQLite checkpointing, staged copy, checksums, manifest relocation, and
+   atomic publication precede source deletion; any failure keeps sources.
+
+#### Pseudocode
 
 ```text
 runner/Atlas amendment or archive               # interface
@@ -411,6 +675,13 @@ runner/Atlas amendment or archive               # interface
      -> SQLite checkpoint + copy + SHA-256      # persistence/system calls
   <- amendment path or archive paths
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py),
+[`CheckpointStore.amend_fingerprint`](../src/ThematicAtlases/checkpoint.py),
+and [`archive_existing_runs`](../src/ThematicAtlases/run_archive.py).
 
 <a id="workflow-independent-review"></a>
 ### Workflow 6: Independent publication review
@@ -422,23 +693,44 @@ rerunning discovery and may safely coexist with a cooperating collector.
 trace -> manifest/fingerprint validation -> publication snapshot
    |                                               |
  invalid/error                              review missing items
+                                              | model error
+                                              v
+                                      failed payload/checkpoint
                                                    |
                                       progress + reviewed datasets
 ```
 
+#### Numbered stages
+
 1. `run_publication_reviewer.py` validates the project environment and options.
-2. `PublicationTextReviewer.resume` uses `TracePublicationReviewResumer`.
-3. Item locks/checkpoints prevent duplicate completion; filters produce a
-   reviewed atlas snapshot.
+2. `PublicationTextReviewer.resume` uses `TracePublicationReviewResumer`, which
+   validates the manifest/theme and rebuilds a stable current datalink snapshot.
+3. The filterer fetches/reuses text and constructs accession/metadata context.
+4. `PublicationTextReviewer.review_publication_texts` calls the injected
+   reviewer's `review_relevancy`; item locks prevent duplicate completion.
+5. Model exceptions become retryable/terminal failed review payloads rather
+   than aborting unrelated publications. Progress is written after each item;
+   missing theme or forbidden override raises before review.
+
+#### Pseudocode
 
 ```text
 run_publication_reviewer.main                   # interface
   -> PublicationTextReviewer.resume             # internal call
      -> TracePublicationReviewResumer.resume    # internal orchestrator
-     -> reviewer.review                         # external package/model API
+     -> PublicationTextReviewer dispatch
+        -> reviewer.review_relevancy             # external package/model API
      -> CheckpointStore.put                     # persistence call
   <- reviewed datasets/progress
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`run_publication_reviewer.main`](../run_publication_reviewer.py),
+[`TracePublicationReviewResumer.resume`](../src/ThematicAtlases/filterer/resume.py),
+and
+[`PublicationTextReviewer.review_publication_texts`](../src/ThematicAtlases/filterer/review.py).
 
 <a id="workflow-metadata-repair"></a>
 ### Workflow 7: Metadata collection, audit, and repair
@@ -448,15 +740,27 @@ applies an explicit retry-tag file to selected identifiers.
 
 ```text
 trace -> mode?
-          +-> resume missing metadata -> checkpoint results
+          +-> no flag: resume missing metadata -> checkpoint results
           +-> audit only -> gap report, no repairs
           +-> retry tags -> repair selected cached identifiers -> merge
+          \-> conflicting flags/parser error; bad tag history/error
 ```
 
-1. `run_accession_metadata_collector.py` selects exactly one action mode.
+#### Numbered stages
+
+1. `run_accession_metadata_collector.py` parses a required trace.
+   No mode flag selects normal metadata resume; the mutually exclusive flags select offline
+   audit or explicit tagged repair.
 2. `AtlasCollector.resume_metadata` delegates to `TraceMetadataResumer`.
-3. GEO metadata/enrichment checkpoints are reused; only explicit tags mutate
-   legacy cached packages.
+3. Audit reads cached legacy packages, writes candidate/template artifacts, and
+   makes no network calls.
+4. Normal/repair mode rebuilds the current datalink snapshot, reuses GEO
+   resolution/metadata rows, and calls remote enrichment only for missing or
+   explicitly tagged identifiers.
+5. A repeated identical tag is idempotent; a reused tag ID with different
+   content raises. Progress/log output is persisted; invalid trace/files raise.
+
+#### Pseudocode
 
 ```text
 metadata collector script                      # interface
@@ -466,6 +770,14 @@ metadata collector script                      # interface
      -> EnrichmentAuditor.audit                 # internal/checkpoint reads
   <- progress/audit/repair artifacts
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`run_accession_metadata_collector.main`](../run_accession_metadata_collector.py),
+[`TraceMetadataResumer.resume`](../src/ThematicAtlases/collector/resume.py),
+[`GEOWrapper.collect_accession_metadata`](../src/ThematicAtlases/wrappers/geo.py),
+and [`EnrichmentAuditor.audit`](../src/ThematicAtlases/wrappers/enrichment.py).
 
 <a id="workflow-fixed-runners"></a>
 ### Workflow 8: Fixed fibrosis runners
@@ -477,16 +789,33 @@ prior inactive runs, and invoke `Atlas`.
 ```text
 runner -> resolve fixed config -> resume?
             |                       +-> select existing trace
+            |                              | invalid retry/amend -> error
             +-> new -> archive old -> execute full atlas or discovery-only
+                       | active/error       | full: model/cache/atlas
+                       v                    | discovery: static/generated
+                    keep old                v
                                       |
                                  .out artifacts
 ```
 
+#### Numbered stages
+
 1. `run_fibrosis_atlas.py` builds the ontology store and executes/resumes a full
-   traced atlas.
+   traced atlas; resume can request stage/item/degraded-stage retries.
 2. `run_fibrosis_discovery.py` uses the query catalog or generated-query mode
-   and stops before review; amendment is explicit.
-3. Both keep shared ontology cache outside whole-run archives.
+   and stops before review; amendment requires an explicit resume ID and retry
+   controls only act during resume.
+3. Static discovery permits 5,000 + 15,000 + 15,000 + 15,000 =
+   50,000 raw hits before cross-query deduplication. Generated mode instead creates at most
+   three queries and has no static per-query limits or global cap.
+4. A new run obtains an exclusive lock and archives prior inactive traces;
+   resume uses the existing trace without archival. Both keep the shared
+   ontology cache outside archives.
+5. Full-atlas credential/cache/provider failures terminate the runner.
+   Discovery static mode requires no model call; generated mode preflights
+   credentials. Successful runs write their fixed `.out` artifacts.
+
+#### Pseudocode
 
 ```text
 fixed runner main                              # interface
@@ -495,6 +824,14 @@ fixed runner main                              # interface
   -> Atlas.create_atlas or collect_datasets     # internal workflow
   <- fixed JSON/summary/details/log/trace outputs
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`run_fibrosis_atlas.main`](../run_fibrosis_atlas.py),
+[`run_fibrosis_discovery.main`](../run_fibrosis_discovery.py),
+[`load_query_catalog`](../src/ThematicAtlases/query_catalog.py), and
+[`workflow_activity_lock`](../src/ThematicAtlases/run_archive.py).
 
 <a id="workflow-benchmarking"></a>
 ### Workflow 9: Benchmarking and reference review
@@ -505,23 +842,46 @@ collects GEO links/text, reviews them, and then benchmarks.
 
 ```text
 saved atlas/trace -> normalize identities -> exact DOI/PMID match -> report
+      | malformed/ambiguous -------------------------------> error
 reference set -> exact Europe PMC resolution -> GEO links -> review -> benchmark
-                    \-> miss/conflict ---------------------------> report
+                    \-> miss/conflict/no GEO -------------------> report
+                                      model failure -> failed review -> report
 ```
 
+#### Numbered stages
+
 1. `ThematicReviewerBenchmark` validates one reference source and saved output.
-2. Exact normalized identities produce matched, missed, or conflict rows.
-3. Root runners aggregate all sets offline or operate one checkpointed live
-   diagnostic workflow.
+2. Exact normalized DOI/PMID identities produce matched, missed, or conflict
+   rows; malformed or ambiguous reference data raises.
+3. `run_reference_publication_recall.py` runs the pure offline comparison for
+   all packaged and optional custom sets and writes reports.
+4. `run_reference_set_review.py` resolves exact DOI queries, records
+   unresolved/mismatched/no-GEO outcomes, fetches text, preflights credentials
+   only when there is text to review, and enters review through
+   `AtlasFilterer.filter_jsons`.
+5. `PublicationTextReviewer` dispatches to the upstream reviewer's
+   `review_relevancy`; failed items remain in the reviewed output.
+   The final benchmark and audit artifacts are written under the reference run.
+
+#### Pseudocode
 
 ```text
 benchmark/reference runner                     # interface
   -> load_reference_set/output                  # package/file reads
   -> EuropePMCWrapper (diagnostic only)         # external HTTP calls
-  -> PublicationTextReviewer.review             # external model call
+  -> AtlasFilterer.filter_jsons                 # internal review entry
+     -> PublicationTextReviewer dispatch
+        -> reviewer.review_relevancy             # external model call
   -> benchmark_reference_publication_recall     # internal pure comparison
   <- JSON report and summary
 ```
+
+#### Evidence
+
+Definitions/calls:
+[`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py),
+[`run_reference_publication_recall.main`](../run_reference_publication_recall.py),
+and [`run_reference_review`](../run_reference_set_review.py).
 
 <a id="extension-and-change-guidance"></a>
 ## Extension and change guidance
@@ -562,11 +922,15 @@ src/ThematicAtlases/
 ├── atlas.py
 ├── checkpoint.py
 ├── cli_atlas.py
+├── credentials.py
+├── query_catalog.py
+├── run_archive.py
 ├── summary.py
 ├── trace.py
 ├── collector/
 │   ├── __init__.py
-│   └── collector.py
+│   ├── collector.py
+│   └── resume.py
 ├── filterer/
 │   ├── __init__.py
 │   ├── filterer.py
@@ -578,53 +942,52 @@ src/ThematicAtlases/
 └── wrappers/
     ├── ae.py
     ├── __init__.py
+    ├── enrichment.py
     ├── epmc.py
     └── geo.py
 
 src/benchmark_ThematicAtlases/
 ├── __init__.py
-└── thematic_reviewer.py
-
+├── ontology_harmonizer/
+│   └── __init__.py
+└── thematic_reviewer/
+    ├── __init__.py
+    ├── benchmark.py
+    └── data/*.json
 ```
 
-Root project files:
+Root interfaces and configuration:
 
 ```text
+config/fibrosis_discovery_queries.json
 pyproject.toml
 requirements.txt
+run_accession_metadata_collector.py
 run_fibrosis_atlas.py
+run_fibrosis_discovery.py
 run_publication_reviewer.py
+run_reference_publication_recall.py
+run_reference_set_review.py
 README.md
 LICENSE
 .gitignore
 ```
 
-Development docs, local debug query input, and tests:
+Canonical/supporting docs and tests:
 
 ```text
-.dev/queries.txt
 docs/codebase.md
 docs/index.md
 docs/dev.md
 docs/memory.md
 docs/burndown.md
-tests/test_atlas.py
-tests/test_ae_wrapper.py
-tests/test_benchmark_package.py
-tests/test_checkpoint.py
-tests/test_cli_atlas.py
-tests/test_collector.py
-tests/test_epmc_wrapper.py
-tests/test_filterer.py
-tests/test_geo_wrapper.py
-tests/test_harmonizer.py
-tests/test_review.py
-tests/test_run_fibrosis_atlas.py
-tests/test_run_publication_reviewer.py
-tests/test_summary.py
-tests/test_theme_fibrosis.py
-tests/test_thematic_reviewer_benchmark.py
+docs/theme_fibrosis.txt
+tests/test_*.py
+tests/fixtures/benchmark/*.json
 ```
+
+Ignored runtime directories such as `.env/`, `.out/`, caches, and trace output
+are not part of the tracked source tree.
 
 <a id="runtime-and-packaging"></a>
 ## Runtime And Packaging
@@ -760,19 +1123,22 @@ queries are: the original
 human/fibrosis/transcriptomics query, an expanded core query, a high-specificity
 fibrotic-disease query, and a complementary human organ/disease query. The
 original query is capped at 5,000 raw results and each new query at 15,000.
-Publications are deduplicated across query sets before datalink calls while
-ordered query provenance is retained. The runner
+The four static caps therefore permit at most 50,000 raw hits before
+cross-query deduplication. Publications are deduplicated across query sets
+before datalink calls while ordered query provenance is retained. The runner
 stops after incrementally collecting full text or abstracts for GEO-linked
-publications. It does not invoke thematic review, download GEO MINiML metadata,
-filter accessions, or harmonize. The separate `run_publication_reviewer.py`
+publications. It performs GEO repository routing and text mapping but does not
+invoke thematic review or review filtering, download GEO MINiML metadata, or
+harmonize. The separate `run_publication_reviewer.py`
 command reviews a stable snapshot from the same trace and may run concurrently
 with discovery. The query removes
 generic sclerosis and remodelling-only terms, excludes reviews, and deliberately
 does not exclude mouse/rat mentions because mixed-species publications can still
-contain qualifying human datasets. `--generate-query` replaces the static query
-with the existing LLM theme-to-query workflow. Europe PMC synonym expansion
-remains enabled in both modes. The script searches up to 5,000 publications and
-calls `Atlas.collect_datasets(stop_before_review=True)`. It never constructs `OntoStore`,
+contain qualifying human datasets. `--generate-query` replaces the four static
+queries with the existing LLM theme-to-query workflow, generates at most three
+queries, and supplies neither the static per-query caps nor a global cap.
+Europe PMC synonym expansion remains enabled in both modes. The script calls
+`Atlas.collect_datasets(stop_before_review=True)`. It never constructs `OntoStore`,
 caches ontologies, calls `create_atlas()`, or invokes harmonization. It prints
 the resolved query mode and configuration and writes
 `.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and
@@ -798,9 +1164,14 @@ Run it with:
 .env/bin/python run_fibrosis_discovery.py --resume
 .env/bin/python run_fibrosis_discovery.py --resume RUN_ID
 .env/bin/python run_fibrosis_discovery.py --resume RUN_ID --amend-queries
+.env/bin/python run_fibrosis_discovery.py --resume RUN_ID --retry-stage datalinks
+.env/bin/python run_fibrosis_atlas.py --resume RUN_ID --retry-item STAGE:ITEM_ID
 ```
 
 Both fibrosis scripts enable incremental SQLite checkpoints automatically.
+On resume, both accept repeatable `--retry-stage STAGE`,
+`--retry-item STAGE:ITEM_ID`, and `--retry-degraded-stage STAGE`; discovery
+also accepts `--amend-queries` only with an explicit `--resume RUN_ID`.
 Library callers opt in by enabling `dev_trace`; untraced calls retain the
 existing in-memory behavior.
 
@@ -1127,6 +1498,13 @@ firstPublicationDate
 
 `collect_publications()` and `collect_datalinks()` are intermediate stages inside `collect_accessions()`. `collect_datalinks()` owns the flattened datalink row collection and internal `_deduplicate_accessions()` pass. `collect_publication_texts()` remains a reusable enrichment stage and is called by the dataset collection workflow after accession collection and optional metadata routing.
 
+Current-state risk: the uncached page loop in `collect_publications()` invokes
+`_search(query, cursor)` twice consecutively and consumes only the second
+response. This means two otherwise identical Europe PMC search requests per
+uncached page. Checkpoint-page reuse avoids those calls. No repository evidence
+states that the duplicate request is intentional; maintainers should treat it
+as observed behavior, not a supported compatibility requirement.
+
 During traced workflows, every completed search page, publication datalink
 lookup, and publication full-text/fallback result is committed independently to
 SQLite. A resumed call reconstructs ordered results from these rows and only
@@ -1331,6 +1709,7 @@ Commands:
 - `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
 - `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
+- `resume [--verbose] [--log-file LOG_FILE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
@@ -1340,12 +1719,22 @@ Each command instantiates `Atlas(metadata={})`, calls the matching method, and c
 
 `collect-datasets` and `create-atlas` both call `Atlas.collect_datasets()` for the collection and publication text mapping stage. Supplying `--theme` or `--theme-file` opts into `agentic_curator` thematic review for each unique publication text before review filtering is applied. `create-atlas` then harmonizes the atlas, writes the requested final JSON and automatic summary, and optionally writes the trace bundle. The standalone `harmonize-datasets` command reads `--file`, transforms the atlas, and writes required `--out`; both harmonizing commands can write the optional details sidecar.
 
+`resume` selects `--run-id` or the newest incomplete trace under
+`--dev-out-dir` (default `.dev`), optionally writes `--out`, and
+`--stop-before-review` returns the collection snapshot. Repeatable
+`--retry-stage`, `--retry-item STAGE:KEY`, and `--retry-degraded-stage`
+requests are validated and forwarded to `Atlas.resume`; malformed item syntax
+or unsupported selections raise rather than silently requeueing other work.
+
 <a id="archive-reference"></a>
 ## Archive Reference
 
-`oldd/` contains the archived previous implementation, generated outputs, old docs, and old environment artifacts. Treat it as source material to inspect and cannibalize deliberately, not as live package code.
-
-Live code should not import from `oldd/`. If behavior is restored from the archive, port it into `src/ThematicAtlases/` with tests and updated docs.
+No `oldd/` archive is tracked in the current repository. Historical
+implementations must be recovered from version control rather than from a live
+source directory. Runtime whole-run archives are ignored data under
+`.out/previous_runs/`; they are resumable artifacts produced by
+[`archive_existing_runs`](../src/ThematicAtlases/run_archive.py), not source
+material and never an import boundary.
 
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
