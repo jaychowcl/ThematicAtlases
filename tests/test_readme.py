@@ -5,6 +5,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 CODEBASE = ROOT / "docs" / "codebase.md"
+HISTORICAL_LOGO = (
+    '<img width="375" height="250" '
+    'alt="ChatGPT Image Jul 27, 2026, 10_33_57 AM" '
+    'src="https://github.com/user-attachments/assets/'
+    'ea6a1467-8555-4493-8523-a2edb0ed22ff" />'
+)
+HISTORICAL_AUTHORS = (
+    "Created by [jaychowcl](https://github.com/jaychowcl) @ "
+    "[Saez-Rodriguez Group](https://saezlab.org) & "
+    "[EMBL-EBI Functional Genomics Team]"
+    "(https://www.ebi.ac.uk/about/teams/functional-genomics/) on May 2026"
+)
 
 
 def test_readme_uses_the_required_user_facing_structure() -> None:
@@ -32,6 +44,13 @@ def test_readme_uses_the_required_user_facing_structure() -> None:
         "## Docs",
         "## Authors",
     ]
+
+
+def test_readme_preserves_historical_branding_and_attribution() -> None:
+    text = README.read_text(encoding="utf-8")
+
+    assert text.startswith(f"{HISTORICAL_LOGO}\n\n# ThematicAtlases\n")
+    assert f"## Authors\n\n{HISTORICAL_AUTHORS}\n" in text
 
 
 def test_quickstarts_link_to_the_full_interface_guides() -> None:
@@ -123,7 +142,7 @@ def test_readme_describes_inputs_outputs_flow_docs_and_author() -> None:
         "`AtlasHarmonizer`",
         "[Codebase handoff](docs/codebase.md)",
         "[Documentation index](docs/index.md)",
-        "Created by [jaychowcl](https://github.com/jaychowcl) on May 2026",
+        HISTORICAL_AUTHORS,
     ]
 
     for phrase in required_phrases:
