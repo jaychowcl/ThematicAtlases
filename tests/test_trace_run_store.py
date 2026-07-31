@@ -47,11 +47,31 @@ def test_new_trace_keeps_item_checkpoints_in_the_single_run_database(tmp_path):
         "available",
         payload={"rows": []},
     )
+    trace.checkpoint_store.put(
+        "search_queries",
+        "lung",
+        0,
+        "retryable_error",
+        payload={"rows": []},
+        error="timeout",
+        error_type="TimeoutError",
+        failure_category="transient",
+    )
+    trace.checkpoint_store.set_meta("resolved_queries", ["lung"])
 
     assert not (trace.directory / "resume_state.sqlite").exists()
-    assert DevTraceWriter.existing(trace.directory).checkpoint_store.get(
+    reopened = DevTraceWriter.existing(trace.directory)
+    assert reopened.checkpoint_store.get(
         "search_queries", "lung"
-    )["payload"] == {"rows": []}
+    )["status"] == "retryable_error"
+    normalized = reopened.run_store.work_items("run-1", "search_queries")
+    assert len(normalized) == 1
+    assert normalized[0]["source_key"] == "lung"
+    assert normalized[0]["status"] == "retryable_error"
+    assert normalized[0]["payload_json"] == '{"rows":[]}'
+    attempts = reopened.run_store.attempts(normalized[0]["work_item_id"])
+    assert [attempt["outcome"] for attempt in attempts] == ["available"]
+    assert reopened.run_store.metadata("run-1", "resolved_queries") == ["lung"]
 
 
 def test_existing_trace_requires_an_initialized_v2_run_store(tmp_path):

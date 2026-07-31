@@ -259,9 +259,12 @@ downstream repositories should copy and consume in their contract tests.
 `AtlasRunStore(path)` creates a normalized `atlas_run.sqlite3` and rejects a
 legacy `resume_state.sqlite` instead of silently converting it. New traced
 runs create only `atlas_run.sqlite3`; `DevTraceWriter.checkpoint_store` binds
-the mature item/retry API to that same database, so lifecycle and work cannot
-drift across two files. The standalone reference-review runner is not an Atlas
-run and retains its own local checkpoint database.
+the mature item/retry API to that same database. Transactional compatibility
+triggers project current work, replaced attempts, and run metadata into the
+normalized `work_items`, `attempts`, and `run_metadata` tables, so lifecycle
+and work cannot drift across files or representations. The standalone
+reference-review runner is not an Atlas run and retains its own local
+checkpoint database.
 
 `Atlas.collect_datasets(...)` runs discovery, metadata routing, text collection, and optional review:
 

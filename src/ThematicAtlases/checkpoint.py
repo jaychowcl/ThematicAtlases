@@ -127,6 +127,141 @@ class CheckpointStore:
                 "UPDATE checkpoint_meta SET value = ? WHERE key = ?",
                 (json.dumps(self.SCHEMA_VERSION), "schema_version"),
             )
+            self._initialize_atlas_projection(connection)
+
+    @staticmethod
+    def _initialize_atlas_projection(connection: sqlite3.Connection) -> None:
+        """Project the compatibility checkpoint API into normalized v2 rows."""
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not {"run", "work_items", "attempts"} <= tables:
+            return
+        run_count = int(connection.execute("SELECT COUNT(*) FROM run").fetchone()[0])
+        if run_count != 1:
+            raise ValueError(
+                "Atlas checkpoint compatibility requires exactly one run per database"
+            )
+        connection.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS checkpoint_item_normalized_insert
+            AFTER INSERT ON checkpoint_items
+            BEGIN
+                INSERT OR IGNORE INTO work_items(
+                    run_id, stage, source_type, source_key, source_ordinal,
+                    status, payload_json, error_summary, attempt_count,
+                    first_failed_at, last_attempt_at, error_type,
+                    retry_classification
+                )
+                SELECT run_id, NEW.stage, 'checkpoint', NEW.item_key,
+                       NEW.ordinal, NEW.status, NEW.payload, NEW.error,
+                       NEW.attempt_count, NEW.first_failed_at,
+                       NEW.last_attempt_at, NEW.error_type,
+                       NEW.failure_category
+                FROM run LIMIT 1;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS checkpoint_item_normalized_update
+            AFTER UPDATE ON checkpoint_items
+            BEGIN
+                UPDATE work_items
+                SET source_ordinal=NEW.ordinal,
+                    status=NEW.status,
+                    payload_json=NEW.payload,
+                    error_summary=NEW.error,
+                    attempt_count=NEW.attempt_count,
+                    first_failed_at=NEW.first_failed_at,
+                    last_attempt_at=NEW.last_attempt_at,
+                    error_type=NEW.error_type,
+                    retry_classification=NEW.failure_category
+                WHERE run_id=(SELECT run_id FROM run LIMIT 1)
+                  AND stage=NEW.stage
+                  AND source_type='checkpoint'
+                  AND source_key=NEW.item_key;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS checkpoint_item_normalized_delete
+            AFTER DELETE ON checkpoint_items
+            BEGIN
+                DELETE FROM work_items
+                WHERE run_id=(SELECT run_id FROM run LIMIT 1)
+                  AND stage=OLD.stage
+                  AND source_type='checkpoint'
+                  AND source_key=OLD.item_key;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS checkpoint_history_normalized_insert
+            AFTER INSERT ON checkpoint_attempt_history
+            BEGIN
+                INSERT INTO attempts(
+                    work_item_id, attempt_number, outcome,
+                    retry_classification, error_summary, payload_json,
+                    error_type
+                )
+                SELECT work_item_id,
+                       (SELECT COALESCE(MAX(attempt_number), 0) + 1
+                        FROM attempts AS prior
+                        WHERE prior.work_item_id=work_items.work_item_id),
+                       NEW.status, NEW.failure_category, NEW.error,
+                       NEW.payload, NEW.error_type
+                FROM work_items
+                WHERE run_id=(SELECT run_id FROM run LIMIT 1)
+                  AND stage=NEW.stage
+                  AND source_type='checkpoint'
+                  AND source_key=NEW.item_key;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS checkpoint_meta_normalized_insert
+            AFTER INSERT ON checkpoint_meta
+            BEGIN
+                INSERT OR REPLACE INTO run_metadata(run_id, key, value_json)
+                SELECT run_id, NEW.key, NEW.value FROM run LIMIT 1;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS checkpoint_meta_normalized_update
+            AFTER UPDATE ON checkpoint_meta
+            BEGIN
+                UPDATE run_metadata
+                SET value_json=NEW.value
+                WHERE run_id=(SELECT run_id FROM run LIMIT 1)
+                  AND key=NEW.key;
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS checkpoint_meta_normalized_delete
+            AFTER DELETE ON checkpoint_meta
+            BEGIN
+                DELETE FROM run_metadata
+                WHERE run_id=(SELECT run_id FROM run LIMIT 1)
+                  AND key=OLD.key;
+            END;
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO work_items(
+                run_id, stage, source_type, source_key, source_ordinal,
+                status, payload_json, error_summary, attempt_count,
+                first_failed_at, last_attempt_at, error_type,
+                retry_classification
+            )
+            SELECT run.run_id, item.stage, 'checkpoint', item.item_key,
+                   item.ordinal, item.status, item.payload, item.error,
+                   item.attempt_count, item.first_failed_at,
+                   item.last_attempt_at, item.error_type,
+                   item.failure_category
+            FROM checkpoint_items AS item CROSS JOIN run
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO run_metadata(run_id, key, value_json)
+            SELECT run.run_id, meta.key, meta.value
+            FROM checkpoint_meta AS meta CROSS JOIN run
+            """
+        )
 
     @staticmethod
     def _json(value) -> str:

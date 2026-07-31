@@ -142,8 +142,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
   anchor: type-atlas-run-store
-  purpose: Normalized Atlas v2 run, stage, work, attempt, artifact, and event persistence.
-  keywords: AtlasRunStore, atlas_run.sqlite3, SQLite, work_items, attempts, artifacts, events
+  purpose: Versioned normalized Atlas v2 run, stage, work, attempt, metadata, artifact, and event persistence.
+  keywords: AtlasRunStore, atlas_run.sqlite3, schema version 2, work_items, attempts, run_metadata, triggers, artifacts, events
 
 - id: type-json-artifact-bundle-publisher
   title: [JsonArtifactBundlePublisher](codebase.md#type-json-artifact-bundle-publisher)

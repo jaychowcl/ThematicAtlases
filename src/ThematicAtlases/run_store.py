@@ -12,7 +12,7 @@ from typing import Any, Iterator, Mapping
 
 
 APPLICATION_ID = 0x41544C53  # ATLS
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RUN_STATUSES = {"planned", "running", "complete", "partial", "failed"}
 
 
@@ -74,6 +74,25 @@ class AtlasRunStore:
                 raise IncompatibleRunStoreError(
                     "unrecognized database is not an Atlas v2 run store"
                 )
+            if "schema_migrations" in existing:
+                application_id = int(
+                    connection.execute("PRAGMA application_id").fetchone()[0]
+                )
+                user_version = int(
+                    connection.execute("PRAGMA user_version").fetchone()[0]
+                )
+                if application_id != APPLICATION_ID:
+                    raise IncompatibleRunStoreError(
+                        "database application id is not AtlasRunStore"
+                    )
+                if user_version > SCHEMA_VERSION:
+                    raise IncompatibleRunStoreError(
+                        f"database uses newer schema version {user_version}"
+                    )
+                if user_version < 1:
+                    raise IncompatibleRunStoreError(
+                        "database has no supported AtlasRunStore schema version"
+                    )
             connection.executescript(
                 """
                 PRAGMA application_id=1096043603;
@@ -111,6 +130,13 @@ class AtlasRunStore:
                     source_key TEXT NOT NULL,
                     source_ordinal INTEGER NOT NULL CHECK(source_ordinal >= 0),
                     status TEXT NOT NULL DEFAULT 'pending',
+                    payload_json TEXT,
+                    error_summary TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    first_failed_at TEXT,
+                    last_attempt_at TEXT,
+                    error_type TEXT,
+                    retry_classification TEXT,
                     UNIQUE(run_id, stage, source_type, source_key)
                 );
                 CREATE INDEX IF NOT EXISTS work_items_order
@@ -125,6 +151,8 @@ class AtlasRunStore:
                     completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     retry_classification TEXT,
                     error_summary TEXT,
+                    payload_json TEXT,
+                    error_type TEXT,
                     UNIQUE(work_item_id, attempt_number)
                 );
                 CREATE TABLE IF NOT EXISTS artifacts (
@@ -150,21 +178,53 @@ class AtlasRunStore:
                     detail_json TEXT NOT NULL DEFAULT '{}',
                     UNIQUE(run_id, sequence)
                 );
+                CREATE TABLE IF NOT EXISTS run_metadata (
+                    run_id TEXT NOT NULL REFERENCES run(run_id) ON DELETE CASCADE,
+                    key TEXT NOT NULL,
+                    value_json TEXT NOT NULL,
+                    PRIMARY KEY (run_id, key)
+                );
                 """
             )
-            schema_sql = "AtlasRunStore schema version 1"
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO schema_migrations(
-                    version, code_revision, checksum
-                ) VALUES (?, ?, ?)
-                """,
-                (
-                    SCHEMA_VERSION,
-                    "atlas-v2",
-                    hashlib.sha256(schema_sql.encode("utf-8")).hexdigest(),
-                ),
-            )
+            for table, additions in {
+                "work_items": {
+                    "payload_json": "TEXT",
+                    "error_summary": "TEXT",
+                    "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                    "first_failed_at": "TEXT",
+                    "last_attempt_at": "TEXT",
+                    "error_type": "TEXT",
+                    "retry_classification": "TEXT",
+                },
+                "attempts": {
+                    "payload_json": "TEXT",
+                    "error_type": "TEXT",
+                },
+            }.items():
+                columns = {
+                    row["name"]
+                    for row in connection.execute(f"PRAGMA table_info({table})")
+                }
+                for name, definition in additions.items():
+                    if name not in columns:
+                        connection.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
+                        )
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            for version, revision in ((1, "atlas-v2-foundation"), (2, "atlas-v2-work")):
+                schema_sql = f"AtlasRunStore schema version {version}"
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO schema_migrations(
+                        version, code_revision, checksum
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        version,
+                        revision,
+                        hashlib.sha256(schema_sql.encode("utf-8")).hexdigest(),
+                    ),
+                )
 
     def create_run(
         self,
@@ -404,6 +464,23 @@ class AtlasRunStore:
                 (run_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def metadata(self, run_id: str, key: str, default: Any = None) -> Any:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT value_json FROM run_metadata WHERE run_id=? AND key=?",
+                (run_id, key),
+            ).fetchone()
+        return default if row is None else json.loads(row["value_json"])
+
+    def metadata_items(self, run_id: str) -> dict[str, Any]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT key, value_json FROM run_metadata "
+                "WHERE run_id=? ORDER BY key",
+                (run_id,),
+            ).fetchall()
+        return {row["key"]: json.loads(row["value_json"]) for row in rows}
 
 
 __all__ = ["AtlasRunStore", "IncompatibleRunStoreError"]

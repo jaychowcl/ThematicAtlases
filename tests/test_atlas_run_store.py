@@ -30,8 +30,15 @@ def test_run_store_creates_normalized_versioned_schema(tmp_path):
             "attempts",
             "artifacts",
             "run_events",
+            "run_metadata",
         } <= tables
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert [
+            row[0]
+            for row in connection.execute(
+                "SELECT version FROM schema_migrations ORDER BY version"
+            )
+        ] == [1, 2]
         assert connection.execute("PRAGMA application_id").fetchone()[0] != 0
 
     assert store.get_run("01JTEST")["config"] == {"queries": ["lung"]}
@@ -95,3 +102,25 @@ def test_run_store_rejects_legacy_checkpoint_database(tmp_path):
 
     with pytest.raises(IncompatibleRunStoreError, match="legacy checkpoint"):
         AtlasRunStore(path)
+
+
+def test_run_store_rejects_newer_or_foreign_versioned_databases(tmp_path):
+    newer = tmp_path / "newer.sqlite3"
+    with sqlite3.connect(newer) as connection:
+        connection.execute("PRAGMA application_id=1096043603")
+        connection.execute("PRAGMA user_version=99")
+        connection.execute(
+            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY)"
+        )
+    with pytest.raises(IncompatibleRunStoreError, match="newer schema version"):
+        AtlasRunStore(newer)
+
+    foreign = tmp_path / "foreign.sqlite3"
+    with sqlite3.connect(foreign) as connection:
+        connection.execute("PRAGMA application_id=12345")
+        connection.execute("PRAGMA user_version=1")
+        connection.execute(
+            "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY)"
+        )
+    with pytest.raises(IncompatibleRunStoreError, match="application id"):
+        AtlasRunStore(foreign)

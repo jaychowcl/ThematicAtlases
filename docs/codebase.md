@@ -205,6 +205,10 @@ and [project layout](#project-purpose-and-layout).
   artifact-role, event, item-result, and retry state. Resume does not infer or
   silently migrate missing v2 lifecycle state from a legacy
   `resume_state.sqlite`.
+- The mature `CheckpointStore` API may operate inside a v2 run database only
+  when exactly one run exists. Same-transaction triggers project current
+  checkpoint items, replaced states, and metadata into normalized
+  `work_items`, `attempts`, and `run_metadata`; deletes cascade consistently.
 - Whole-run archival requires an exclusive activity lock, rejects symlinks and
   collisions, verifies copied content, and publishes before deleting sources.
 - Library modules do not configure global logging. No credential, prompt,
@@ -299,10 +303,11 @@ and [fixed-runner workflow](#workflow-fixed-runners).
 <a id="type-atlas-run-store"></a>
 - [`AtlasRunStore`](../src/ThematicAtlases/run_store.py) owns the normalized v2
   operational database. It enables foreign keys/WAL/full synchronization and
-  versions `schema_migrations`, `run`, `stage_state`, `work_items`, `attempts`,
-  `artifacts`, and `run_events`. Work order is explicit, attempts/events append
-  monotonically, artifact roles cannot silently change paths, and legacy
-  checkpoint databases raise `IncompatibleRunStoreError` rather than migrate.
+  schema version 2 of `schema_migrations`, `run`, `stage_state`, `work_items`,
+  `attempts`, `artifacts`, `run_events`, and `run_metadata`. Work order is
+  explicit, attempts/events append monotonically, artifact roles cannot
+  silently change paths, and foreign/newer/legacy databases raise
+  `IncompatibleRunStoreError` rather than being reinterpreted.
 <a id="type-json-artifact-bundle-publisher"></a>
 - [`JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py)
   owns deterministic JSON serialization, sibling staging and validation,
@@ -498,12 +503,13 @@ Complete public-member signatures for the exported classes:
   also fails, `ArtifactRollbackError(publication_error, rollback_errors,
   recovery_paths)` preserves remaining backup files for explicit recovery.
 - [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py):
-  normalized schema-v2 run database with `create_run`, `get_run`,
+  normalized Atlas v2 run database (SQL schema version 2) with `create_run`, `get_run`,
   `set_run_status`, `set_stage_state`, `add_work_item`,
   `work_items`, `record_attempt`, `attempts`, `register_artifact`, `artifact`,
-  `artifacts`, `record_event`, and `events`. Relative artifact paths cannot
-  escape the run and a role cannot silently change path. Opening legacy or
-  unsupported schemas raises `IncompatibleRunStoreError`.
+  `artifacts`, `record_event`, `events`, `metadata`, and `metadata_items`.
+  Relative artifact paths cannot escape the run and a role cannot silently
+  change path. Opening legacy, foreign, or newer schemas raises
+  `IncompatibleRunStoreError`.
 - [`CheckpointStore(path)`](../src/ThematicAtlases/checkpoint.py): public
   `set_meta`, `get_meta_json`, `get_meta`, `validate_fingerprint`,
   `amend_fingerprint`, `put`, `get`, `items`, `has_retryable`,
@@ -1365,7 +1371,8 @@ completed/failed counts. Both files are one rollback-safe publication bundle.
 With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run
 directory under `dev_out_dir` containing one authoritative
 `atlas_run.sqlite3`, a manifest, and readable stage artifacts. The mature
-`CheckpointStore` item/retry API is bound to that same database. Full atlas
+`CheckpointStore` item/retry API is bound to that same database and projected
+transactionally into normalized work/attempt/metadata rows. Full atlas
 traces register final/details/summary roles; collection traces register a
 separate snapshot role. SQLite uses WAL mode, full synchronous
 commits, a configuration fingerprint, and one row per stage/item. Statuses
