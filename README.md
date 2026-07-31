@@ -294,7 +294,7 @@ Atlas.collect_datasets(
 ```
 
 - `query` is an ordered list; `file` adds queries from UTF-8 text. `max_publications` is a global raw-hit cap, while `max_publications_per_query` must align one positive integer or `None` with each ordered query.
-- `theme`, `review_filter`, `review_strategy`, and an optional injected `reviewer` control thematic review.
+- `theme`, `review_filter`, `review_strategy`, and an optional injected `reviewer` control thematic review. The default direct strategy uses agentic-curator revision 3: one model-authored criterion catalog derived from the theme, one assessment per associated accession, and model-authored accession/publication decisions. Trace output retains the catalog and assessments; Atlas v2 keeps its stable publication-level relevance projection.
 - `metadata_repositories` selects handlers; `collect_metadata=False` skips enrichment. `review_before_metadata=True` reverses review/enrichment ordering and requires a theme.
 - `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
 - `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.

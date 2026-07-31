@@ -172,8 +172,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-publication-text-reviewer
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
-  purpose: Text mapping, review dispatch, filtering, and independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer
+  purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and independent-review ownership.
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, review revision 3, contract version 5
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
