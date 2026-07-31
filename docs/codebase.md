@@ -1169,7 +1169,9 @@ are not part of the tracked source tree.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
   `agentic-curator>=2,<3`, `google-auth>=2,<3`,
-  `meta-standards-converter>=2,<3`, and `requests>=2.31,<3`. No build or
+  `meta-standards-converter>=3,<4`, and `requests>=2.31,<3`. MSC 3 supplies
+  canonical H5AD metadata schema 3.0 while retaining the public GEO conversion
+  interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets, HTTP transports, and subprocess creation unless a test declares the registered `allow_network` or `allow_subprocess` marker.
