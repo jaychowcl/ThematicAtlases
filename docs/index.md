@@ -270,14 +270,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: runtime-and-packaging
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
-  purpose: Python, setuptools, dependency, editable-install, canonical offline test, and console-command contract.
-  keywords: pyproject, Python 3.10, requirements, dependencies, pytest, allow_network, allow_subprocess, thematic-atlas
+  purpose: Python, setuptools, independent v2 dependencies, editable-install, canonical offline test, and console-command contract.
+  keywords: pyproject, Python 3.10, version 2.0.0, requirements, independent dependencies, pytest, allow_network, allow_subprocess, thematic-atlas
 
 - id: public-api
-  title: [Legacy Public API Route](codebase.md#public-api)
+  title: [Public API Route](codebase.md#public-api)
   anchor: public-api
   purpose: Preserved compatibility route for the package-root and Atlas import guidance.
-  keywords: Atlas import, empty __init__, agentic-curator, archive_existing_runs
+  keywords: Atlas import, __version__, agentic-curator, archive_existing_runs
 
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)

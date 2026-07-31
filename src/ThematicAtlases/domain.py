@@ -252,6 +252,10 @@ class AtlasDocument:
             )
         if not self.atlas.atlas_id.strip() or not self.run.run_id.strip():
             raise ValueError("atlas_id and run_id must not be blank")
+        if not self.atlas.title.strip():
+            raise ValueError("atlas title must not be blank")
+        if not self.atlas.theme.strip():
+            raise ValueError("atlas theme must not be blank")
         dataset_ids = [item.dataset_id for item in self.datasets]
         if len(dataset_ids) != len(set(dataset_ids)):
             raise ValueError("duplicate dataset_id in AtlasDocument")

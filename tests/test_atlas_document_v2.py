@@ -107,6 +107,15 @@ def test_document_rejects_unknown_top_level_fields():
         AtlasDocument.from_mapping(payload)
 
 
+@pytest.mark.parametrize("field", ["title", "theme"])
+def test_document_rejects_blank_identity_text(field):
+    payload = _document().to_mapping()
+    payload["atlas"][field] = "  "
+
+    with pytest.raises(ValueError, match=f"atlas {field} must not be blank"):
+        AtlasDocument.from_mapping(payload)
+
+
 def test_owner_golden_fixture_is_a_valid_stable_wire_contract():
     fixture = (
         Path(__file__).parent

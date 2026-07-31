@@ -76,17 +76,24 @@ class AtlasDocumentAdapter:
         title = str(
             atlas_metadata.get("title") or theme or "Thematic atlas"
         ).strip()
+        queries = tuple(str(item).strip() for item in config.get("queries") or ())
+        resolved_theme = str(
+            theme
+            or atlas_metadata.get("theme")
+            or next((item for item in queries if item), "")
+            or title
+        ).strip()
         document = AtlasDocument(
             atlas=AtlasIdentity(
                 atlas_id=atlas_id,
                 title=title,
-                theme=str(theme or atlas_metadata.get("theme") or ""),
+                theme=resolved_theme,
             ),
             run=AtlasRun(
                 run_id=run_id,
                 created_at=created_at,
                 config=AtlasConfig(
-                    queries=tuple(config.get("queries") or ()),
+                    queries=queries,
                     metadata_repositories=tuple(
                         config.get("metadata_repositories") or ()
                     ),

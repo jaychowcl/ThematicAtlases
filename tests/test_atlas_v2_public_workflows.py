@@ -136,6 +136,12 @@ def test_create_atlas_returns_v2_and_publishes_derived_summary(tmp_path):
     }
 
 
+def test_create_atlas_derives_nonblank_theme_from_query():
+    result = _atlas().create_atlas(query=["lung"])
+
+    assert result["atlas"]["theme"] == "lung"
+
+
 def test_harmonize_datasets_accepts_v2_and_rejects_legacy_v1():
     collected = _atlas().collect_datasets(query=["lung"], run_id="run-1")
 

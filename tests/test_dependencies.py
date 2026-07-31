@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib
 import tomllib
 
 
@@ -13,12 +14,16 @@ def test_pyproject_declares_direct_runtime_and_development_dependencies() -> Non
 
     assert "google-auth>=2,<3" in dependencies
     assert "requests>=2.31,<3" in dependencies
-    assert any(value.startswith("agentic-curator @ git+") for value in dependencies)
-    assert any(
-        value.startswith("meta-standards-converter @ git+")
-        for value in dependencies
-    )
+    assert "agentic-curator>=2,<3" in dependencies
+    assert "meta-standards-converter>=2,<3" in dependencies
+    assert not any("git+" in value for value in dependencies)
     assert "pytest>=8" in project["optional-dependencies"]["dev"]
+
+
+def test_package_exposes_v2_release_version() -> None:
+    package = importlib.import_module("ThematicAtlases")
+
+    assert package.__version__ == "2.0.0"
 
 
 def test_requirements_file_delegates_to_runtime_project_metadata() -> None:

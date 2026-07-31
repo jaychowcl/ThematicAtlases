@@ -303,7 +303,8 @@ and [fixed-runner workflow](#workflow-fixed-runners).
   internal anti-corruption layer between mature `accessions` /
   `publication_texts` stage mappings and strict `AtlasDocument` values. It
   centralizes identity/status/review/diagnostic projection instead of
-  scattering final JSON assembly across stages.
+  scattering final JSON assembly across stages. If the caller omits a theme,
+  it derives one from Atlas metadata, the first nonblank query, or the title.
 <a id="type-atlas-document"></a>
 - [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v2
   exchange model. Frozen standard-library dataclasses and string enums own
@@ -311,7 +312,8 @@ and [fixed-runner workflow](#workflow-fixed-runners).
   review/harmonization values, diagnostics, artifacts, and derived summary.
   `from_mapping`, `to_mapping`, `load`, `dump`, and `validate` reject unknown
   top-level/nested fields, unsupported versions, duplicate identities, broken
-  publication references, and inconsistent counts. JSON is deterministic,
+  publication references, blank identity/title/theme text, and inconsistent
+  counts. JSON is deterministic,
   UTF-8, newline-terminated, parent-creating, and atomically replaced.
 <a id="type-atlas-run-store"></a>
 - [`AtlasRunStore`](../src/ThematicAtlases/run_store.py) owns the normalized v2
@@ -1162,10 +1164,13 @@ are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Version metadata is `0.1.0`.
+- Version metadata is `2.0.0`, matching the clean-break Atlas document release.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
-- Runtime dependencies contain `agentic-curator` from `jaychowcl/agentic_curator`, `google-auth>=2,<3`, `meta-standards-converter` from `jaychowcl/meta_standards_converter`, and `requests>=2.31,<3`. The Git dependencies intentionally track their default branches.
+- Runtime dependencies contain independently installable
+  `agentic-curator>=2,<3`, `google-auth>=2,<3`,
+  `meta-standards-converter>=2,<3`, and `requests>=2.31,<3`. No build or
+  runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets, HTTP transports, and subprocess creation unless a test declares the registered `allow_network` or `allow_subprocess` marker.
 - The distribution uses a `src/` layout with setuptools package discovery for both `ThematicAtlases` and `benchmark_ThematicAtlases`.
@@ -1174,7 +1179,10 @@ are not part of the tracked source tree.
 <a id="public-api"></a>
 ## Public API
 
-`src/ThematicAtlases/__init__.py` is currently empty. It does not export `Atlas`, `ThematicAtlas`, `__version__`, or any other symbol.
+`src/ThematicAtlases/__init__.py` intentionally exports only
+`__version__ == "2.0.0"`. Application and domain imports remain explicit, for
+example `ThematicAtlases.atlas.Atlas` and
+`ThematicAtlases.domain.AtlasDocument`.
 
 The live atlas class is `Atlas` in `src/ThematicAtlases/atlas.py`. Import callers must use:
 

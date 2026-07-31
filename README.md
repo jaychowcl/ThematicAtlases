@@ -31,7 +31,9 @@ The editable install provides the `thematic-atlas` console command. The equivale
 ### Requirements
 
 - Python 3.10 or newer.
-- Git and network access during installation because `agentic-curator` and `meta-standards-converter` are Git dependencies.
+- Installable `agentic-curator>=2,<3` and `meta-standards-converter>=2,<3`
+  distributions. The package does not depend on sibling source checkouts or Git
+  URLs at runtime or build time.
 - Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
 - Google Application Default Credentials and a Google Cloud quota project for model-backed features.
 - `pytest>=8` only when installing the optional `dev` dependencies.
@@ -104,6 +106,10 @@ shape (nested fields are abbreviated here):
   "summary": {}
 }
 ```
+
+Atlas title and theme are always nonblank. When no explicit theme is supplied,
+the producer uses the configured metadata theme, the first nonblank query, or
+the title in that order.
 
 Each dataset retains its identity, repository, lifecycle status, metadata,
 publication references, reviews, harmonization records, diagnostics, and
