@@ -109,6 +109,12 @@ Depending on the workflow, additional outputs include:
 - Incremental review and metadata snapshots for standalone workers.
 - Reference-publication recall and reference-review reports under `.out/`.
 
+Atlas v2 introduces `ThematicAtlases.domain.AtlasDocument` as the strict,
+versioned exchange contract and `ThematicAtlases.run_store.AtlasRunStore` as
+normalized operational persistence. These APIs are available for incremental
+integration; the legacy `Atlas` workflow remains behavior-compatible until its
+v2 cutover is completed.
+
 ## Guide
 
 <a id="cli-guide"></a>
@@ -229,6 +235,12 @@ Atlas(
 ```
 
 `metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+
+For new integrations, construct or load `AtlasDocument` rather than assembling
+fragmented dictionaries. `AtlasDocument.load(path)` validates the v2 wire
+contract; `document.dump(path)` performs deterministic atomic JSON publication.
+`AtlasRunStore(path)` creates a normalized `atlas_run.sqlite3` and rejects a
+legacy `resume_state.sqlite` instead of silently converting it.
 
 `Atlas.collect_datasets(...)` runs discovery, metadata routing, text collection, and optional review:
 

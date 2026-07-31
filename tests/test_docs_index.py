@@ -158,6 +158,8 @@ def test_individual_contracts_have_stable_routes() -> None:
         "decision-delegated-model-work",
         "decision-safe-run-archival",
         "type-atlas",
+        "type-atlas-document",
+        "type-atlas-run-store",
         "type-atlas-collector",
         "type-publication-text-reviewer",
         "type-atlas-harmonizer",

@@ -236,6 +236,22 @@ and [fixed-runner workflow](#workflow-fixed-runners).
 - [`Atlas`](../src/ThematicAtlases/atlas.py) owns component wiring, query
   resolution, credential/cache preflight, stage order, tracing, resume,
   amendment, archival delegation, outputs, and summaries.
+<a id="type-atlas-document"></a>
+- [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v2
+  exchange model. Frozen standard-library dataclasses and string enums own
+  Atlas identity, run configuration/status, ordered datasets, publications,
+  review/harmonization values, diagnostics, artifacts, and derived summary.
+  `from_mapping`, `to_mapping`, `load`, `dump`, and `validate` reject unknown
+  top-level/nested fields, unsupported versions, duplicate identities, broken
+  publication references, and inconsistent counts. JSON is deterministic,
+  UTF-8, newline-terminated, parent-creating, and atomically replaced.
+<a id="type-atlas-run-store"></a>
+- [`AtlasRunStore`](../src/ThematicAtlases/run_store.py) owns the normalized v2
+  operational database. It enables foreign keys/WAL/full synchronization and
+  versions `schema_migrations`, `run`, `stage_state`, `work_items`, `attempts`,
+  `artifacts`, and `run_events`. Work order is explicit, attempts/events append
+  monotonically, artifact roles cannot silently change paths, and legacy
+  checkpoint databases raise `IncompatibleRunStoreError` rather than migrate.
 <a id="type-atlas-collector"></a>
 - [`AtlasCollector`](../src/ThematicAtlases/collector/collector.py) owns Europe
   PMC discovery, accession filtering, metadata repository routing, and
@@ -314,6 +330,7 @@ otherwise.
 
 | Qualified export | Constructor/value and public contract |
 | --- | --- |
+| [`ThematicAtlases.domain`](../src/ThematicAtlases/domain.py) | Formally exports the `AtlasDocument` v2 type family and enums through its `__all__`. The codec accepts a mapping or UTF-8 JSON path and returns frozen typed values; validation failures raise `ValueError`; `dump` creates parents and atomically replaces deterministic JSON. |
 | [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler` expose routing. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
 | [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
 | [`ThematicAtlases.filterer.ACCESSIONS`](../src/ThematicAtlases/filterer/review.py) | `"accessions"` atlas key. |

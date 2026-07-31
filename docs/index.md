@@ -121,6 +121,18 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Root workflow ownership, dependency injection, output, resume, and archive responsibilities.
   keywords: Atlas, create_atlas, collect_datasets, resume, harmonize
 
+- id: type-atlas-document
+  title: [AtlasDocument v2](codebase.md#type-atlas-document)
+  anchor: type-atlas-document
+  purpose: Versioned domain dataclasses, strict validation, deterministic JSON, and cross-reference invariants.
+  keywords: AtlasDocument, schema_version, dataclass, codec, validation, atomic JSON
+
+- id: type-atlas-run-store
+  title: [AtlasRunStore](codebase.md#type-atlas-run-store)
+  anchor: type-atlas-run-store
+  purpose: Normalized Atlas v2 run, stage, work, attempt, artifact, and event persistence.
+  keywords: AtlasRunStore, atlas_run.sqlite3, SQLite, work_items, attempts, artifacts, events
+
 - id: type-atlas-collector
   title: [AtlasCollector](codebase.md#type-atlas-collector)
   anchor: type-atlas-collector
