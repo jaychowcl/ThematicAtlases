@@ -3,6 +3,7 @@ import json
 import pytest
 
 import run_reference_set_review as runner
+from ThematicAtlases.filterer import AtlasFilterer, PublicationTextReviewer
 
 
 def _reference_data():
@@ -86,3 +87,93 @@ def test_main_requires_project_environment_before_work(tmp_path, monkeypatch) ->
     )
     with pytest.raises(RuntimeError, match="use .env"):
         runner.main([])
+
+
+def test_reference_review_workflow_writes_diagnostic_artifacts(tmp_path) -> None:
+    class FakeBenchmark:
+        def load_reference_set(self, name):
+            return {
+                "id": name,
+                "reference_publications": [
+                    {"source_reference_number": 1, "doi": "10.1/one", "title": "One"}
+                ],
+            }
+
+        def benchmark_reference_publication_recall(self, **kwargs):
+            return {"summary": {"matched_count": 1}, "received": kwargs["thematic_output"]}
+
+    class FakeEPMC:
+        def collect_publications(self, queries, **kwargs):
+            return [{"query": queries[0], "doi": "10.1/ONE", "source": "MED", "epmc_id": "1"}]
+
+        def collect_datalinks(self, publications, checkpoint_store=None):
+            rows = [{"datalink_id": "GSE1", "datalink_id_scheme": "GEO"}]
+            checkpoint_store.put("datalinks", "MED:1", 1, "available", payload={"rows": rows})
+            return [{**rows[0], "publications": publications}]
+
+        def collect_publication_texts(self, publications, **kwargs):
+            return [
+                {
+                    **publication,
+                    "text": "fibrosis reference text",
+                    "text_source": "abstract",
+                    "full_text_status": "unavailable",
+                }
+                for publication in publications
+            ]
+
+    class FakeReviewer:
+        def review_relevancy(self, **kwargs):
+            return {
+                "judgement": "relevant",
+                "reasoning": "diagnostic",
+                "confidence": "high",
+                "evidences": ["fibrosis"],
+                "accessions_to_remove": [],
+            }
+
+    class FakeCredentials:
+        calls = 0
+
+        def check(self):
+            self.__class__.calls += 1
+
+    epmc = FakeEPMC()
+    filterer = AtlasFilterer(
+        epmc_wrapper_factory=lambda: epmc,
+        publication_text_reviewer=PublicationTextReviewer(reviewer_factory=FakeReviewer),
+    )
+    result = runner.run_reference_review(
+        reference_set="diagnostic",
+        theme="fibrosis",
+        output_dir=tmp_path,
+        benchmark=FakeBenchmark(),
+        epmc_wrapper=epmc,
+        filterer=filterer,
+        credential_checker=FakeCredentials(),
+    )
+
+    assert result["audit"]["summary"] == {
+        "reference_publications": 1,
+        "resolved": 1,
+        "unresolved": 0,
+        "mismatched": 0,
+        "with_gse": 1,
+        "unique_gse_accessions": 1,
+    }
+    assert result["reviewed"]["publication_texts"]["10.1/ONE"]["agentic_curator"][
+        "judgement"
+    ] == "relevant"
+    assert {
+        path.name for path in tmp_path.iterdir() if path.is_file()
+    } == {
+        "00_run_manifest.json",
+        "01_resolution_datalink_audit.json",
+        "02_geo_accessions.json",
+        "03_reviewer_input.json",
+        "04_reviewed_output.json",
+        "05_reference_benchmark.json",
+        "resume_review_progress.json",
+        "resume_state.sqlite",
+    }
+    assert FakeCredentials.calls == 1
