@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -105,3 +106,20 @@ def test_document_rejects_unknown_top_level_fields():
     with pytest.raises(ValueError, match="unknown AtlasDocument fields"):
         AtlasDocument.from_mapping(payload)
 
+
+def test_owner_golden_fixture_is_a_valid_stable_wire_contract():
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "contracts"
+        / "atlas-document-v2.json"
+    )
+
+    document = AtlasDocument.load(fixture)
+
+    assert document.schema_version == "2.0"
+    assert [dataset.dataset_id for dataset in document.datasets] == [
+        "GSE100",
+        "GSE200",
+    ]
+    assert document.to_mapping() == json.loads(fixture.read_text(encoding="utf-8"))

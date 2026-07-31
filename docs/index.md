@@ -124,8 +124,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-document
   title: [AtlasDocument v2](codebase.md#type-atlas-document)
   anchor: type-atlas-document
-  purpose: Versioned domain dataclasses, strict validation, deterministic JSON, and cross-reference invariants.
-  keywords: AtlasDocument, schema_version, dataclass, codec, validation, atomic JSON
+  purpose: Versioned domain dataclasses, owner-produced golden fixture, strict validation, deterministic JSON, and cross-reference invariants.
+  keywords: AtlasDocument, schema_version, golden fixture, downstream contract, dataclass, codec, validation, atomic JSON
 
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)

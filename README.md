@@ -239,6 +239,9 @@ Atlas(
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v2 wire
 contract; `document.dump(path)` performs deterministic atomic JSON publication.
+The owner-produced golden wire fixture at
+`tests/fixtures/contracts/atlas-document-v2.json` is the compatibility input
+downstream repositories should copy and consume in their contract tests.
 `AtlasRunStore(path)` creates a normalized `atlas_run.sqlite3` and rejects a
 legacy `resume_state.sqlite` instead of silently converting it.
 
