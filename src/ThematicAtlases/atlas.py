@@ -1,9 +1,10 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import inspect
 from pathlib import Path
+import secrets
 
 from ThematicAtlases.checkpoint import (
     CheckpointStore,
@@ -1416,7 +1417,8 @@ class Atlas:
             return json.load(handle)
 
     def _dev_run_id(self) -> str:
-        return datetime.now().strftime("%Y%m%dT%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        return f"{timestamp}-{secrets.token_hex(4)}"
     @staticmethod
     def archive_existing_runs(
         *,

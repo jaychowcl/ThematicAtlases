@@ -33,7 +33,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Design Invariants And Expectations](codebase.md#design-invariants-and-expectations)
   anchor: design-invariants-and-expectations
   purpose: Atlas v2 validation, state authority, transaction, compatibility, retry, archive, logging, and privacy rules future changes must preserve.
-  keywords: AtlasDocument, schema_version, atlas_run.sqlite3, resume_state.sqlite, rollback, fingerprint, retryable, archive
+  keywords: AtlasDocument, schema_version, atlas_run.sqlite3, run ID, UTC, entropy, rollback, fingerprint, retryable, archive
 
 - id: component-relationships-and-data-flow
   title: [Component Relationships And Data Flow](codebase.md#component-relationships-and-data-flow)

@@ -192,6 +192,8 @@ and [project layout](#project-purpose-and-layout).
   survivors; `stop_before_review` must not create reviewed/final markers.
 - Checkpoint fingerprints protect immutable run inputs. Query amendment is the
   explicit exception and archives the previous fingerprint before replacement.
+- Generated run IDs contain UTC microseconds plus 32 bits of random entropy;
+  they remain lexically time-sortable without second-resolution collisions.
 - Success/no-data and terminal consumed-call outcomes are reusable. Transient
   failures are retryable; one item failure must not discard unrelated successes.
 - Output order and schemas remain stable under bounded parallel harmonization.
@@ -1341,6 +1343,9 @@ Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None, document_adapter=None, artifact_publisher=None)`: wires component instances, one optional shared ontology store, eager-cache policy, query-generation/credential-preflight dependencies, the v2 boundary adapter, and the rollback-safe publisher.
 - `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True)`: optionally generates queries, runs collection/filtering and harmonization, returns Atlas v2, publishes the v2 document and derived summary as one bundle beside `out`, and can write an opt-in trace bundle.
+- `_dev_run_id()` is internal run allocation policy. It returns
+  `YYYYMMDDTHHMMSSffffffZ-xxxxxxxx`, combining UTC microseconds and 32 random
+  bits so trace directories are sortable and collision-resistant.
 - `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
 - `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.

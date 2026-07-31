@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import pytest
 
@@ -183,3 +184,16 @@ def test_traced_collection_publishes_snapshot_role_without_final_role(tmp_path):
     assert not (run_dir / "06_final_atlas.json").exists()
     assert store.artifact("run-collect", "collection_snapshot") is not None
     assert store.artifact("run-collect", "final_atlas") is None
+
+
+def test_generated_run_ids_are_lexically_sortable_and_collision_resistant():
+    atlas = _atlas()
+
+    run_ids = [atlas._dev_run_id() for _ in range(200)]
+
+    assert len(set(run_ids)) == len(run_ids)
+    assert all(
+        re.fullmatch(r"\d{8}T\d{12}Z-[0-9a-f]{8}", run_id)
+        for run_id in run_ids
+    )
+    assert run_ids == sorted(run_ids)

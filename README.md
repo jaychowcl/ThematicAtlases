@@ -330,7 +330,12 @@ Atlas.resume(
 )
 ```
 
-`run_id=None` selects the newest incomplete valid v2 trace. `out` overrides the manifest output. `stop_before_review=True` resumes only the collection snapshot. A trace without authoritative `atlas_run.sqlite3` is incompatible and must be handled explicitly rather than silently migrated.
+`run_id=None` selects the newest incomplete valid v2 trace. New run IDs combine
+UTC microsecond time with random entropy, so concurrently started runs do not
+collide while directory names remain chronologically sortable. `out` overrides
+the manifest output. `stop_before_review=True` resumes only the collection
+snapshot. A trace without authoritative `atlas_run.sqlite3` is incompatible
+and must be handled explicitly rather than silently migrated.
 `retry_stages` requeues complete registered boundaries, `retry_items` maps
 stage names to item IDs, and `retry_degraded_stages` requeues harmonization
 items whose recorded quality status names the selected internal stage.
