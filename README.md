@@ -242,6 +242,7 @@ Atlas.collect_datasets(
     max_generated_queries=3, dev_trace=False,
     dev_out_dir=".dev", run_id=None,
     review_before_metadata=False, stop_before_review=False,
+    scrape_fulltext_accessions=True,
 )
 ```
 
@@ -250,6 +251,7 @@ Atlas.collect_datasets(
 - `metadata_repositories` selects handlers; `collect_metadata=False` skips enrichment. `review_before_metadata=True` reverses review/enrichment ordering and requires a theme.
 - `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
 - `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.
+- `scrape_fulltext_accessions=True` supplements Europe PMC Datalinks with registry accessions discovered in available full text; set it to `False` for Datalinks-only discovery.
 - `out` writes the atlas-shaped return value.
 
 `Atlas.create_atlas(...)` runs collection and then harmonization:
@@ -264,6 +266,7 @@ Atlas.create_atlas(
     dev_out_dir=".dev", harmonization_details_out=None,
     generate_queries=False, max_generated_queries=3,
     harmonization_options=None, review_before_metadata=False,
+    scrape_fulltext_accessions=True,
 )
 ```
 

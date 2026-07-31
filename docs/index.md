@@ -172,14 +172,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-atlas-creation
   title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)
   anchor: workflow-atlas-creation
-  purpose: End-to-end collection, harmonization, output, summary, details, and tracing.
-  keywords: create_atlas, preflight, cache, summary, trace
+  purpose: End-to-end collection, harmonization, nested output, summary, details, and tracing.
+  keywords: create_atlas, preflight, cache, parent directories, summary, trace, offline system test
 
 - id: workflow-harmonization
   title: [Harmonization workflow](codebase.md#workflow-harmonization)
   anchor: workflow-harmonization
-  purpose: Eligible work selection, memoization, ontology calls, fallback, and details.
-  keywords: harmonization, work key, ontology, not_run, degraded, error
+  purpose: Eligible work selection, memoization, adapter controls, checkpoint replay, ontology calls, fallback, and details.
+  keywords: harmonization, work key, ontology, controls, terminal, retryable, not_run, degraded, error
 
 - id: workflow-resume-and-retry
   title: [Resume and retry workflow](codebase.md#workflow-resume-and-retry)
