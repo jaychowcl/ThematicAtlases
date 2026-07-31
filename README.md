@@ -23,7 +23,7 @@ For development and tests, include the development dependency group:
 
 ```bash
 .env/bin/python -m pip install -e ".[dev]"
-.env/bin/python -m pytest
+.env/bin/python -m pytest -q
 ```
 
 The editable install provides the `thematic-atlas` console command. The equivalent module entrypoint is `.env/bin/python -m ThematicAtlases.cli_atlas`.
