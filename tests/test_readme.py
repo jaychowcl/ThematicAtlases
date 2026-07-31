@@ -1,5 +1,11 @@
+import argparse
+import inspect
 import re
 from pathlib import Path
+
+from ThematicAtlases.atlas import Atlas
+from ThematicAtlases.cli_atlas import _build_parser
+from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,28 +90,61 @@ def test_configuration_documents_real_sources_and_credentials() -> None:
 
 def test_cli_guide_lists_every_registered_command_and_option() -> None:
     text = README.read_text(encoding="utf-8")
-    options = set(re.findall(r'add_argument\("(--[a-z-]+)"', (ROOT / "src" / "ThematicAtlases" / "cli_atlas.py").read_text(encoding="utf-8")))
+    parser = _build_parser()
+    subparsers = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    )
     cli_guide = text.split("### CLI guide", 1)[1].split(
         "### Python API guide", 1
     )[0]
 
-    for command in (
+    assert set(subparsers.choices) == {
         "collect-datasets",
         "create-atlas",
         "harmonize-datasets",
         "resume",
-    ):
+    }
+    for command, command_parser in subparsers.choices.items():
         assert command in cli_guide
-    for option in options:
-        assert re.search(rf"`{re.escape(option)}(?:`|\s)", cli_guide)
+        options = {
+            option
+            for action in command_parser._actions
+            for option in action.option_strings
+            if option.startswith("--") and option != "--help"
+        }
+        for option in options:
+            assert re.search(rf"`{re.escape(option)}(?:`|\s)", cli_guide)
     assert "`-v`, `--verbose`" in text
 
 
-def test_python_guide_covers_public_workflow_methods_and_specialists() -> None:
+def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
     text = README.read_text(encoding="utf-8")
     python_guide = text.split("### Python API guide", 1)[1].split(
         "### Workflow scripts", 1
     )[0]
+
+    assert list(inspect.signature(Atlas.collect_datasets).parameters) == [
+        "self", "query", "file", "out", "theme", "review_filter",
+        "review_strategy", "metadata_repositories", "max_publications",
+        "max_publications_per_query", "reviewer", "collect_metadata",
+        "generate_queries", "max_generated_queries", "dev_trace", "dev_out_dir",
+        "run_id", "review_before_metadata", "stop_before_review",
+        "scrape_fulltext_accessions", "_trace_writer",
+    ]
+    assert list(inspect.signature(Atlas.create_atlas).parameters)[-3:] == [
+        "harmonization_options",
+        "review_before_metadata",
+        "scrape_fulltext_accessions",
+    ]
+    assert list(inspect.signature(Atlas.harmonize_datasets).parameters) == [
+        "self", "datasets", "harmonization_details_out", "harmonization_options"
+    ]
+    assert list(inspect.signature(EuropePMCWrapper.collect_accessions).parameters)[-1] == (
+        "scrape_fulltext_accessions"
+    )
+    assert python_guide.count("scrape_fulltext_accessions=True") >= 2
 
     required_symbols = [
         "`Atlas(...)`",

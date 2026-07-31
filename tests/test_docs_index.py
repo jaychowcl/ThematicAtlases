@@ -1,3 +1,4 @@
+import ast
 import re
 from pathlib import Path
 
@@ -266,3 +267,29 @@ def test_docs_correct_known_runtime_claims_and_layout() -> None:
         "credentials.py",
     ):
         assert path in text
+
+
+def test_harmonize_datasets_documentation_matches_ast_call_flow() -> None:
+    source = (ROOT / "src" / "ThematicAtlases" / "atlas.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    atlas_class = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Atlas"
+    )
+    method = next(
+        node
+        for node in atlas_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "harmonize_datasets"
+    )
+    calls = {
+        ast.unparse(node.func)
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call)
+    }
+
+    assert "self._harmonizer.harmonize_datasets" in calls
+    assert all(not call.endswith(".harmonize_jsons") for call in calls)
+    workflow = CODEBASE.read_text(encoding="utf-8").split(
+        '<a id="workflow-harmonization"></a>', 1
+    )[1].split('<a id="workflow-resume-and-retry"></a>', 1)[0]
+    assert "AtlasHarmonizer.harmonize_datasets" in workflow
+    assert "AtlasHarmonizer.harmonize_jsons" not in workflow
