@@ -82,20 +82,26 @@ class DirectReviewer:
         )
         assessment = {
             "accession": "GSE2",
-            "human_samples": {
-                "status": "fails",
-                "evidence": "The publication identifies GSE2 as mouse-only.",
-            },
-            "transcriptomics_assay": {"status": "meets", "evidence": "RNA-seq."},
-            "established_fibrosis": {"status": "meets", "evidence": "Fibrosis."},
-            "accession_linkage": {"status": "meets", "evidence": "Names GSE2."},
+            "criteria": [
+                {
+                    "criterion_id": "theme_condition",
+                    "status": "fails",
+                    "evidence": "The accession does not satisfy the theme.",
+                }
+            ],
             "confidence": "high",
             "reason": "Mouse-only dataset.",
             "decision": "exclude",
         }
         return {
+            "criteria": [
+                {
+                    "id": "theme_condition",
+                    "description": "The accession satisfies the supplied theme.",
+                }
+            ],
             "judgement": "relevant",
-            "reasoning": "GSE1 contains human fibrosis samples.",
+            "reasoning": "The model found a relevant accession.",
             "confidence": "high",
             "accessions_to_remove": [
                 {
@@ -105,7 +111,7 @@ class DirectReviewer:
                 }
             ],
             "accession_assessments": [assessment],
-            "review_revision": 2,
+            "review_revision": 3,
             "strategy": strategy,
         }
 
@@ -582,8 +588,15 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
     )
 
     trace = texts["1"]["agentic_curator"]
-    assert trace["review_revision"] == 2
+    assert trace["review_revision"] == 3
+    assert trace["criteria"] == [
+        {
+            "id": "theme_condition",
+            "description": "The accession satisfies the supplied theme.",
+        }
+    ]
     assert trace["accession_assessments"][0]["decision"] == "exclude"
+    assert trace["raw_review"]["criteria"] == trace["criteria"]
     assert trace["accessions_to_remove"] == [
         {
             "accession": "GSE2",
@@ -600,7 +613,7 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
 
 
 def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
-    assert REVIEW_CONTRACT_VERSION == 4
+    assert REVIEW_CONTRACT_VERSION == 5
 
 
 def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(
