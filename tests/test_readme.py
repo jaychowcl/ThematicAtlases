@@ -91,6 +91,7 @@ def test_configuration_documents_real_sources_and_credentials() -> None:
 def test_cli_guide_lists_every_registered_command_and_option() -> None:
     text = README.read_text(encoding="utf-8")
     parser = _build_parser()
+    assert "placeholder" not in parser.format_help().lower()
     subparsers = next(
         action
         for action in parser._actions
@@ -106,6 +107,9 @@ def test_cli_guide_lists_every_registered_command_and_option() -> None:
         "harmonize-datasets",
         "resume",
     }
+    assert "placeholder" not in subparsers.choices[
+        "harmonize-datasets"
+    ].format_help().lower()
     for command, command_parser in subparsers.choices.items():
         assert command in cli_guide
         options = {
