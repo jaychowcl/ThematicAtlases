@@ -119,7 +119,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Central Atlas document and run authority](codebase.md#decision-central-atlas-document)
   anchor: decision-central-atlas-document
   purpose: Observed Atlas v2 public-boundary, normalized lifecycle authority, and fail-closed compatibility decision.
-  keywords: AD-006, AtlasDocument, AtlasDocumentAdapter, atlas_run.sqlite3, resume_state.sqlite, v1, v2
+  keywords: AD-006, AtlasDocument, AtlasDocumentAdapter, atlas_run.sqlite3, single database, v1, v2
 
 - id: type-atlas
   title: [Atlas orchestrator](codebase.md#type-atlas)

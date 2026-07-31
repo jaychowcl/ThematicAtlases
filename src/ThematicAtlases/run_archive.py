@@ -141,7 +141,7 @@ def _archive_one(
     artifacts: list[Path],
 ) -> None:
     if source is not None:
-        _prepare_checkpoint_database(source / "resume_state.sqlite")
+        _prepare_checkpoint_database(source / "atlas_run.sqlite3")
         _reject_symlinks(source)
 
     staging = destination.with_name(f".{destination.name}.tmp-{uuid.uuid4().hex}")

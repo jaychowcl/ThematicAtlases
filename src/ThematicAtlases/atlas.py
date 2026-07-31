@@ -7,7 +7,6 @@ from pathlib import Path
 import secrets
 
 from ThematicAtlases.checkpoint import (
-    CheckpointStore,
     failure_category,
     is_retryable_error,
 )
@@ -128,7 +127,7 @@ class Atlas:
                     "atlas_out": out,
                     "artifacts": [
                         "00_run_manifest.json",
-                        "resume_state.sqlite",
+                        "atlas_run.sqlite3",
                         "01_collected_accessions.json",
                         "02_reviewed_datasets.json",
                         "03_pre_harmonization_accession_metadata.json",
@@ -780,7 +779,7 @@ class Atlas:
                     "atlas_out": out,
                     "artifacts": [
                         "00_run_manifest.json",
-                        "resume_state.sqlite",
+                        "atlas_run.sqlite3",
                         "01_collected_accessions.json",
                         "resume_publication_collection.json",
                         "resume_publication_collection.summary.json",
@@ -1398,10 +1397,13 @@ class Atlas:
             if not run_dir.is_dir() or not manifest_path.exists():
                 continue
             if final_path.exists():
-                state_path = run_dir / "resume_state.sqlite"
-                if not state_path.exists() or not CheckpointStore(
-                    state_path
-                ).has_retryable():
+                try:
+                    checkpoint_store = DevTraceWriter.existing(
+                        run_dir
+                    ).checkpoint_store
+                except (OSError, ValueError):
+                    continue
+                if not checkpoint_store.has_retryable():
                     continue
             try:
                 self._read_checkpoint(manifest_path)

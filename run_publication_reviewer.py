@@ -49,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "trace_dir",
         type=Path,
-        help="run directory containing 00_run_manifest.json and resume_state.sqlite",
+        help="run directory containing 00_run_manifest.json and atlas_run.sqlite3",
     )
     parser.add_argument(
         "--theme-file",

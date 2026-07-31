@@ -161,8 +161,8 @@ and [project layout](#project-purpose-and-layout).
 - **Status:** Observed
 - **Decision:** Every public collection, creation, harmonization, and resume
   result crosses the boundary as a validated `AtlasDocument` v2 mapping. New
-  traces use `atlas_run.sqlite3` as lifecycle/artifact authority; legacy stage
-  maps and `resume_state.sqlite` remain internal implementation details.
+  traces use one `atlas_run.sqlite3` for lifecycle, artifacts, work results,
+  attempts, retry metadata, and events; legacy stage maps remain internal.
 - **Rationale:** Not documented.
 - **Consequences:** Consumers receive one strict, extensible contract and can
   distinguish artifact roles, while incompatible v1 inputs/traces fail closed.
@@ -201,9 +201,10 @@ and [project layout](#project-purpose-and-layout).
 - Related public Atlas/summary JSON is staged, parsed, and published as one
   rollback-safe bundle. A first-run failure leaves no final artifact; an
   overwrite failure restores the entire prior bundle.
-- `atlas_run.sqlite3` is authoritative for run, stage, artifact-role, and event
-  state. `resume_state.sqlite` is only the internal work-result/retry cache.
-  Resume does not infer or silently migrate missing v2 lifecycle state.
+- `atlas_run.sqlite3` is the sole Atlas-run database for run, stage,
+  artifact-role, event, item-result, and retry state. Resume does not infer or
+  silently migrate missing v2 lifecycle state from a legacy
+  `resume_state.sqlite`.
 - Whole-run archival requires an exclusive activity lock, rejects symlinks and
   collisions, verifies copied content, and publishes before deleting sources.
 - Library modules do not configure global logging. No credential, prompt,
@@ -250,9 +251,8 @@ validation when they modify a trace.
   `run_reference_publication_recall.py`, and `run_reference_set_review.py`.
   These are supported scripts, not additional installed console commands.
 - **Files:** queries/theme text and Atlas v2/reference JSON are inputs. Atlas v2
-  JSON, summaries, details, benchmark reports, logs, readable trace JSON,
-  authoritative `atlas_run.sqlite3`, and internal `resume_state.sqlite` item
-  checkpoints are outputs.
+  JSON, summaries, details, benchmark reports, logs, readable trace JSON, and
+  the single authoritative `atlas_run.sqlite3` are outputs.
 
 The CLI is a thin adapter: it constructs `Atlas(metadata={})`, translates
 hyphenated review filter values, resolves logging precedence, and forwards
@@ -1031,10 +1031,10 @@ and [`run_reference_review`](../run_reference_set_review.py).
   strict codec, adapter, owner golden fixture, downstream copied fixtures, and
   docs together. Do not assemble public JSON in stage components or add
   unversioned top-level fragments.
-- Change trace schemas through explicit schema versions/migrations. Keep
-  `atlas_run.sqlite3` authoritative, `resume_state.sqlite` internal, artifact
-  paths run-relative, and role/path conflicts fail-closed. Do not infer v2
-  lifecycle state from legacy JSON filenames.
+- Change trace schemas through explicit schema versions/migrations. Keep one
+  `atlas_run.sqlite3`, artifact paths run-relative, and role/path conflicts
+  fail-closed. Do not infer v2 lifecycle state from legacy JSON filenames or a
+  separate `resume_state.sqlite`.
 - Publish related JSON through `JsonArtifactBundlePublisher`; add fault
   injection for every new bundle boundary so first-run cleanup and overwrite
   restoration remain proven.
@@ -1363,10 +1363,11 @@ When `create_atlas(out="atlas.json")` succeeds, it also writes
 `atlas.summary.json` with schema/run/atlas identity and dataset/publication/
 completed/failed counts. Both files are one rollback-safe publication bundle.
 With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run
-directory under `dev_out_dir` containing authoritative `atlas_run.sqlite3`,
-internal `resume_state.sqlite`, a manifest, and readable stage artifacts. Full
-atlas traces register final/details/summary roles; collection traces register a
-separate snapshot role. `CheckpointStore` uses WAL mode, full synchronous
+directory under `dev_out_dir` containing one authoritative
+`atlas_run.sqlite3`, a manifest, and readable stage artifacts. The mature
+`CheckpointStore` item/retry API is bound to that same database. Full atlas
+traces register final/details/summary roles; collection traces register a
+separate snapshot role. SQLite uses WAL mode, full synchronous
 commits, a configuration fingerprint, and one row per stage/item. Statuses
 distinguish reusable success/no-data outcomes, non-retryable consumed-call
 failures, and transient failures that should be attempted again.

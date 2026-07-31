@@ -91,7 +91,7 @@ def test_resume_retries_only_selected_harmonization_item(tmp_path) -> None:
             }
 
     harmonizer = AtlasHarmonizer(ontology_harmonizer=RecordingOntology())
-    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     work_keys = []
     for ordinal, record in enumerate(datasets["accessions"], start=1):
         key = harmonizer._work_key(record["accession_metadata"], None, {})
@@ -118,7 +118,7 @@ def test_invalid_retry_selection_is_atomic(tmp_path) -> None:
     run_dir = _run_dir(tmp_path, {"atlas_out": None, "theme": None})
     final_path = run_dir / "06_final_atlas.json"
     final_path.write_text(json.dumps(final, indent=2), encoding="utf-8")
-    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     for ordinal, key in enumerate(("one", "two"), start=1):
         store.put(
             "harmonization",

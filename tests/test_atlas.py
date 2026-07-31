@@ -202,7 +202,7 @@ def test_generated_queries_are_checkpointed(tmp_path) -> None:
     )
 
     store = CheckpointStore(
-        tmp_path / "query-checkpoint" / "resume_state.sqlite"
+        tmp_path / "query-checkpoint" / "atlas_run.sqlite3"
     )
     items = store.items("query_generation")
     assert len(items) == 1
@@ -583,8 +583,7 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
         "05_post_harmonization_accession_metadata.json",
             "06_final_atlas.json",
             "07_summary.json",
-            "atlas_run.sqlite3",
-            "resume_state.sqlite",
+                "atlas_run.sqlite3",
         ]
     document = AtlasDocument.load(run_dir / "06_final_atlas.json")
     assert [item.dataset_id for item in document.datasets] == ["GSE1"]
@@ -705,7 +704,8 @@ def test_collect_datasets_can_own_resumable_discovery_trace(tmp_path) -> None:
     run_dir = tmp_path / "discovery-run"
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["command"] == "collect-datasets"
-    assert (run_dir / "resume_state.sqlite").exists()
+    assert (run_dir / "atlas_run.sqlite3").exists()
+    assert not (run_dir / "resume_state.sqlite").exists()
     assert json.loads((run_dir / "collection_snapshot.json").read_text()) == result
     assert not (run_dir / "06_final_atlas.json").exists()
 
@@ -882,7 +882,7 @@ def test_resume_retries_harmonization_marked_retryable_in_sqlite(tmp_path) -> No
     (run_dir / "resume_harmonized_datasets.json").write_text(
         json.dumps({**datasets, "stale": True}), encoding="utf-8"
     )
-    CheckpointStore(run_dir / "resume_state.sqlite").put(
+    CheckpointStore(run_dir / "atlas_run.sqlite3").put(
         "harmonization",
         "work-key",
         1,
@@ -938,7 +938,7 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
     (run_dir / "06_final_atlas.json").write_text(
         json.dumps(stale), encoding="utf-8"
     )
-    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     store.put(
         "geo_metadata",
         "GSE1",
@@ -991,7 +991,7 @@ def test_resume_ignores_final_output_for_retryable_enrichment_stage(tmp_path, st
     initialize_run_store(run_dir)
     (run_dir / "06_final_atlas.json").write_text(json.dumps({"accessions": [{"final": True}]}))
     (run_dir / "01_collected_accessions.json").write_text(json.dumps({"accessions": []}))
-    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     store.put(stage, "item", 1, "retryable_error", error="timeout")
 
     class RecordingCollector:
@@ -1153,7 +1153,7 @@ def test_resume_can_override_old_trace_to_stop_before_review(tmp_path) -> None:
         encoding="utf-8",
     )
     initialize_run_store(run_dir)
-    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     store.put(
         "thematic_review",
         "direct:1",

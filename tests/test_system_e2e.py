@@ -145,11 +145,10 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
         "06_final_atlas.json",
         "07_summary.json",
         "atlas_run.sqlite3",
+        "atlas_run.sqlite3.locks",
         "resume_review_progress.json",
-        "resume_state.sqlite",
-        "resume_state.sqlite.locks",
     }
-    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     assert [item["status"] for item in store.items("thematic_review")] == ["available"]
     assert [item["status"] for item in store.items("harmonization")] == ["available"]
     assert FakeCredentials.calls == 1

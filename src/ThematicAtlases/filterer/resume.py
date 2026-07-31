@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.trace import DevTraceWriter
@@ -42,7 +41,7 @@ class TracePublicationReviewResumer:
             manifest=manifest,
             allow_theme_override=allow_theme_override,
         )
-        store = CheckpointStore(directory / "resume_state.sqlite")
+        store = DevTraceWriter.existing(directory).checkpoint_store
 
         datalink_rows = [
             row

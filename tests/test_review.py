@@ -12,6 +12,7 @@ from ThematicAtlases.filterer.review import (
 from ThematicAtlases.filterer import review as review_module
 from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.run_store import AtlasRunStore
 
 
 class FakeReviewer:
@@ -136,7 +137,17 @@ def traced_publication(
             ),
             encoding="utf-8",
         )
-    store = CheckpointStore(trace_dir / "resume_state.sqlite")
+    state_path = trace_dir / "atlas_run.sqlite3"
+    if not state_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        run_store = AtlasRunStore(state_path)
+        run_store.create_run(
+            trace_dir.name,
+            f"atlas-{trace_dir.name}",
+            "2.0",
+            manifest,
+        )
+    store = CheckpointStore(state_path)
     ordinal = len(store.items("datalinks")) + 1
     publication = {
         "query": "fibrosis",

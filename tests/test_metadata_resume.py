@@ -2,6 +2,7 @@ import json
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.collector.resume import TraceMetadataResumer
+from ThematicAtlases.run_store import AtlasRunStore
 
 
 class FakeEPMC:
@@ -32,8 +33,22 @@ class FakeCollector:
         ]
 
 
+def _checkpoint_store(trace_dir):
+    path = trace_dir / "atlas_run.sqlite3"
+    if not path.exists():
+        manifest = json.loads((trace_dir / "00_run_manifest.json").read_text())
+        run_store = AtlasRunStore(path)
+        run_store.create_run(
+            trace_dir.name,
+            f"atlas-{trace_dir.name}",
+            "2.0",
+            manifest,
+        )
+    return CheckpointStore(path)
+
+
 def _checkpoint_publication(trace_dir, epmc_id, datalink_id):
-    store = CheckpointStore(trace_dir / "resume_state.sqlite")
+    store = _checkpoint_store(trace_dir)
     store.put(
         "datalinks",
         f"MED:{epmc_id}",
@@ -82,7 +97,7 @@ def test_metadata_audit_writes_report_and_template_without_collecting(tmp_path) 
     trace_dir = tmp_path / "trace"
     trace_dir.mkdir()
     (trace_dir / "00_run_manifest.json").write_text("{}", encoding="utf-8")
-    store = CheckpointStore(trace_dir / "resume_state.sqlite")
+    store = _checkpoint_store(trace_dir)
     store.put(
         "geo_metadata",
         "GSE1",

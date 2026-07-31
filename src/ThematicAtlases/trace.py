@@ -38,8 +38,9 @@ class DevTraceWriter:
     @property
     def checkpoint_store(self) -> CheckpointStore:
         if self._checkpoint_store is None:
+            _ = self.run_store
             self._checkpoint_store = CheckpointStore(
-                self.directory / "resume_state.sqlite"
+                self.directory / "atlas_run.sqlite3"
             )
         return self._checkpoint_store
 

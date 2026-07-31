@@ -33,6 +33,27 @@ def test_new_trace_initializes_authoritative_v2_run_store_and_registers_artifact
     assert artifact["size_bytes"] == len(content)
 
 
+def test_new_trace_keeps_item_checkpoints_in_the_single_run_database(tmp_path):
+    trace = DevTraceWriter(
+        root=str(tmp_path),
+        run_id="run-1",
+        manifest={"command": "create-atlas", "atlas_id": "atlas-1"},
+    )
+
+    trace.checkpoint_store.put(
+        "search_queries",
+        "lung",
+        0,
+        "available",
+        payload={"rows": []},
+    )
+
+    assert not (trace.directory / "resume_state.sqlite").exists()
+    assert DevTraceWriter.existing(trace.directory).checkpoint_store.get(
+        "search_queries", "lung"
+    )["payload"] == {"rows": []}
+
+
 def test_existing_trace_requires_an_initialized_v2_run_store(tmp_path):
     directory = tmp_path / "legacy"
     directory.mkdir()

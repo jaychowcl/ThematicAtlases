@@ -33,7 +33,7 @@ class TraceMetadataResumer:
     ) -> dict:
         directory = Path(trace_dir)
         manifest = self._read_manifest(directory)
-        store = CheckpointStore(directory / "resume_state.sqlite")
+        store = DevTraceWriter.existing(directory).checkpoint_store
         if audit_enrichment_only:
             return self._audit_enrichment(directory, store)
         tags = load_retry_tags(retry_tags) if retry_tags is not None else None

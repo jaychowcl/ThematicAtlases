@@ -115,8 +115,9 @@ Depending on the workflow, additional outputs include:
 
 - `atlas.summary.json`, written beside a successful `create-atlas --out atlas.json` result.
 - A harmonization-details JSON sidecar when requested.
-- Timestamped trace artifacts, authoritative `atlas_run.sqlite3`, and the
-  internal item-result cache `resume_state.sqlite` when tracing is enabled.
+- Timestamped trace artifacts and one `atlas_run.sqlite3` when tracing is
+  enabled. Lifecycle, artifact roles, item results, retry history, and run
+  metadata share that database and its transaction/checkpoint policy.
 - Incremental review and metadata snapshots for standalone workers.
 - Reference-publication recall and reference-review reports under `.out/`.
 
@@ -257,8 +258,10 @@ The owner-produced golden wire fixture at
 downstream repositories should copy and consume in their contract tests.
 `AtlasRunStore(path)` creates a normalized `atlas_run.sqlite3` and rejects a
 legacy `resume_state.sqlite` instead of silently converting it. New traced
-runs always create both stores: the run store owns lifecycle/stages/artifact
-roles/events; the checkpoint store remains an internal per-item result cache.
+runs create only `atlas_run.sqlite3`; `DevTraceWriter.checkpoint_store` binds
+the mature item/retry API to that same database, so lifecycle and work cannot
+drift across two files. The standalone reference-review runner is not an Atlas
+run and retains its own local checkpoint database.
 
 `Atlas.collect_datasets(...)` runs discovery, metadata routing, text collection, and optional review:
 
@@ -451,8 +454,7 @@ CLI or Python input
   -> AtlasDocumentAdapter -> validated AtlasDocument v2
   -> JsonArtifactBundlePublisher -> Atlas JSON + derived summary/details
   -> optional readable trace artifacts
-     + atlas_run.sqlite3 (lifecycle/artifact authority)
-     + resume_state.sqlite (internal item-result cache)
+     + atlas_run.sqlite3 (lifecycle, artifacts, item results, retries)
 ```
 
 The [Atlas orchestrator](docs/codebase.md#orchestrators-and-core-types) owns

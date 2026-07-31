@@ -58,7 +58,7 @@ def test_archive_existing_runs_moves_all_traces_and_latest_artifacts(tmp_path) -
     assert not output.exists()
     assert not summary.exists()
     assert not log.exists()
-    assert (archived[0] / "resume_state.sqlite").exists()
+    assert (archived[0] / "atlas_run.sqlite3").exists()
     assert not (archived[0] / "artifacts").exists()
     assert (archived[1] / "artifacts" / output.name).read_text() == '{"accessions": []}'
     archive_manifest = json.loads(
@@ -207,7 +207,7 @@ def test_archive_rejects_duplicate_artifact_basenames_without_publishing(tmp_pat
 def test_archive_rejects_corrupt_sqlite_without_publishing(tmp_path) -> None:
     active = tmp_path / "active"
     source = _trace(active, "run-1", tmp_path / "out.json")
-    (source / "resume_state.sqlite").write_bytes(b"not a sqlite database")
+    (source / "atlas_run.sqlite3").write_bytes(b"not a sqlite database")
 
     with pytest.raises(sqlite3.DatabaseError, match="database|encrypted"):
         Atlas.archive_existing_runs(
