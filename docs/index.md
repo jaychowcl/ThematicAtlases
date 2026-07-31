@@ -148,8 +148,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-document-adapter
   title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
   anchor: type-atlas-document-adapter
-  purpose: Internal anti-corruption boundary between mature stage mappings and the strict Atlas v2 aggregate.
-  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, publication_texts, v2 projection
+  purpose: Internal anti-corruption boundary for strict Atlas v2 projection, evidence envelopes, and provider harmonization targets.
+  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, publication_texts, evidence, pre_hz, ontology_lookup, v2 projection
 
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
@@ -208,8 +208,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
   anchor: workflow-collection
-  purpose: Query validation through discovery, metadata routing, text mapping, review, and atlas output.
-  keywords: collection, query, datalink, metadata, review, empty result
+  purpose: Query validation and resolution through discovery, metadata routing, text mapping, review, provenance, and atlas output.
+  keywords: collection, query, resolved_queries, provenance, datalink, metadata, review, empty result
 
 - id: workflow-atlas-creation
   title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)

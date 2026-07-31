@@ -346,8 +346,13 @@ class AtlasDocumentAdapter:
             confidence=self._optional_text(value.get("confidence")),
             evidence=reasoning,
         )
+        raw_evidence = value.get("evidences", []) or []
+        if isinstance(raw_evidence, Mapping):
+            raw_evidence = raw_evidence.get("evidences", [])
+        if not isinstance(raw_evidence, (list, tuple)):
+            raw_evidence = []
         evidence = []
-        for item in value.get("evidences", []) or []:
+        for item in raw_evidence:
             evidence.append(dict(item) if isinstance(item, Mapping) else {"text": str(item)})
         return PublicationReview(
             judgement=Judgement(normalized),
@@ -364,11 +369,21 @@ class AtlasDocumentAdapter:
         for raw in details.get("harmonization_targets", []) or []:
             if not isinstance(raw, Mapping):
                 continue
-            path = str(raw.get("path") or raw.get("json_path") or "").strip()
+            path = str(
+                raw.get("path")
+                or raw.get("json_path")
+                or raw.get("pre_hz_label_path")
+                or raw.get("pre_hz_field_path")
+                or ""
+            ).strip()
             if not path:
                 continue
             raw_value = str(
-                raw.get("raw_value") or raw.get("value") or raw.get("label") or path
+                raw.get("raw_value")
+                or raw.get("pre_hz_label")
+                or raw.get("value")
+                or raw.get("label")
+                or path
             )
             match = self._ontology_match(raw.get("match") or raw)
             targets.append(
@@ -383,16 +398,40 @@ class AtlasDocumentAdapter:
     def _ontology_match(value: Any) -> OntologyMatch | None:
         if not isinstance(value, Mapping):
             return None
-        label = value.get("matched_label") or value.get("label")
-        accession = value.get("matched_accession") or value.get("accession")
-        framework = value.get("framework") or value.get("ontology")
+        if value.get("ontology_match") is False:
+            return None
+        lookup = value.get("ontology_lookup")
+        source = lookup if isinstance(lookup, Mapping) else value
+        label = (
+            source.get("title")
+            or source.get("matched_label")
+            or source.get("label")
+            or value.get("hz_label")
+        )
+        accession = (
+            source.get("accession")
+            or source.get("id")
+            or source.get("matched_accession")
+            or value.get("ontology_term_id")
+        )
+        framework = (
+            source.get("ontology_id")
+            or source.get("framework")
+            or source.get("ontology")
+            or value.get("ontology_id")
+        )
         if not all((label, accession, framework)):
             return None
+        confidence = source.get("confidence") or value.get("confidence")
+        if confidence is None:
+            judgement = value.get("ontology_ols_result")
+            if isinstance(judgement, Mapping):
+                confidence = judgement.get("confidence")
         return OntologyMatch(
             label=str(label),
             accession=str(accession),
             framework=str(framework),
-            confidence=AtlasDocumentAdapter._optional_text(value.get("confidence")),
+            confidence=AtlasDocumentAdapter._optional_text(confidence),
         )
 
     @staticmethod

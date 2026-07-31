@@ -303,8 +303,12 @@ and [fixed-runner workflow](#workflow-fixed-runners).
   internal anti-corruption layer between mature `accessions` /
   `publication_texts` stage mappings and strict `AtlasDocument` values. It
   centralizes identity/status/review/diagnostic projection instead of
-  scattering final JSON assembly across stages. If the caller omits a theme,
-  it derives one from Atlas metadata, the first nonblank query, or the title.
+  scattering final JSON assembly across stages. It unwraps Agentic Curator's
+  structured evidence envelope while retaining flat-list compatibility, and
+  projects provider `pre_hz_*`/`ontology_lookup` targets into canonical Atlas
+  paths, raw values, and optional ontology matches. If the caller omits a
+  theme, it derives one from Atlas metadata, the first nonblank query, or the
+  title.
 <a id="type-atlas-document"></a>
 - [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v2
   exchange model. Frozen standard-library dataclasses and string enums own
@@ -598,7 +602,9 @@ queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
 
 1. `Atlas.collect_datasets` validates and orders query sources.
 2. Optional generated queries follow explicit and file queries; credential or
-   generation failure terminates before discovery.
+   generation failure terminates before discovery. The resolved sequence is
+   the authoritative `run.config.queries` value and is checkpointed so trace
+   publication and resume preserve the queries actually sent to discovery.
 3. `AtlasCollector.collect_jsons` calls Europe PMC Datalinks and, by default,
    scans every available `fullTextXML` response with the deterministic
    accession registry. It merges case-insensitive IDs with provenance before
@@ -720,8 +726,11 @@ dataset -> eligible? -- no --> not_run/original
 5. Unique eligible work calls the delegated ontology harmonizer, serially or
    with bounded workers.
 6. Results and details are memoized/checkpointed; caught item failures remain
-   local and retain original metadata. The adapter assembles and validates the
-   returned v2 document. Requested details-file errors propagate.
+   local and retain original metadata. The adapter retains every provider
+   target that has a usable metadata path, including unmatched targets, and
+   attaches an ontology match only when the provider supplied a complete
+   label/accession/framework identity. It then validates the returned v2
+   document. Requested details-file errors propagate.
 
 #### Pseudocode
 

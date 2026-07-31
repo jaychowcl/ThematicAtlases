@@ -157,6 +157,7 @@ class Atlas:
             trace.run_store.set_run_status(run_id, "running")
             trace.run_store.set_stage_state(run_id, "collection", "running")
         logger.info("Atlas create_atlas progress stage=collect-datasets")
+        collection_resolution: dict[str, list[str]] = {}
         collect_kwargs = dict(
             query=query,
             file=file,
@@ -172,6 +173,7 @@ class Atlas:
             max_generated_queries=max_generated_queries,
             review_before_metadata=review_before_metadata,
             scrape_fulltext_accessions=scrape_fulltext_accessions,
+            _resolution=collection_resolution,
         )
         if max_publications_per_query is not None:
             collect_kwargs["max_publications_per_query"] = (
@@ -232,7 +234,7 @@ class Atlas:
             created_at=run_id,
             theme=theme or "",
             config={
-                "queries": list(query or ()),
+                "queries": collection_resolution.get("queries", list(query or ())),
                 "metadata_repositories": list(metadata_repositories or ()),
                 "query_file": file,
                 "review_filter": review_filter,
@@ -666,6 +668,7 @@ class Atlas:
             if _trace_writer is not None
             else self._dev_run_id()
         )
+        collection_resolution: dict[str, list[str]] = {}
         legacy = self._collect_datasets_legacy(
             query=query,
             file=file,
@@ -688,6 +691,7 @@ class Atlas:
             scrape_fulltext_accessions=scrape_fulltext_accessions,
             _trace_writer=_trace_writer,
             _finalize_trace=False,
+            _resolution=collection_resolution,
         )
         document = self._documents.assemble(
             legacy,
@@ -696,7 +700,7 @@ class Atlas:
             created_at=effective_run_id,
             theme=theme or "",
             config={
-                "queries": list(query or ()),
+                "queries": collection_resolution.get("queries", list(query or ())),
                 "metadata_repositories": list(metadata_repositories or ()),
                 "query_file": file,
                 "review_filter": review_filter,
@@ -759,6 +763,7 @@ class Atlas:
         scrape_fulltext_accessions: bool = True,
         _trace_writer: DevTraceWriter | None = None,
         _finalize_trace: bool = True,
+        _resolution: dict[str, list[str]] | None = None,
     ) -> dict:
         if review_before_metadata and theme is None:
             raise ValueError("review_before_metadata requires a theme")
@@ -893,6 +898,8 @@ class Atlas:
             if checkpoint_store is not None:
                 checkpoint_store.set_meta("resolved_queries", query)
             file = None
+        if _resolution is not None:
+            _resolution["queries"] = list(query or ())
         if checkpoint_store is not None:
             fingerprint_configuration = {
                 "query": query,
@@ -1212,11 +1219,13 @@ class Atlas:
         """Run collection in the stage shape while honoring test/integration subclasses."""
         if type(self).collect_datasets is Atlas.collect_datasets:
             return self._collect_datasets_legacy(**options)
+        resolution = options.pop("_resolution", None)
         result = self.collect_datasets(**options)
         if isinstance(result, dict) and result.get("schema_version") == "2.0":
-            return self._documents.to_legacy(
-                AtlasDocument.from_mapping(result)
-            )
+            document = AtlasDocument.from_mapping(result)
+            if resolution is not None:
+                resolution["queries"] = list(document.run.config.queries)
+            return self._documents.to_legacy(document)
         return result
 
     def _harmonize_for_internal(
@@ -1307,7 +1316,11 @@ class Atlas:
                 ),
                 theme=str(manifest.get("theme") or ""),
                 config={
-                    "queries": list(manifest.get("query") or ()),
+                    "queries": list(
+                        trace.checkpoint_store.get_meta("resolved_queries")
+                        or manifest.get("query")
+                        or ()
+                    ),
                     "metadata_repositories": list(
                         manifest.get("metadata_repositories") or ()
                     ),
