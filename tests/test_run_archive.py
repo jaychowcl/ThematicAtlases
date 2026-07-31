@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -208,7 +209,7 @@ def test_archive_rejects_corrupt_sqlite_without_publishing(tmp_path) -> None:
     source = _trace(active, "run-1", tmp_path / "out.json")
     (source / "resume_state.sqlite").write_bytes(b"not a sqlite database")
 
-    with pytest.raises(Exception, match="database|encrypted"):
+    with pytest.raises(sqlite3.DatabaseError, match="database|encrypted"):
         Atlas.archive_existing_runs(
             dev_out_dir=active,
             archive_root=tmp_path / "archive",

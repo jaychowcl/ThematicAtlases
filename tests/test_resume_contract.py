@@ -108,17 +108,58 @@ def test_resume_retries_only_selected_harmonization_item(tmp_path) -> None:
 
 
 def test_invalid_retry_selection_is_atomic(tmp_path) -> None:
-    store = CheckpointStore(tmp_path / "resume.sqlite")
-    store.put("harmonization", "one", 1, "terminal_error", error="bad one")
-    store.put("harmonization", "two", 2, "terminal_error", error="bad two")
+    final = {"accessions": [{"datalink_id": "GSE-final"}], "publication_texts": {}}
+    run_dir = _run_dir(tmp_path, {"atlas_out": None, "theme": None})
+    final_path = run_dir / "06_final_atlas.json"
+    final_path.write_text(json.dumps(final, indent=2), encoding="utf-8")
+    store = CheckpointStore(run_dir / "resume_state.sqlite")
+    for ordinal, key in enumerate(("one", "two"), start=1):
+        store.put(
+            "harmonization",
+            key,
+            ordinal,
+            "available",
+            payload={"miniml_json": {"key": key}},
+        )
+        store.put(
+            "harmonization",
+            key,
+            ordinal,
+            "terminal_error",
+            error=f"bad {key}",
+        )
+    before_final = final_path.read_bytes()
+    before_rows = store.items("harmonization")
+    before_history = {
+        key: store.history("harmonization", key) for key in ("one", "two")
+    }
+    collaborator_calls = []
+
+    class UnexpectedCollaborator:
+        def __getattr__(self, name):
+            collaborator_calls.append(name)
+            raise AssertionError(f"invalid retry must not call collaborator method {name}")
+
+    atlas = Atlas(
+        metadata={},
+        collector=UnexpectedCollaborator(),
+        filterer=UnexpectedCollaborator(),
+        harmonizer=UnexpectedCollaborator(),
+    )
 
     with pytest.raises(ValueError, match="checkpoint item was not found"):
-        store.request_retries(items={"harmonization": ["one", "missing"]})
+        atlas.resume(
+            dev_out_dir=str(tmp_path / "trace"),
+            run_id="run-1",
+            retry_items={"harmonization": ["one", "missing"]},
+        )
 
-    assert [(item["key"], item["status"]) for item in store.items("harmonization")] == [
-        ("one", "terminal_error"),
-        ("two", "terminal_error"),
-    ]
+    assert final_path.read_bytes() == before_final
+    assert store.items("harmonization") == before_rows
+    assert {
+        key: store.history("harmonization", key) for key in ("one", "two")
+    } == before_history
+    assert collaborator_calls == []
 
 
 def test_resume_reuses_final_without_calling_collaborators(tmp_path) -> None:
