@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sqlite3
 import threading
 from typing import Any, Iterator, Mapping
@@ -13,6 +13,7 @@ from typing import Any, Iterator, Mapping
 
 APPLICATION_ID = 0x41544C53  # ATLS
 SCHEMA_VERSION = 1
+RUN_STATUSES = {"planned", "running", "complete", "partial", "failed"}
 
 
 class IncompatibleRunStoreError(ValueError):
@@ -202,6 +203,17 @@ class AtlasRunStore:
         result["config"] = result.pop("config_json")
         return result
 
+    def set_run_status(self, run_id: str, status: str) -> None:
+        if status not in RUN_STATUSES:
+            raise ValueError(f"unsupported run status: {status!r}")
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE run SET status=?, updated_at=CURRENT_TIMESTAMP WHERE run_id=?",
+                (status, run_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"unknown run_id: {run_id}")
+
     def set_stage_state(
         self, run_id: str, stage: str, status: str, *, generation: int = 0
     ) -> None:
@@ -344,6 +356,13 @@ class AtlasRunStore:
         sha256: str,
         size_bytes: int,
     ) -> int:
+        normalized_path = PurePosixPath(relative_path)
+        if (
+            not relative_path
+            or normalized_path.is_absolute()
+            or ".." in normalized_path.parts
+        ):
+            raise ValueError("artifact relative path must remain inside the run")
         with self._lock, self._connection() as connection:
             existing = connection.execute(
                 "SELECT * FROM artifacts WHERE run_id=? AND role=?",
@@ -369,6 +388,22 @@ class AtlasRunStore:
                 (run_id, role, relative_path, media_type, sha256, size_bytes),
             )
             return int(cursor.lastrowid)
+
+    def artifact(self, run_id: str, role: str) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM artifacts WHERE run_id=? AND role=?",
+                (run_id, role),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def artifacts(self, run_id: str) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM artifacts WHERE run_id=? ORDER BY artifact_id",
+                (run_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
 
 __all__ = ["AtlasRunStore", "IncompatibleRunStoreError"]

@@ -5,6 +5,18 @@ import pytest
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.document_adapter import AtlasDocumentAdapter
+from ThematicAtlases.domain import AtlasDocument, RunStatus
+from ThematicAtlases.run_store import AtlasRunStore
+
+
+def initialize_run_store(run_dir, status="running"):
+    manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
+    run_id = str(manifest.get("run_id") or run_dir.name)
+    store = AtlasRunStore(run_dir / "atlas_run.sqlite3")
+    store.create_run(run_id, f"atlas-{run_id}", "2.0", manifest)
+    store.set_run_status(run_id, status)
+    return store
 
 
 class RecordingCollector:
@@ -306,7 +318,7 @@ def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> No
     filterer = RecordingFilterer()
     reviewer = object()
 
-    assert Atlas(metadata={}, collector=collector, filterer=filterer).collect_datasets(
+    result = Atlas(metadata={}, collector=collector, filterer=filterer).collect_datasets(
         query=["a"],
         file="queries.txt",
         theme="fibrosis",
@@ -315,10 +327,10 @@ def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> No
         max_publications=25,
         reviewer=reviewer,
         collect_metadata=False,
-    ) == {
-        "accessions": [{"datalink_id": "GSE1", "publications": []}],
-        "publication_texts": {},
-    }
+    )
+    document = AtlasDocument.from_mapping(result)
+    assert [item.dataset_id for item in document.datasets] == ["GSE1"]
+    assert document.atlas.theme == "fibrosis"
     assert RecordingCollector.calls == [
         {
             "query": ["a"],
@@ -373,7 +385,10 @@ def test_collect_datasets_writes_final_atlas_object(tmp_path) -> None:
         filterer=LocalFilterer(),
     ).collect_datasets(query=["a"], out=str(outfile))
 
-    assert outfile.read_text(encoding="utf-8") == '{\n  "accessions": [\n    {\n      "datalink_id": "GSE1",\n      "publication_text_ref": "1"\n    }\n  ],\n  "publication_texts": {\n    "1": {\n      "text": "full text"\n    }\n  }\n}'
+    document = AtlasDocument.load(outfile)
+    assert document.schema_version == "2.0"
+    assert [item.dataset_id for item in document.datasets] == ["GSE1"]
+    assert [item.publication_id for item in document.publications] == ["1"]
 
 
 def test_collect_datasets_writes_no_dev_snapshots(tmp_path, monkeypatch) -> None:
@@ -400,17 +415,29 @@ def test_harmonize_datasets_delegates_to_harmonizer() -> None:
             )
             return {**datasets, "harmonized": True}, []
 
-    datasets = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
+    legacy = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
+    datasets = AtlasDocumentAdapter().assemble(
+        legacy,
+        atlas_metadata={},
+        run_id="run-1",
+        created_at="2026-07-31T00:00:00Z",
+        theme="",
+        config={},
+        run_status=RunStatus.RUNNING,
+    ).to_mapping()
     harmonizer = RecordingHarmonizer()
 
-    assert Atlas(metadata={}, harmonizer=harmonizer).harmonize_datasets(
+    result = Atlas(metadata={}, harmonizer=harmonizer).harmonize_datasets(
         datasets=datasets,
         harmonization_details_out="details.json",
         harmonization_options={"ols_lookup_judge": False},
-    ) == {**datasets, "harmonized": True}
-    assert RecordingHarmonizer.calls == [
-        (datasets, "details.json", {"ols_lookup_judge": False})
-    ]
+    )
+    assert AtlasDocument.from_mapping(result).run.status == RunStatus.COMPLETE
+    assert RecordingHarmonizer.calls[0][1:] == (
+        "details.json",
+        {"ols_lookup_judge": False},
+    )
+    assert RecordingHarmonizer.calls[0][0]["accessions"][0]["datalink_id"] == "GSE1"
 
 
 def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> None:
@@ -444,7 +471,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
 
     RecordingAtlas.calls = []
 
-    assert RecordingAtlas(metadata={}).create_atlas(
+    result = RecordingAtlas(metadata={}).create_atlas(
         query=["a"],
         file="queries.txt",
         theme="fibrosis",
@@ -453,11 +480,10 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
         max_publications=25,
         collect_metadata=False,
         harmonization_details_out="harmonization.json",
-    ) == {
-        "accessions": [{"datalink_id": "GSE1"}],
-        "publication_texts": {},
-        "harmonized": True,
-    }
+    )
+    document = AtlasDocument.from_mapping(result)
+    assert document.run.run_id == "20260623T142233"
+    assert [item.dataset_id for item in document.datasets] == ["GSE1"]
     assert RecordingAtlas.calls == [
         (
             "collect_datasets",
@@ -512,17 +538,12 @@ def test_create_atlas_writes_final_harmonized_object(tmp_path) -> None:
 
     RecordingAtlas(metadata={}).create_atlas(query=["a"], out=str(outfile))
 
-    assert json.loads(outfile.read_text(encoding="utf-8")) == {
-        "accessions": [{"datalink_id": "GSE1", "publication_text_ref": "1"}],
-        "publication_texts": {"1": {"text": "full text"}},
-        "harmonized": True,
-    }
+    document = AtlasDocument.load(outfile)
+    assert [item.dataset_id for item in document.datasets] == ["GSE1"]
+    assert [item.publication_id for item in document.publications] == ["1"]
     summary = json.loads((tmp_path / "atlas.summary.json").read_text(encoding="utf-8"))
-    assert summary["counts"] == {
-        "accessions": 1,
-        "publications": 0,
-        "publication_texts": 1,
-    }
+    assert summary["dataset_count"] == 1
+    assert summary["publication_count"] == 1
 
 
 def test_create_atlas_without_output_or_trace_writes_no_files(
@@ -562,22 +583,11 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
         "05_post_harmonization_accession_metadata.json",
             "06_final_atlas.json",
             "07_summary.json",
+            "atlas_run.sqlite3",
             "resume_state.sqlite",
         ]
-    assert json.loads(
-        (run_dir / "06_final_atlas.json").read_text(
-            encoding="utf-8"
-        )
-    ) == {
-        "accessions": [
-            {
-                "datalink_id": "GSE1",
-                "publications": [],
-                "ontology_harmonization_run_status": "not_run",
-            }
-        ],
-        "publication_texts": {},
-    }
+    document = AtlasDocument.load(run_dir / "06_final_atlas.json")
+    assert [item.dataset_id for item in document.datasets] == ["GSE1"]
 
 
 def test_create_atlas_logs_progress_and_stats(caplog) -> None:
@@ -608,6 +618,7 @@ def test_resume_from_collected_accessions_skips_collection(tmp_path) -> None:
         }),
         encoding="utf-8",
     )
+    initialize_run_store(run_dir)
     (run_dir / "01_collected_accessions.json").write_text(
         json.dumps([{"datalink_id": "GSE1", "publications": []}]),
         encoding="utf-8",
@@ -625,7 +636,7 @@ def test_resume_from_collected_accessions_skips_collection(tmp_path) -> None:
     )
     result = atlas.resume(dev_out_dir=str(tmp_path / "trace"))
 
-    assert result["accessions"][0]["datalink_id"] == "GSE1"
+    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
     assert (run_dir / "02_reviewed_datasets.json").exists()
     assert (run_dir / "06_final_atlas.json").exists()
 
@@ -639,6 +650,7 @@ def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
             json.dumps({"run_id": run_id, "theme": None, "review_filter": "none"}),
             encoding="utf-8",
         )
+        initialize_run_store(run_dir)
         (run_dir / "02_reviewed_datasets.json").write_text(
             json.dumps({"accessions": [{"datalink_id": run_id}], "publication_texts": {}}),
             encoding="utf-8",
@@ -648,6 +660,7 @@ def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
     (completed / "00_run_manifest.json").write_text(
         json.dumps({"run_id": "20260712T120000"}), encoding="utf-8"
     )
+    initialize_run_store(completed, status="complete")
     (completed / "06_final_atlas.json").write_text(
         json.dumps({"accessions": [], "publication_texts": {}}), encoding="utf-8"
     )
@@ -656,7 +669,7 @@ def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
         metadata={}, collector=RecordingCollector(), filterer=RecordingFilterer(), harmonizer=RecordingHarmonizer()
     ).resume(dev_out_dir=str(root))
 
-    assert result["accessions"][0]["datalink_id"] == "20260712T110000"
+    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "20260712T110000"
 
 
 def test_collect_datasets_traces_incremental_review_progress(tmp_path) -> None:
@@ -693,7 +706,8 @@ def test_collect_datasets_can_own_resumable_discovery_trace(tmp_path) -> None:
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["command"] == "collect-datasets"
     assert (run_dir / "resume_state.sqlite").exists()
-    assert json.loads((run_dir / "06_final_atlas.json").read_text()) == result
+    assert json.loads((run_dir / "collection_snapshot.json").read_text()) == result
+    assert not (run_dir / "06_final_atlas.json").exists()
 
 
 def test_amend_queries_archives_manifest_and_updates_resumable_configuration(
@@ -790,6 +804,7 @@ def test_resume_discovery_trace_stops_before_harmonization(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
+    initialize_run_store(run_dir)
     (run_dir / "01_collected_accessions.json").write_text(
         json.dumps([{"datalink_id": "GSE1", "publications": []}]),
         encoding="utf-8",
@@ -806,8 +821,9 @@ def test_resume_discovery_trace_stops_before_harmonization(tmp_path) -> None:
         harmonizer=NoHarmonizer(),
     ).resume(dev_out_dir=str(tmp_path / "trace"))
 
-    assert result["accessions"][0]["datalink_id"] == "GSE1"
-    assert (run_dir / "06_final_atlas.json").exists()
+    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
+    assert (run_dir / "collection_snapshot.json").exists()
+    assert not (run_dir / "06_final_atlas.json").exists()
 
 
 def test_create_atlas_passes_checkpoint_store_to_harmonizer(tmp_path) -> None:
@@ -855,6 +871,7 @@ def test_resume_retries_harmonization_marked_retryable_in_sqlite(tmp_path) -> No
         ),
         encoding="utf-8",
     )
+    initialize_run_store(run_dir)
     datasets = {
         "accessions": [{"datalink_id": "GSE1", "accession_metadata": {"x": 1}}],
         "publication_texts": {},
@@ -893,7 +910,7 @@ def test_resume_retries_harmonization_marked_retryable_in_sqlite(tmp_path) -> No
     ).resume(dev_out_dir=str(tmp_path / "trace"))
 
     assert calls == [datasets]
-    assert result["retried"] is True
+    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
     assert "stale" not in result
 
 
@@ -916,6 +933,7 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
         ),
         encoding="utf-8",
     )
+    initialize_run_store(run_dir)
     stale = {"accessions": [{"datalink_id": "STALE"}], "publication_texts": {}}
     (run_dir / "06_final_atlas.json").write_text(
         json.dumps(stale), encoding="utf-8"
@@ -949,7 +967,7 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
     ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="retry-collection")
 
     assert len(calls) == 1
-    assert result["accessions"][0]["datalink_id"] == "GSE1"
+    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
 
 
 @pytest.mark.parametrize("stage", ["pubmed_enrichment", "sra_xml", "ena_fastq"])
@@ -970,6 +988,7 @@ def test_resume_ignores_final_output_for_retryable_enrichment_stage(tmp_path, st
         "review_before_metadata": False,
     }
     (run_dir / "00_run_manifest.json").write_text(json.dumps(manifest))
+    initialize_run_store(run_dir)
     (run_dir / "06_final_atlas.json").write_text(json.dumps({"accessions": [{"final": True}]}))
     (run_dir / "01_collected_accessions.json").write_text(json.dumps({"accessions": []}))
     store = CheckpointStore(run_dir / "resume_state.sqlite")
@@ -1045,8 +1064,9 @@ def test_collect_datasets_can_review_before_collecting_metadata() -> None:
         ("review", ["GSE_KEEP", "GSE_DROP"]),
         ("metadata", ["GSE_KEEP"]),
     ]
-    assert result["accessions"][0]["metadata_status"] == "available"
-    assert result["publication_texts"] == {"keep": {"text": "relevant"}}
+    document = AtlasDocument.from_mapping(result)
+    assert document.datasets[0].metadata == {"series": {"title": "kept"}}
+    assert [item.publication_id for item in document.publications] == ["keep"]
 
 
 def test_collect_datasets_can_stop_after_publication_text_before_review(tmp_path) -> None:
@@ -1101,13 +1121,15 @@ def test_collect_datasets_can_stop_after_publication_text_before_review(tmp_path
     )
 
     assert events == [("collect", False), ("publication_text", None, "none")]
-    assert result["publication_texts"]["1"]["text"] == "publication body"
+    document = AtlasDocument.from_mapping(result)
+    assert [item.publication_id for item in document.publications] == ["1"]
     run_dir = tmp_path / "collection-only"
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["stop_before_review"] is True
-    assert json.loads((run_dir / "resume_publication_collection.json").read_text()) == result
+    assert json.loads((run_dir / "resume_publication_collection.json").read_text())["publication_texts"]["1"]["text"] == "publication body"
     assert not (run_dir / "02_reviewed_datasets.json").exists()
     assert not (run_dir / "resume_metadata_enriched_datasets.json").exists()
+    assert AtlasDocument.load(run_dir / "collection_snapshot.json") == document
     assert not (run_dir / "06_final_atlas.json").exists()
 
 
@@ -1130,6 +1152,7 @@ def test_resume_can_override_old_trace_to_stop_before_review(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
+    initialize_run_store(run_dir)
     store = CheckpointStore(run_dir / "resume_state.sqlite")
     store.put(
         "thematic_review",
@@ -1170,7 +1193,10 @@ def test_resume_can_override_old_trace_to_stop_before_review(tmp_path) -> None:
         stop_before_review=True,
     )
 
-    assert result["publication_texts"] == {"1": {"text": "body"}}
+    assert [
+        item.publication_id
+        for item in AtlasDocument.from_mapping(result).publications
+    ] == ["PMID:1"]
     assert store.get("thematic_review", "direct:1") == before
     assert (run_dir / "resume_publication_collection.json").exists()
     assert not (run_dir / "02_reviewed_datasets.json").exists()
@@ -1224,6 +1250,7 @@ def test_resume_review_first_trace_enriches_reviewed_survivors_only(tmp_path) ->
         ),
         encoding="utf-8",
     )
+    initialize_run_store(run_dir)
     reviewed = {
         "accessions": [
             {
@@ -1257,6 +1284,7 @@ def test_resume_review_first_trace_enriches_reviewed_survivors_only(tmp_path) ->
     ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="review-first")
 
     assert calls == [reviewed["accessions"]]
-    assert result["accessions"][0]["metadata_status"] == "available"
-    assert result["publication_texts"] == reviewed["publication_texts"]
+    document = AtlasDocument.from_mapping(result)
+    assert document.datasets[0].dataset_id == "GSE_KEEP"
+    assert [item.publication_id for item in document.publications] == ["1"]
     assert (run_dir / "resume_metadata_enriched_datasets.json").exists()

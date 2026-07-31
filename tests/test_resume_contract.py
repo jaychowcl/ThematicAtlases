@@ -5,6 +5,8 @@ import pytest
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.domain import AtlasDocument
+from ThematicAtlases.run_store import AtlasRunStore
 from ThematicAtlases import cli_atlas
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 
@@ -16,6 +18,9 @@ def _run_dir(tmp_path, manifest, *, run_id="run-1"):
         json.dumps({"command": "create-atlas", "run_id": run_id, **manifest}),
         encoding="utf-8",
     )
+    store = AtlasRunStore(run_dir / "atlas_run.sqlite3")
+    store.create_run(run_id, f"atlas-{run_id}", "2.0", manifest)
+    store.set_run_status(run_id, "running")
     return run_dir
 
 
@@ -101,8 +106,9 @@ def test_resume_retries_only_selected_harmonization_item(tmp_path) -> None:
     )
 
     assert calls == ["one"]
-    assert result["accessions"][0]["accession_metadata"]["retried"] is True
-    assert result["accessions"][1]["ontology_harmonization_error"] == "bad-2"
+    document = AtlasDocument.from_mapping(result)
+    assert document.datasets[0].metadata["retried"] is True
+    assert document.datasets[1].diagnostics[0].message == "bad-2"
     assert store.get("harmonization", work_keys[0])["status"] == "available"
     assert store.get("harmonization", work_keys[1])["status"] == "terminal_error"
 
@@ -175,9 +181,8 @@ def test_resume_reuses_final_without_calling_collaborators(tmp_path) -> None:
         metadata={}, collector=Unexpected(), filterer=Unexpected(), harmonizer=Unexpected()
     ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="run-1")
 
-    assert result == final
-    assert json.loads((run_dir / "07_summary.json").read_text(encoding="utf-8"))["counts"] == {
-        "accessions": 1,
-        "publications": 0,
-        "publication_texts": 0,
-    }
+    document = AtlasDocument.from_mapping(result)
+    assert [item.dataset_id for item in document.datasets] == ["GSE1"]
+    summary = json.loads((run_dir / "07_summary.json").read_text(encoding="utf-8"))
+    assert summary["dataset_count"] == 1
+    assert summary["publication_count"] == 0

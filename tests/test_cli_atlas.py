@@ -6,6 +6,7 @@ import pytest
 from ThematicAtlases.cli_atlas import _configure_logging, main
 from ThematicAtlases import atlas as atlas_module
 from ThematicAtlases import cli_atlas as cli_module
+from ThematicAtlases.domain import AtlasDocument
 
 
 class FakeOntologyHarmonizer:
@@ -251,29 +252,11 @@ def test_collect_datasets_writes_outfile(
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
-    assert json.loads(outfile.read_text(encoding="utf-8")) == {
-        "accessions": [
-            {
-                "datalink_id": "GSE_FIBROSIS",
-                "datalink_id_scheme": "GEO",
-                "publications": [],
-                "original_datalinks": [
-                    {
-                        "datalink_id": "GSE_fibrosis",
-                        "datalink_id_scheme": "GEO",
-                        "datalink_url": "",
-                        "datalink_category": "",
-                    }
-                ],
-                "metadata_repository": "geo",
-                "metadata_source": "geo2json",
-                "metadata_status": "available",
-                "accession_metadata": {
-                    "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
-                },
-            }
-        ],
-        "publication_texts": {},
+    document = AtlasDocument.load(outfile)
+    assert document.datasets[0].dataset_id == "GSE_FIBROSIS"
+    assert document.datasets[0].source_repository == "geo"
+    assert document.datasets[0].metadata == {
+        "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
     }
 
 
@@ -307,13 +290,13 @@ def test_create_atlas_writes_final_filtered_object(
 
     assert output.out == ""
     assert output.err == ""
-    result = json.loads(outfile.read_text(encoding="utf-8"))
-    assert result["accessions"][0]["datalink_id"] == "GSE_FIBROSIS"
-    assert result["accessions"][0]["accession_metadata"] == {
+    result = AtlasDocument.load(outfile)
+    assert result.datasets[0].dataset_id == "GSE_FIBROSIS"
+    assert result.datasets[0].metadata == {
         "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
     }
-    assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
-    assert result["publication_texts"] == {}
+    assert result.datasets[0].status.value == "harmonized"
+    assert result.publications == ()
 
 
 def test_verbose_enables_info_logging(
@@ -776,6 +759,15 @@ def test_unknown_command_exits_with_argparse_error() -> None:
         main(["not-a-command"])
 
     assert exc_info.value.code == 2
+
+
+def test_command_help_describes_the_atlas_v2_workflow_contracts() -> None:
+    help_text = cli_module._build_parser().format_help()
+
+    assert "Collect and review datasets into an Atlas v2 snapshot." in help_text
+    assert "Create and harmonize a complete Atlas v2 document." in help_text
+    assert "Harmonize metadata in an existing Atlas v2 document." in help_text
+    assert "Resume a traced Atlas v2 workflow" in help_text
 
 
 def test_unknown_command_argument_exits_with_argparse_error() -> None:

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from ThematicAtlases.atlas import Atlas
+from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
 REVIEW_STRATEGY_CHOICES = ("direct", "evidence_then_judgement")
@@ -74,7 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     collect = subparsers.add_parser(
         "collect-datasets",
-        help="Collect and filter datasets into an atlas object.",
+        help="Collect and review datasets into an Atlas v2 snapshot.",
     )
     _add_logging_options(
         collect,
@@ -113,7 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     create = subparsers.add_parser(
         "create-atlas",
-        help="Run the atlas collection and filtering workflow.",
+        help="Create and harmonize a complete Atlas v2 document.",
     )
     _add_logging_options(
         create,
@@ -154,7 +155,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     harmonize = subparsers.add_parser(
         "harmonize-datasets",
-        help="Harmonize metadata in an existing atlas JSON file.",
+        help="Harmonize metadata in an existing Atlas v2 document.",
     )
     _add_logging_options(
         harmonize,
@@ -167,7 +168,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     resume = subparsers.add_parser(
         "resume",
-        help="Resume a traced workflow and optionally requeue selected failures.",
+        help=(
+            "Resume a traced Atlas v2 workflow and optionally requeue "
+            "selected failures."
+        ),
     )
     _add_logging_options(
         resume,
@@ -294,9 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             datasets=datasets,
             harmonization_details_out=args.harmonization_details_out,
         )
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        with open(args.out, "w", encoding="utf-8") as handle:
-            json.dump(result, handle, indent=2)
+        JsonArtifactBundlePublisher().publish({Path(args.out): result})
     elif args.command == "resume":
         atlas.resume(
             dev_out_dir=args.dev_out_dir,

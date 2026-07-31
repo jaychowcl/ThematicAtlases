@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns atlas-shaped JSON with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata; ArrayExpress routing is supported with placeholder metadata while its live fetcher remains pending.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v2 document with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata; ArrayExpress routing is supported with placeholder metadata while its live fetcher remains pending.
 
 The pipeline fetches open-access full text, deterministically discovers repository accessions from that text by default, falls back to abstracts for review only, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
 
@@ -87,33 +87,44 @@ High-level inputs are:
 - One or more Europe PMC query strings, or a UTF-8 file containing one query per non-comment line.
 - An optional review theme supplied inline or from a UTF-8 file.
 - Repository selection (`geo` and/or `arrayexpress`), publication limits, review controls, and metadata/harmonization controls.
-- For standalone harmonization, an existing atlas JSON object containing `accessions` and `publication_texts`.
+- For standalone harmonization, a strict Atlas v2 JSON document with
+  `schema_version`, `atlas`, `run`, `datasets`, `publications`, and `summary`.
 - For resume and benchmark workflows, a trace directory, atlas JSON file, or reference-set JSON as appropriate.
 
-The primary output shape is:
+Every public Atlas workflow returns or writes the same versioned document
+shape (nested fields are abbreviated here):
 
 ```json
 {
-  "accessions": [],
-  "publication_texts": {}
+  "schema_version": "2.0",
+  "atlas": {"atlas_id": "...", "title": "...", "theme": "..."},
+  "run": {"run_id": "...", "created_at": "...", "config": {}, "status": "complete"},
+  "datasets": [],
+  "publications": [],
+  "summary": {}
 }
 ```
 
-Each accession retains dataset identifiers, publication provenance, repository status, and optional `accession_metadata`. The shared `publication_texts` map stores full text or abstract fallback once and is referenced by nested publications through `publication_text_ref`.
+Each dataset retains its identity, repository, lifecycle status, metadata,
+publication references, reviews, harmonization records, diagnostics, and
+artifacts. Publication text is normalized into `publications` and referenced by
+`publication_ids`. The legacy internal stage keys `accessions` and
+`publication_texts` do not cross the public workflow boundary.
 
 Depending on the workflow, additional outputs include:
 
 - `atlas.summary.json`, written beside a successful `create-atlas --out atlas.json` result.
 - A harmonization-details JSON sidecar when requested.
-- Timestamped trace artifacts and `resume_state.sqlite` when tracing is enabled.
+- Timestamped trace artifacts, authoritative `atlas_run.sqlite3`, and the
+  internal item-result cache `resume_state.sqlite` when tracing is enabled.
 - Incremental review and metadata snapshots for standalone workers.
 - Reference-publication recall and reference-review reports under `.out/`.
 
-Atlas v2 introduces `ThematicAtlases.domain.AtlasDocument` as the strict,
-versioned exchange contract and `ThematicAtlases.run_store.AtlasRunStore` as
-normalized operational persistence. These APIs are available for incremental
-integration; the legacy `Atlas` workflow remains behavior-compatible until its
-v2 cutover is completed.
+`ThematicAtlases.domain.AtlasDocument` is the strict exchange contract and
+`ThematicAtlases.run_store.AtlasRunStore` is the normalized lifecycle and
+artifact authority. The public workflow cutover is complete: v1 mappings are
+not accepted by `harmonize-datasets`, and traces without `atlas_run.sqlite3`
+are not silently upgraded by `resume`.
 
 ## Guide
 
@@ -174,7 +185,7 @@ It additionally supports:
 | `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
 | `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, paths, and errors. |
 
-`harmonize-datasets` transforms an existing atlas file without discovery or review:
+`harmonize-datasets` transforms an existing Atlas v2 file without discovery or review:
 
 ```bash
 thematic-atlas harmonize-datasets \
@@ -185,8 +196,8 @@ thematic-atlas harmonize-datasets \
 
 | Option | Behavior |
 | --- | --- |
-| `--file INPUT` | Required input atlas JSON. |
-| `--out OUTPUT` | Required output atlas JSON. |
+| `--file INPUT` | Required strict Atlas v2 JSON; legacy v1 fails validation. |
+| `--out OUTPUT` | Required deterministic, atomically replaced Atlas v2 JSON. |
 | `--harmonization-details-out PATH` | Optional details sidecar. |
 
 `resume` continues a traced run and can first requeue selected checkpoint
@@ -231,10 +242,12 @@ Atlas(
     cache_ontologies=False,
     query_generator=None,
     credential_checker=None,
+    document_adapter=None,
+    artifact_publisher=None,
 )
 ```
 
-`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v2, while `artifact_publisher` provides an injectable transaction boundary for JSON bundles. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
 
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v2 wire
@@ -243,7 +256,9 @@ The owner-produced golden wire fixture at
 `tests/fixtures/contracts/atlas-document-v2.json` is the compatibility input
 downstream repositories should copy and consume in their contract tests.
 `AtlasRunStore(path)` creates a normalized `atlas_run.sqlite3` and rejects a
-legacy `resume_state.sqlite` instead of silently converting it.
+legacy `resume_state.sqlite` instead of silently converting it. New traced
+runs always create both stores: the run store owns lifecycle/stages/artifact
+roles/events; the checkpoint store remains an internal per-item result cache.
 
 `Atlas.collect_datasets(...)` runs discovery, metadata routing, text collection, and optional review:
 
@@ -267,7 +282,7 @@ Atlas.collect_datasets(
 - `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
 - `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.
 - `scrape_fulltext_accessions=True` supplements Europe PMC Datalinks with registry accessions discovered in available full text; set it to `False` for Datalinks-only discovery.
-- `out` writes the atlas-shaped return value.
+- `out` transactionally writes the same Atlas v2 mapping returned in memory.
 
 `Atlas.create_atlas(...)` runs collection and then harmonization:
 
@@ -285,9 +300,11 @@ Atlas.create_atlas(
 )
 ```
 
-Collection parameters behave as above. `harmonization_options` is forwarded to the ontology workflow, and `harmonization_details_out` writes its sidecar. When `out` is provided, a summary is also written. See the [harmonizer internals](docs/codebase.md#harmonizer).
+Collection parameters behave as above. `harmonization_options` is forwarded to the ontology workflow, and `harmonization_details_out` writes its sidecar. When `out` is provided, the Atlas v2 document and derived summary are staged, validated, and published as one rollback-safe bundle. See the [harmonizer internals](docs/codebase.md#harmonizer).
 
-`Atlas.harmonize_datasets(...)` accepts an atlas object and returns a copy with supported metadata harmonized:
+`Atlas.harmonize_datasets(...)` accepts an Atlas v2 mapping and returns a
+validated Atlas v2 copy with supported metadata harmonized. Legacy v1 stage
+mappings fail closed:
 
 ```python
 Atlas.harmonize_datasets(
@@ -313,7 +330,7 @@ Atlas.resume(
 )
 ```
 
-`run_id=None` selects the newest incomplete valid trace. `out` overrides the manifest output. `stop_before_review=True` resumes only the collection snapshot.
+`run_id=None` selects the newest incomplete valid v2 trace. `out` overrides the manifest output. `stop_before_review=True` resumes only the collection snapshot. A trace without authoritative `atlas_run.sqlite3` is incompatible and must be handled explicitly rather than silently migrated.
 `retry_stages` requeues complete registered boundaries, `retry_items` maps
 stage names to item IDs, and `retry_degraded_stages` requeues harmonization
 items whose recorded quality status names the selected internal stage.
@@ -426,8 +443,11 @@ CLI or Python input
         -> EuropePMCWrapper (full text or abstract fallback)
         -> `PublicationTextReviewer` (optional thematic review/filter)
      -> `AtlasHarmonizer` (optional ontology harmonization)
-  -> atlas JSON + summary/details
-  -> optional readable trace artifacts + resume_state.sqlite
+  -> AtlasDocumentAdapter -> validated AtlasDocument v2
+  -> JsonArtifactBundlePublisher -> Atlas JSON + derived summary/details
+  -> optional readable trace artifacts
+     + atlas_run.sqlite3 (lifecycle/artifact authority)
+     + resume_state.sqlite (internal item-result cache)
 ```
 
 The [Atlas orchestrator](docs/codebase.md#orchestrators-and-core-types) owns

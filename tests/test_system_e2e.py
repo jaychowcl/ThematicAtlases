@@ -3,6 +3,8 @@ import json
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.cli_atlas import main
+from ThematicAtlases.document_adapter import AtlasDocumentAdapter
+from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 
@@ -108,28 +110,14 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
         harmonization_details_out=str(details),
     )
 
-    assert result["accessions"] == [
-        {
-            "datalink_id": "GSE101",
-            "datalink_id_scheme": "GEO",
-            "publications": [
-                {
-                    "source": "MED",
-                    "epmc_id": "101",
-                    "pmid": "101",
-                    "title": "Fibrosis study",
-                    "publication_text_ref": "101",
-                }
-            ],
-            "metadata_repository": "geo",
-            "metadata_source": "fake-miniml",
-            "metadata_status": "available",
-            "accession_metadata": {"organism": "mouse", "hz_organism": "Mus musculus"},
-            "ontology_harmonization_run_status": "completed",
-            "ontology_harmonization_quality_status": "healthy",
-        }
-    ]
-    assert result["publication_texts"]["101"]["agentic_curator"]["judgement"] == "relevant"
+    document = AtlasDocument.from_mapping(result)
+    assert document.datasets[0].dataset_id == "GSE101"
+    assert document.datasets[0].metadata == {
+        "organism": "mouse",
+        "hz_organism": "Mus musculus",
+    }
+    assert document.datasets[0].status.value == "harmonized"
+    assert document.publications[0].review.judgement.value == "relevant"
     assert json.loads(output.read_text(encoding="utf-8")) == result
     assert json.loads(details.read_text(encoding="utf-8")) == [
         {
@@ -144,7 +132,8 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
         }
     ]
     summary = json.loads((output.parent / "atlas.summary.json").read_text(encoding="utf-8"))
-    assert summary["counts"] == {"accessions": 1, "publications": 1, "publication_texts": 1}
+    assert summary["dataset_count"] == 1
+    assert summary["publication_count"] == 1
     run_dir = next(path for path in trace_root.iterdir() if path.is_dir())
     assert {path.name for path in run_dir.iterdir()} == {
         "00_run_manifest.json",
@@ -155,6 +144,7 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
         "05_post_harmonization_accession_metadata.json",
         "06_final_atlas.json",
         "07_summary.json",
+        "atlas_run.sqlite3",
         "resume_review_progress.json",
         "resume_state.sqlite",
         "resume_state.sqlite.locks",
@@ -172,25 +162,30 @@ def test_real_component_atlas_system_workflow_preserves_empty_results(tmp_path) 
     output = tmp_path / "empty" / "atlas.json"
     details = tmp_path / "empty" / "details.json"
 
-    assert _atlas(EmptyEPMC).create_atlas(
+    result = _atlas(EmptyEPMC).create_atlas(
         query=["none"],
         out=str(output),
         harmonization_details_out=str(details),
-    ) == {"accessions": [], "publication_texts": {}}
+    )
+    assert AtlasDocument.from_mapping(result).datasets == ()
     assert json.loads(details.read_text(encoding="utf-8")) == []
-    assert json.loads((output.parent / "atlas.summary.json").read_text())["counts"] == {
-        "accessions": 0,
-        "publications": 0,
-        "publication_texts": 0,
-    }
+    summary = json.loads((output.parent / "atlas.summary.json").read_text())
+    assert summary["dataset_count"] == 0
+    assert summary["publication_count"] == 0
 
 
 def test_harmonize_cli_creates_nested_output_and_details_parents(tmp_path) -> None:
     source = tmp_path / "input.json"
-    source.write_text(
-        json.dumps({"accessions": [{"datalink_id": "GSE0", "accession_metadata": None}]}),
-        encoding="utf-8",
+    source_document = AtlasDocumentAdapter().assemble(
+        {"accessions": [{"datalink_id": "GSE0", "accession_metadata": None}]},
+        atlas_metadata={"atlas_id": "atlas-test"},
+        run_id="run-1",
+        created_at="2026-07-31T00:00:00Z",
+        theme="",
+        config={},
+        run_status=RunStatus.RUNNING,
     )
+    source_document.dump(source)
     output = tmp_path / "nested" / "atlas.json"
     details = tmp_path / "nested" / "audit" / "details.json"
 
@@ -205,9 +200,7 @@ def test_harmonize_cli_creates_nested_output_and_details_parents(tmp_path) -> No
             str(details),
         ]
     ) == 0
-    assert json.loads(output.read_text(encoding="utf-8"))["accessions"][0][
-        "ontology_harmonization_run_status"
-    ] == "not_run"
+    assert AtlasDocument.load(output).datasets[0].status.value == "discovered"
     assert json.loads(details.read_text(encoding="utf-8")) == [
         {"datalink_id": "GSE0", "run_status": "not_run"}
     ]

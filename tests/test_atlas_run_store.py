@@ -66,9 +66,25 @@ def test_run_store_preserves_work_order_attempts_events_and_artifact_roles(tmp_p
     store.register_artifact(
         "run-1", "final_atlas", "atlas.json", "application/json", "abc", 10
     )
+    store.set_run_status("run-1", "complete")
+    assert store.get_run("run-1")["status"] == "complete"
+    assert store.artifact("run-1", "final_atlas")["relative_path"] == "atlas.json"
+    assert [item["role"] for item in store.artifacts("run-1")] == ["final_atlas"]
     with pytest.raises(ValueError, match="artifact role already has a different path"):
         store.register_artifact(
             "run-1", "final_atlas", "snapshot.json", "application/json", "def", 12
+        )
+
+
+def test_run_store_rejects_invalid_lifecycle_and_artifact_values(tmp_path):
+    store = AtlasRunStore(tmp_path / "atlas_run.sqlite3")
+    store.create_run("run-1", "atlas-1", "2.0", {})
+
+    with pytest.raises(ValueError, match="unsupported run status"):
+        store.set_run_status("run-1", "done")
+    with pytest.raises(ValueError, match="relative path"):
+        store.register_artifact(
+            "run-1", "final_atlas", "/tmp/atlas.json", "application/json", "a", 1
         )
 
 

@@ -10,7 +10,10 @@ from ThematicAtlases.checkpoint import (
     failure_category,
     is_retryable_error,
 )
+from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
 from ThematicAtlases.collector import AtlasCollector
+from ThematicAtlases.document_adapter import AtlasDocumentAdapter
+from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
@@ -39,6 +42,8 @@ class Atlas:
         cache_ontologies: bool = False,
         query_generator=None,
         credential_checker=None,
+        document_adapter: AtlasDocumentAdapter | None = None,
+        artifact_publisher: JsonArtifactBundlePublisher | None = None,
     ):
         self.metadata = metadata
         epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
@@ -77,6 +82,10 @@ class Atlas:
         self._query_generator_instance = query_generator
         self._credential_checker = credential_checker
         self._credentials_checked = False
+        self._document_adapter = document_adapter or AtlasDocumentAdapter()
+        self._artifact_publisher = (
+            artifact_publisher or JsonArtifactBundlePublisher()
+        )
 
     def create_atlas(
         self,
@@ -112,6 +121,9 @@ class Atlas:
                 manifest={
                     "command": "create-atlas",
                     "created_at": run_id,
+                    "atlas_id": str(
+                        self.metadata.get("atlas_id") or f"atlas-{run_id}"
+                    ),
                     "atlas_out": out,
                     "artifacts": [
                         "00_run_manifest.json",
@@ -141,6 +153,8 @@ class Atlas:
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 },
             )
+            trace.run_store.set_run_status(run_id, "running")
+            trace.run_store.set_stage_state(run_id, "collection", "running")
         logger.info("Atlas create_atlas progress stage=collect-datasets")
         collect_kwargs = dict(
             query=query,
@@ -164,7 +178,10 @@ class Atlas:
             )
         if trace is not None:
             collect_kwargs["_trace_writer"] = trace
-        datasets = self.collect_datasets(**collect_kwargs)
+        datasets = self._collect_for_internal(collect_kwargs)
+        if trace is not None:
+            trace.run_store.set_stage_state(run_id, "collection", "complete")
+            trace.run_store.set_stage_state(run_id, "harmonization", "running")
         logger.info(
             "Atlas create_atlas progress stage=collect-datasets-complete accessions=%s publication_texts=%s",
             len(datasets.get("accessions", [])),
@@ -186,12 +203,15 @@ class Atlas:
                 ),
             )
             trace.write("04_harmonization_details.json", details)
+            trace.register_artifact(
+                "harmonization_details", "04_harmonization_details.json"
+            )
             trace.write(
                 "05_post_harmonization_accession_metadata.json",
                 trace.metadata(result.get("accessions", [])),
             )
         else:
-            result = self.harmonize_datasets(
+            result, details = self._harmonize_for_internal(
                 datasets=datasets,
                 harmonization_details_out=harmonization_details_out,
                 harmonization_options=harmonization_options,
@@ -204,17 +224,50 @@ class Atlas:
             len(publication_texts),
         )
 
+        document = self._document_adapter.assemble(
+            result,
+            atlas_metadata=self.metadata,
+            run_id=run_id,
+            created_at=run_id,
+            theme=theme or "",
+            config={
+                "queries": list(query or ()),
+                "metadata_repositories": list(metadata_repositories or ()),
+                "query_file": file,
+                "review_filter": review_filter,
+                "review_strategy": review_strategy,
+                "collect_metadata": collect_metadata,
+                "generate_queries": generate_queries,
+                "review_before_metadata": review_before_metadata,
+                "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                "harmonization_options": dict(harmonization_options or {}),
+            },
+            run_status=self._final_run_status(result),
+            harmonization_details=details,
+        )
+        result_mapping = document.to_mapping()
+        summary = self._document_summary(document, atlas_path=out)
+
         if out is not None:
             logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
-            self._write_json(result=result, out=out)
-            summary = build_atlas_summary(atlas=result, atlas_path=out)
-            self._write_json(result=summary, out=str(summary_path(out)))
-        else:
-            summary = build_atlas_summary(atlas=result)
+            self._artifact_publisher.publish(
+                {Path(out): result_mapping, summary_path(out): summary}
+            )
 
         if trace is not None:
-            trace.write("06_final_atlas.json", result)
+            trace.write("06_final_atlas.json", result_mapping)
             trace.write("07_summary.json", summary)
+            trace.register_artifact("final_atlas", "06_final_atlas.json")
+            trace.register_artifact("summary", "07_summary.json")
+            trace.run_store.set_stage_state(
+                run_id, "harmonization", "complete"
+            )
+            trace.run_store.set_run_status(run_id, document.run.status.value)
+            trace.run_store.record_event(
+                run_id,
+                "run_published",
+                detail={"artifact_role": "final_atlas"},
+            )
 
         logger.info(
             "Atlas create_atlas stats final_accessions=%s publication_texts=%s output_path=%s",
@@ -222,7 +275,7 @@ class Atlas:
             len(publication_texts),
             out,
         )
-        return result
+        return result_mapping
 
     def resume(
         self,
@@ -238,11 +291,22 @@ class Atlas:
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
         manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
         trace = DevTraceWriter.existing(run_dir)
+        run_store = trace.run_store
+        run_store.set_run_status(run_dir.name, "running")
         checkpoint_store = trace.checkpoint_store
         checkpoint_store.request_retries(
             stages=retry_stages or (),
             items=retry_items,
             degraded_stages=retry_degraded_stages or (),
+        )
+        run_store.record_event(
+            run_dir.name,
+            "resume_started",
+            detail={
+                "retry_stages": list(retry_stages or ()),
+                "retry_items": retry_items or {},
+                "retry_degraded_stages": list(retry_degraded_stages or ()),
+            },
         )
         output_path = out if out is not None else manifest.get("atlas_out")
         if stop_before_review:
@@ -250,10 +314,10 @@ class Atlas:
                 "Atlas resume progress stage=collection-only run_id=%s",
                 run_dir.name,
             )
-            result = self.collect_datasets(
+            result = self._collect_for_internal(dict(
                 query=manifest.get("query"),
                 file=manifest.get("query_file"),
-                out=output_path,
+                out=None,
                 theme=manifest.get("theme"),
                 review_filter=manifest.get("review_filter", "none"),
                 review_strategy=manifest.get("review_strategy", "direct"),
@@ -272,11 +336,19 @@ class Atlas:
                 ),
                 stop_before_review=True,
                 _trace_writer=trace,
+            ))
+            published = self._write_resumed_outputs(
+                result=result,
+                out=output_path,
+                trace=trace,
+                artifact_role="collection_snapshot",
             )
-            summary = build_atlas_summary(atlas=result, atlas_path=output_path)
-            if output_path is not None:
-                self._write_json(result=summary, out=str(summary_path(output_path)))
-            trace.write("resume_publication_collection.summary.json", summary)
+            trace.write(
+                "resume_publication_collection.summary.json",
+                self._document_summary(
+                    AtlasDocument.from_mapping(published), output_path
+                ),
+            )
             logger.info(
                 "Atlas resume stats run_id=%s workflow=collection-only "
                 "accessions=%s publication_texts=%s",
@@ -284,7 +356,7 @@ class Atlas:
                 len(result.get("accessions", [])),
                 len(result.get("publication_texts", {})),
             )
-            return result
+            return published
         if self._cache_ontologies:
             self._preflight_credentials()
         self._prepare_ontology_cache()
@@ -310,8 +382,9 @@ class Atlas:
         ):
             result = self._read_checkpoint(final_path)
             logger.info("Atlas resume progress stage=final-atlas-complete")
-            self._write_resumed_outputs(result=result, out=output_path, trace=trace)
-            return result
+            return self._write_resumed_outputs(
+                result=result, out=output_path, trace=trace
+            )
 
         harmonized_path = run_dir / "resume_harmonized_datasets.json"
         if (
@@ -391,7 +464,7 @@ class Atlas:
                     trace.write("02_reviewed_datasets.json", datasets)
                 else:
                     logger.info("Atlas resume progress stage=collection-required")
-                    datasets = self.collect_datasets(
+                    datasets = self._collect_for_internal(dict(
                         query=manifest.get("query"),
                         file=manifest.get("query_file"),
                         theme=manifest.get("theme"),
@@ -411,20 +484,21 @@ class Atlas:
                             False,
                         ),
                         _trace_writer=trace,
-                    )
+                    ))
 
             if manifest.get("command") == "collect-datasets":
-                self._write_resumed_outputs(
+                published = self._write_resumed_outputs(
                     result=datasets,
                     out=output_path,
                     trace=trace,
+                    artifact_role="collection_snapshot",
                 )
                 logger.info(
                     "Atlas resume stats run_id=%s workflow=collect-datasets accessions=%s",
                     run_dir.name,
                     len(datasets.get("accessions", [])),
                 )
-                return datasets
+                return published
 
             trace.write(
                 "03_pre_harmonization_accession_metadata.json",
@@ -446,9 +520,11 @@ class Atlas:
             )
             trace.write("resume_harmonized_datasets.json", result)
 
-        self._write_resumed_outputs(result=result, out=output_path, trace=trace)
+        published = self._write_resumed_outputs(
+            result=result, out=output_path, trace=trace
+        )
         logger.info("Atlas resume stats run_id=%s accessions=%s", run_dir.name, len(result.get("accessions", [])))
-        return result
+        return published
 
     def amend_queries(
         self,
@@ -585,6 +661,106 @@ class Atlas:
         scrape_fulltext_accessions: bool = True,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
+        """Collect datasets and expose the result as an Atlas v2 document."""
+        effective_run_id = run_id or (
+            _trace_writer.directory.name
+            if _trace_writer is not None
+            else self._dev_run_id()
+        )
+        legacy = self._collect_datasets_legacy(
+            query=query,
+            file=file,
+            out=None,
+            theme=theme,
+            review_filter=review_filter,
+            review_strategy=review_strategy,
+            metadata_repositories=metadata_repositories,
+            max_publications=max_publications,
+            max_publications_per_query=max_publications_per_query,
+            reviewer=reviewer,
+            collect_metadata=collect_metadata,
+            generate_queries=generate_queries,
+            max_generated_queries=max_generated_queries,
+            dev_trace=dev_trace,
+            dev_out_dir=dev_out_dir,
+            run_id=effective_run_id,
+            review_before_metadata=review_before_metadata,
+            stop_before_review=stop_before_review,
+            scrape_fulltext_accessions=scrape_fulltext_accessions,
+            _trace_writer=_trace_writer,
+            _finalize_trace=False,
+        )
+        document = self._document_adapter.assemble(
+            legacy,
+            atlas_metadata=self.metadata,
+            run_id=effective_run_id,
+            created_at=effective_run_id,
+            theme=theme or "",
+            config={
+                "queries": list(query or ()),
+                "metadata_repositories": list(metadata_repositories or ()),
+                "query_file": file,
+                "review_filter": review_filter,
+                "review_strategy": review_strategy,
+                "collect_metadata": collect_metadata,
+                "generate_queries": generate_queries,
+                "review_before_metadata": review_before_metadata,
+                "stop_before_review": stop_before_review,
+                "scrape_fulltext_accessions": scrape_fulltext_accessions,
+            },
+            run_status=RunStatus.RUNNING,
+        )
+        result = document.to_mapping()
+        if out is not None:
+            self._artifact_publisher.publish({Path(out): result})
+        if dev_trace and _trace_writer is None:
+            trace = DevTraceWriter.existing(Path(dev_out_dir) / effective_run_id)
+            trace.write("collection_snapshot.json", result)
+            trace.write(
+                "collection_snapshot.summary.json",
+                self._document_summary(document, out),
+            )
+            trace.register_artifact(
+                "collection_snapshot", "collection_snapshot.json"
+            )
+            trace.register_artifact(
+                "summary", "collection_snapshot.summary.json"
+            )
+            trace.run_store.set_stage_state(
+                effective_run_id, "collection", "complete"
+            )
+            trace.run_store.set_run_status(effective_run_id, "running")
+            trace.run_store.record_event(
+                effective_run_id,
+                "snapshot_published",
+                detail={"artifact_role": "collection_snapshot"},
+            )
+        return result
+
+    def _collect_datasets_legacy(
+        self,
+        query: list[str] | None = None,
+        file: str | None = None,
+        out: str | None = None,
+        theme: str | None = None,
+        review_filter: str = "none",
+        review_strategy: str = "direct",
+        metadata_repositories: list[str] | None = None,
+        max_publications: int | None = None,
+        max_publications_per_query: list[int | None] | None = None,
+        reviewer=None,
+        collect_metadata: bool = True,
+        generate_queries: bool = False,
+        max_generated_queries: int = 3,
+        dev_trace: bool = False,
+        dev_out_dir: str = ".dev",
+        run_id: str | None = None,
+        review_before_metadata: bool = False,
+        stop_before_review: bool = False,
+        scrape_fulltext_accessions: bool = True,
+        _trace_writer: DevTraceWriter | None = None,
+        _finalize_trace: bool = True,
+    ) -> dict:
         if review_before_metadata and theme is None:
             raise ValueError("review_before_metadata requires a theme")
         owned_trace = dev_trace and _trace_writer is None
@@ -596,6 +772,10 @@ class Atlas:
                 manifest={
                     "command": "collect-datasets",
                     "created_at": effective_run_id,
+                    "atlas_id": str(
+                        self.metadata.get("atlas_id")
+                        or f"atlas-{effective_run_id}"
+                    ),
                     "atlas_out": out,
                     "artifacts": [
                         "00_run_manifest.json",
@@ -624,6 +804,10 @@ class Atlas:
                     "stop_before_review": stop_before_review,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 },
+            )
+            _trace_writer.run_store.set_run_status(effective_run_id, "running")
+            _trace_writer.run_store.set_stage_state(
+                effective_run_id, "collection", "running"
             )
         checkpoint_store = (
             _trace_writer.checkpoint_store if _trace_writer is not None else None
@@ -784,7 +968,7 @@ class Atlas:
                     out,
                 )
                 self._write_json(result=result, out=out)
-            if owned_trace and _trace_writer is not None:
+            if owned_trace and _trace_writer is not None and _finalize_trace:
                 summary = build_atlas_summary(atlas=result, atlas_path=out)
                 _trace_writer.write(
                     "resume_publication_collection.summary.json", summary
@@ -824,7 +1008,7 @@ class Atlas:
             logger.info("Atlas collect_datasets progress stage=write-output output_path=%s", out)
             self._write_json(result=result, out=out)
 
-        if owned_trace and _trace_writer is not None:
+        if owned_trace and _trace_writer is not None and _finalize_trace:
             summary = build_atlas_summary(atlas=result, atlas_path=out)
             _trace_writer.write("06_final_atlas.json", result)
             _trace_writer.write("07_summary.json", summary)
@@ -878,12 +1062,34 @@ class Atlas:
         harmonization_details_out: str | None = None,
         harmonization_options: dict | None = None,
     ) -> dict:
-        result, _ = self._harmonizer.harmonize_datasets(
-            datasets=datasets,
+        document = AtlasDocument.from_mapping(datasets)
+        legacy = self._document_adapter.to_legacy(document)
+        result, details = self._harmonizer.harmonize_datasets(
+            datasets=legacy,
             details_out=harmonization_details_out,
             harmonization_options=harmonization_options,
         )
-        return result
+        updated = self._document_adapter.assemble(
+            result,
+            atlas_metadata={
+                "atlas_id": document.atlas.atlas_id,
+                "title": document.atlas.title,
+                "theme": document.atlas.theme,
+            },
+            run_id=document.run.run_id,
+            created_at=document.run.created_at,
+            theme=document.atlas.theme,
+            config={
+                "queries": list(document.run.config.queries),
+                "metadata_repositories": list(
+                    document.run.config.metadata_repositories
+                ),
+                **dict(document.run.config.options),
+            },
+            run_status=self._final_run_status(result),
+            harmonization_details=details,
+        )
+        return updated.to_mapping()
 
     def _collect_jsons(
         self,
@@ -1003,6 +1209,70 @@ class Atlas:
         self.ontology_cache_result = self._ontostore.cache_all()
         self._ontologies_cached = True
 
+    def _collect_for_internal(self, options: dict) -> dict:
+        """Run collection in the stage shape while honoring test/integration subclasses."""
+        if type(self).collect_datasets is Atlas.collect_datasets:
+            return self._collect_datasets_legacy(**options)
+        result = self.collect_datasets(**options)
+        if isinstance(result, dict) and result.get("schema_version") == "2.0":
+            return self._document_adapter.to_legacy(
+                AtlasDocument.from_mapping(result)
+            )
+        return result
+
+    def _harmonize_for_internal(
+        self,
+        *,
+        datasets: dict,
+        harmonization_details_out: str | None,
+        harmonization_options: dict | None,
+    ) -> tuple[dict, list[dict]]:
+        """Run harmonization in the stage shape while honoring subclasses."""
+        if type(self).harmonize_datasets is Atlas.harmonize_datasets:
+            return self._harmonizer.harmonize_datasets(
+                datasets=datasets,
+                details_out=harmonization_details_out,
+                harmonization_options=harmonization_options,
+            )
+        result = self.harmonize_datasets(
+            datasets=datasets,
+            harmonization_details_out=harmonization_details_out,
+            harmonization_options=harmonization_options,
+        )
+        if (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and isinstance(result[0], dict)
+        ):
+            return result
+        return result, []
+
+    @staticmethod
+    def _final_run_status(result: dict) -> RunStatus:
+        failed = any(
+            record.get("ontology_harmonization_run_status") == "error"
+            or str(record.get("metadata_status") or "").lower()
+            in {"error", "failed"}
+            for record in result.get("accessions", [])
+            if isinstance(record, dict)
+        )
+        return RunStatus.PARTIAL if failed else RunStatus.COMPLETE
+
+    @staticmethod
+    def _document_summary(
+        document: AtlasDocument, atlas_path: str | None
+    ) -> dict:
+        return {
+            "schema_version": document.schema_version,
+            "atlas_id": document.atlas.atlas_id,
+            "run_id": document.run.run_id,
+            "atlas_path": atlas_path,
+            "dataset_count": document.summary.dataset_count,
+            "publication_count": document.summary.publication_count,
+            "completed_dataset_count": document.summary.completed_dataset_count,
+            "failed_dataset_count": document.summary.failed_dataset_count,
+        }
+
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w", encoding="utf-8") as handle:
@@ -1020,16 +1290,97 @@ class Atlas:
             return {name: checkpoint_store}
         return {}
 
-    def _write_resumed_outputs(self, result: dict, out: str | None, trace: DevTraceWriter) -> None:
-        if out is not None:
-            Path(out).parent.mkdir(parents=True, exist_ok=True)
-            self._write_json(result=result, out=out)
-            summary = build_atlas_summary(atlas=result, atlas_path=out)
-            self._write_json(result=summary, out=str(summary_path(out)))
+    def _write_resumed_outputs(
+        self,
+        result: dict,
+        out: str | None,
+        trace: DevTraceWriter,
+        artifact_role: str = "final_atlas",
+    ) -> dict:
+        if result.get("schema_version") == "2.0":
+            document = AtlasDocument.from_mapping(result)
         else:
-            summary = build_atlas_summary(atlas=result)
-        trace.write("06_final_atlas.json", result)
-        trace.write("07_summary.json", summary)
+            manifest = self._read_checkpoint(
+                trace.directory / "00_run_manifest.json"
+            )
+            details_path = trace.directory / "04_harmonization_details.json"
+            details = (
+                self._read_checkpoint(details_path)
+                if details_path.exists()
+                else None
+            )
+            run_status = (
+                RunStatus.RUNNING
+                if manifest.get("command") == "collect-datasets"
+                else self._final_run_status(result)
+            )
+            document = self._document_adapter.assemble(
+                result,
+                atlas_metadata=self.metadata,
+                run_id=trace.directory.name,
+                created_at=str(
+                    manifest.get("created_at") or trace.directory.name
+                ),
+                theme=str(manifest.get("theme") or ""),
+                config={
+                    "queries": list(manifest.get("query") or ()),
+                    "metadata_repositories": list(
+                        manifest.get("metadata_repositories") or ()
+                    ),
+                    **{
+                        key: value
+                        for key, value in manifest.items()
+                        if key
+                        not in {
+                            "query",
+                            "metadata_repositories",
+                            "artifacts",
+                        }
+                    },
+                },
+                run_status=run_status,
+                harmonization_details=details,
+            )
+        published = document.to_mapping()
+        if out is not None:
+            summary = self._document_summary(document, out)
+            self._artifact_publisher.publish(
+                {Path(out): published, summary_path(out): summary}
+            )
+        else:
+            summary = self._document_summary(document, None)
+        atlas_name = (
+            "collection_snapshot.json"
+            if artifact_role == "collection_snapshot"
+            else "06_final_atlas.json"
+        )
+        summary_name = (
+            "collection_snapshot.summary.json"
+            if artifact_role == "collection_snapshot"
+            else "07_summary.json"
+        )
+        trace.write(atlas_name, published)
+        trace.write(summary_name, summary)
+        trace.register_artifact(artifact_role, atlas_name)
+        trace.register_artifact("summary", summary_name)
+        if artifact_role == "collection_snapshot":
+            trace.run_store.set_stage_state(
+                trace.directory.name, "collection", "complete"
+            )
+            trace.run_store.set_run_status(trace.directory.name, "running")
+        else:
+            trace.run_store.set_stage_state(
+                trace.directory.name, "harmonization", "complete"
+            )
+            trace.run_store.set_run_status(
+                trace.directory.name, document.run.status.value
+            )
+        trace.run_store.record_event(
+            trace.directory.name,
+            "artifact_published",
+            detail={"artifact_role": artifact_role},
+        )
+        return published
 
     def _resume_run_directory(self, dev_out_dir: str, run_id: str | None) -> Path:
         root = Path(dev_out_dir)

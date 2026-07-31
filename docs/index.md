@@ -27,13 +27,13 @@ Use `--query <keyword>` when the id is unknown.
   title: [Architectural Decisions](codebase.md#architectural-decisions)
   anchor: architectural-decisions
   purpose: Evidence-safe documented and observed design choices, consequences, and affected components.
-  keywords: AD-001, AD-002, AD-003, AD-004, observed, documented, rationale, decisions
+  keywords: AD-001, AD-002, AD-003, AD-004, AD-005, AD-006, Atlas v2, observed, documented, decisions
 
 - id: design-invariants-and-expectations
   title: [Design Invariants And Expectations](codebase.md#design-invariants-and-expectations)
   anchor: design-invariants-and-expectations
-  purpose: Compatibility, ordering, validation, state, retry, archive, logging, and privacy rules future changes must preserve.
-  keywords: query order, publication_text_ref, fingerprint, retryable, terminal, archive, logging, schema
+  purpose: Atlas v2 validation, state authority, transaction, compatibility, retry, archive, logging, and privacy rules future changes must preserve.
+  keywords: AtlasDocument, schema_version, atlas_run.sqlite3, resume_state.sqlite, rollback, fingerprint, retryable, archive
 
 - id: component-relationships-and-data-flow
   title: [Component Relationships And Data Flow](codebase.md#component-relationships-and-data-flow)
@@ -115,6 +115,12 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Observed lock, verification, and atomic-publication rules for whole-run archives.
   keywords: AD-005, archive, activity lock, checksum, atomic, symlink
 
+- id: decision-central-atlas-document
+  title: [Central Atlas document and run authority](codebase.md#decision-central-atlas-document)
+  anchor: decision-central-atlas-document
+  purpose: Observed Atlas v2 public-boundary, normalized lifecycle authority, and fail-closed compatibility decision.
+  keywords: AD-006, AtlasDocument, AtlasDocumentAdapter, atlas_run.sqlite3, resume_state.sqlite, v1, v2
+
 - id: type-atlas
   title: [Atlas orchestrator](codebase.md#type-atlas)
   anchor: type-atlas
@@ -127,11 +133,23 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Versioned domain dataclasses, owner-produced golden fixture, strict validation, deterministic JSON, and cross-reference invariants.
   keywords: AtlasDocument, schema_version, golden fixture, downstream contract, dataclass, codec, validation, atomic JSON
 
+- id: type-atlas-document-adapter
+  title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
+  anchor: type-atlas-document-adapter
+  purpose: Internal anti-corruption boundary between mature stage mappings and the strict Atlas v2 aggregate.
+  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, publication_texts, v2 projection
+
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
   anchor: type-atlas-run-store
   purpose: Normalized Atlas v2 run, stage, work, attempt, artifact, and event persistence.
   keywords: AtlasRunStore, atlas_run.sqlite3, SQLite, work_items, attempts, artifacts, events
+
+- id: type-json-artifact-bundle-publisher
+  title: [JsonArtifactBundlePublisher](codebase.md#type-json-artifact-bundle-publisher)
+  anchor: type-json-artifact-bundle-publisher
+  purpose: Deterministic staged JSON publication with whole-bundle backup, rollback, and cleanup.
+  keywords: JsonArtifactBundlePublisher, stage, validate, backup, rollback, os.replace, atomic
 
 - id: type-atlas-collector
   title: [AtlasCollector](codebase.md#type-atlas-collector)
@@ -184,8 +202,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-atlas-creation
   title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)
   anchor: workflow-atlas-creation
-  purpose: End-to-end collection, harmonization, nested output, summary, details, and tracing.
-  keywords: create_atlas, preflight, cache, parent directories, summary, trace, offline system test
+  purpose: End-to-end collection, harmonization, Atlas v2 assembly, rollback-safe bundle publication, normalized tracing, and outputs.
+  keywords: create_atlas, AtlasDocumentAdapter, JsonArtifactBundlePublisher, atlas_run.sqlite3, summary, rollback, trace
 
 - id: workflow-harmonization
   title: [Harmonization workflow](codebase.md#workflow-harmonization)

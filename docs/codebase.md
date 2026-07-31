@@ -27,14 +27,20 @@ AtlasCollector AtlasFilterer AtlasHarmonizer
 Europe PMC   publication text   agentic-curator
 GEO/AE       thematic review    ontology services
    \              |              /
-    +------- atlas object -------+
+    +---- legacy stage maps -----+
               |
-      JSON / summary / details
-      trace + SQLite checkpoints
+      AtlasDocumentAdapter
+              |
+      validated AtlasDocument v2
+              |
+    JSON bundle / trace artifacts
+ atlas_run.sqlite3 + item checkpoints
 ```
 
 The runtime is a Python 3.10+ `src/` package. `Atlas` coordinates three stage
-components; `CheckpointStore` and `DevTraceWriter` own durable traced state.
+components; `AtlasRunStore` owns run lifecycle and artifact identity, while
+`CheckpointStore` retains internal item-result/retry state and
+`DevTraceWriter` owns their traced layout.
 The sibling `benchmark_ThematicAtlases` package evaluates saved outputs without
 being on the production atlas path. See [runtime packaging](#runtime-and-packaging)
 and [project layout](#project-purpose-and-layout).
@@ -54,8 +60,11 @@ and [project layout](#project-purpose-and-layout).
   checked before eligible model-backed work; this repository does not own model
   responses or external ontology availability.
 - **Persistence boundary:** output JSON and sidecars are caller-visible.
-  `DevTraceWriter` owns readable trace artifacts; `CheckpointStore` owns the
-  SQLite state, fingerprints, item history, retry status, and atomic amendments.
+  `JsonArtifactBundlePublisher` stages and validates related JSON before
+  rollback-safe replacement. `DevTraceWriter` owns readable trace artifacts;
+  `AtlasRunStore` owns lifecycle/stage/artifact/event truth, while
+  `CheckpointStore` owns internal item results, fingerprints, retry history,
+  and atomic amendments.
 - **Package boundary:** `ThematicAtlases` owns atlas workflow policy.
   `benchmark_ThematicAtlases` consumes outputs but never mutates production
   traces. ArrayExpress selection is accepted, but its wrapper returns delegated
@@ -146,14 +155,37 @@ and [project layout](#project-purpose-and-layout).
   [`run_fibrosis_atlas.py`](../run_fibrosis_atlas.py), and
   [`test_run_archive.py`](../tests/test_run_archive.py).
 
+<a id="decision-central-atlas-document"></a>
+### AD-006: Public workflows use one versioned document and one run authority
+
+- **Status:** Observed
+- **Decision:** Every public collection, creation, harmonization, and resume
+  result crosses the boundary as a validated `AtlasDocument` v2 mapping. New
+  traces use `atlas_run.sqlite3` as lifecycle/artifact authority; legacy stage
+  maps and `resume_state.sqlite` remain internal implementation details.
+- **Rationale:** Not documented.
+- **Consequences:** Consumers receive one strict, extensible contract and can
+  distinguish artifact roles, while incompatible v1 inputs/traces fail closed.
+  Mature stage components can evolve behind `AtlasDocumentAdapter`.
+- **Affected components:** `Atlas`, `AtlasDocumentAdapter`, `AtlasDocument`,
+  `DevTraceWriter`, `AtlasRunStore`, `CheckpointStore`, CLI output, resume, and
+  downstream contract fixtures.
+- **Evidence:** [`atlas.py`](../src/ThematicAtlases/atlas.py),
+  [`document_adapter.py`](../src/ThematicAtlases/document_adapter.py),
+  [`trace.py`](../src/ThematicAtlases/trace.py), and
+  [`test_atlas_v2_public_workflows.py`](../tests/test_atlas_v2_public_workflows.py).
+
 <a id="design-invariants-and-expectations"></a>
 ## Design invariants and expectations
 
 - Query order is explicit queries, file queries, then generated queries.
   Per-query limits align with that final order; positive-value validation occurs
   before network work.
-- Final datasets retain `accessions` plus one shared `publication_texts` map.
-  Nested publication references must resolve to that map when text is present.
+- Public workflow mappings have `schema_version == "2.0"` and the exact
+  top-level sections `atlas`, `run`, `datasets`, `publications`, and `summary`.
+  Unknown fields, duplicate identities, dangling publication references, and
+  inconsistent derived counts fail validation. Legacy `accessions` and
+  `publication_texts` mappings exist only between mature internal stages.
 - Metadata repository routing defaults to GEO. Unsupported, unresolved, or
   failed metadata is represented explicitly rather than silently fabricated.
 - Review filtering requires a theme. `review_before_metadata` enriches only
@@ -164,6 +196,12 @@ and [project layout](#project-purpose-and-layout).
   failures are retryable; one item failure must not discard unrelated successes.
 - Output order and schemas remain stable under bounded parallel harmonization.
   Original metadata is retained when an item cannot be harmonized.
+- Related public Atlas/summary JSON is staged, parsed, and published as one
+  rollback-safe bundle. A first-run failure leaves no final artifact; an
+  overwrite failure restores the entire prior bundle.
+- `atlas_run.sqlite3` is authoritative for run, stage, artifact-role, and event
+  state. `resume_state.sqlite` is only the internal work-result/retry cache.
+  Resume does not infer or silently migrate missing v2 lifecycle state.
 - Whole-run archival requires an exclusive activity lock, rejects symlinks and
   collisions, verifies copied content, and publishes before deleting sources.
 - Library modules do not configure global logging. No credential, prompt,
@@ -180,7 +218,10 @@ and [project layout](#project-purpose-and-layout).
 | `Atlas` | `AtlasFilterer` | atlas-shaped mappings | filterer owns text map, review context, and filtering | review failures remain item-local in trace |
 | filterer | `PublicationTextReviewer` | publication/context mappings | reviewer owns judgement contract; filterer applies outcome filter | strategy/fingerprint mismatches fail |
 | `Atlas` | `AtlasHarmonizer` | dataset mappings and controls | harmonizer owns per-work-key cache and details | original metadata retained on failure |
-| all stages | `CheckpointStore` | SQLite calls | store owns fingerprints, rows, history, locks, and retry requests | transaction failure prevents false completion |
+| stage components | `AtlasDocumentAdapter` | legacy mappings into/out of typed v2 | adapter owns boundary projection; document owns validation | malformed v2 and broken references fail closed |
+| `Atlas` | `JsonArtifactBundlePublisher` | mapping of path to JSON value | publisher owns stage/backup/replace cleanup | any replacement failure restores the complete prior bundle |
+| traced orchestration | `AtlasRunStore` | normalized SQLite calls | store owns runs, stages, work, attempts, artifact roles, and events | incompatible schema/path-role conflict raises |
+| item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | benchmark runner | `ThematicReviewerBenchmark` | saved JSON/trace input | benchmark owns an offline report only | invalid/ambiguous reference identities fail/report conflict |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
@@ -206,9 +247,10 @@ validation when they modify a trace.
   `run_accession_metadata_collector.py`,
   `run_reference_publication_recall.py`, and `run_reference_set_review.py`.
   These are supported scripts, not additional installed console commands.
-- **Files:** queries/theme text and atlas/reference JSON are inputs. Atlas JSON,
-  summaries, details, benchmark reports, logs, readable trace JSON, and
-  `resume_state.sqlite` are outputs.
+- **Files:** queries/theme text and Atlas v2/reference JSON are inputs. Atlas v2
+  JSON, summaries, details, benchmark reports, logs, readable trace JSON,
+  authoritative `atlas_run.sqlite3`, and internal `resume_state.sqlite` item
+  checkpoints are outputs.
 
 The CLI is a thin adapter: it constructs `Atlas(metadata={})`, translates
 hyphenated review filter values, resolves logging precedence, and forwards
@@ -235,7 +277,14 @@ and [fixed-runner workflow](#workflow-fixed-runners).
 <a id="type-atlas"></a>
 - [`Atlas`](../src/ThematicAtlases/atlas.py) owns component wiring, query
   resolution, credential/cache preflight, stage order, tracing, resume,
-  amendment, archival delegation, outputs, and summaries.
+  amendment, archival delegation, v2 boundary conversion, and bundle
+  publication.
+<a id="type-atlas-document-adapter"></a>
+- [`AtlasDocumentAdapter`](../src/ThematicAtlases/document_adapter.py) is the
+  internal anti-corruption layer between mature `accessions` /
+  `publication_texts` stage mappings and strict `AtlasDocument` values. It
+  centralizes identity/status/review/diagnostic projection instead of
+  scattering final JSON assembly across stages.
 <a id="type-atlas-document"></a>
 - [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v2
   exchange model. Frozen standard-library dataclasses and string enums own
@@ -252,6 +301,11 @@ and [fixed-runner workflow](#workflow-fixed-runners).
   `artifacts`, and `run_events`. Work order is explicit, attempts/events append
   monotonically, artifact roles cannot silently change paths, and legacy
   checkpoint databases raise `IncompatibleRunStoreError` rather than migrate.
+<a id="type-json-artifact-bundle-publisher"></a>
+- [`JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py)
+  owns deterministic JSON serialization, sibling staging and validation,
+  existing-output backups, atomic replacement, rollback, and cleanup for one
+  related artifact bundle.
 <a id="type-atlas-collector"></a>
 - [`AtlasCollector`](../src/ThematicAtlases/collector/collector.py) owns Europe
   PMC discovery, accession filtering, metadata repository routing, and
@@ -301,16 +355,17 @@ and [fixed-runner workflow](#workflow-fixed-runners).
 [`Atlas(metadata, epmc_wrapper_factory=None, metadata_handlers=None,
 metadata_repositories=None, publication_text_reviewer=None, collector=None,
 filterer=None, harmonizer=None, ontostore=None, cache_ontologies=False,
-query_generator=None, credential_checker=None)`](../src/ThematicAtlases/atlas.py)
+query_generator=None, credential_checker=None, document_adapter=None,
+artifact_publisher=None)`](../src/ThematicAtlases/atlas.py)
 owns dependency injection. It raises `ValueError` when a supplied harmonizer is
 combined with Atlas-managed ontology-store/cache options.
 
 | Member | Exact signature | Return, failure, and side effects |
 | --- | --- | --- |
-| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True) -> dict` | Runs collection then harmonization; writes requested atlas/details, automatic summary, and optional trace, creating requested parent directories. Invalid options, credentials, cache preparation, files, or uncaught provider failures raise. |
-| [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, _trace_writer=None) -> dict` | Returns `{"accessions": list, "publication_texts": dict}` and may write output/trace. Validates aligned positive limits, review/theme combinations, query generation, and trace fingerprints before eligible network/model work. Full-text accession discovery is enabled by default. `_trace_writer` is an internal continuation hook, not a caller option. |
-| [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Returns a copied atlas with per-record status and may write details. Unsupported/null metadata is `not_run`; caught item failures retain original metadata as `error`. |
-| [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects and validates a trace, optionally archives/requeues selected rows, reuses completed boundaries, and may write resumed output. Missing/ambiguous runs, fingerprint mismatches, or invalid retry requests raise. |
+| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True) -> dict` | Returns a validated Atlas v2 mapping after collection and harmonization. When `out` is set, the document and derived summary publish as one rollback-safe bundle; optional trace/details are also written. Invalid options/contracts, credentials, cache preparation, files, publication, or uncaught provider failures raise. |
+| [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, _trace_writer=None) -> dict` | Returns a validated Atlas v2 mapping with run status `running`; `out` atomically receives the same mapping. A traced collection registers `collection_snapshot`, never `final_atlas`. Validates aligned positive limits, review/theme combinations, query generation, and trace fingerprints before eligible network/model work. `_trace_writer` is internal. |
+| [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Requires Atlas v2 input, projects it to the internal stage contract, and returns validated v2 with harmonized status/details. Legacy/unknown wire fields fail validation. Unsupported/null metadata is `not_run`; caught item failures retain original metadata as `error`. |
+| [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects a v2 trace, requires authoritative `atlas_run.sqlite3`, optionally archives/requeues selected item-cache rows, reuses completed boundaries, and returns/publishes Atlas v2. Missing/ambiguous/incompatible runs, fingerprint mismatches, or invalid retry requests raise. |
 | [`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | Archives the prior fingerprint and installs aligned normalized queries atomically. Empty/misaligned limits, active work, or unsafe state raise. |
 | [`Atlas.archive_existing_runs`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | Returns published archive paths after verification; active runs, symlinks, unsafe names, nested roots, and collisions raise without deleting sources. |
 
@@ -331,6 +386,8 @@ otherwise.
 | Qualified export | Constructor/value and public contract |
 | --- | --- |
 | [`ThematicAtlases.domain`](../src/ThematicAtlases/domain.py) | Formally exports the `AtlasDocument` v2 type family and enums through its `__all__`. The codec accepts a mapping or UTF-8 JSON path and returns frozen typed values; validation failures raise `ValueError`; `dump` creates parents and atomically replaces deterministic JSON. [`tests/fixtures/contracts/atlas-document-v2.json`](../tests/fixtures/contracts/atlas-document-v2.json) is the owner-produced downstream wire-contract fixture. |
+| [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v2 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path, creates schema v1 for a new database, and rejects legacy/unrecognized state. Public methods are inventoried under supported helpers below. |
+| [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py) and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported related-JSON transaction boundary and its double-failure exception. `publish` either installs the complete bundle or restores the prior one; when restoration itself fails, the exception exposes the original publication error, rollback errors, and preserved recovery paths. |
 | [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler` expose routing. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
 | [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
 | [`ThematicAtlases.filterer.ACCESSIONS`](../src/ThematicAtlases/filterer/review.py) | `"accessions"` atlas key. |
@@ -424,6 +481,27 @@ Complete public-member signatures for the exported classes:
 
 ### Supported importable production helpers
 
+- [`ThematicAtlases.document_adapter.AtlasDocumentAdapter`](../src/ThematicAtlases/document_adapter.py):
+  `assemble(stage_result, *, atlas_metadata, run_id, created_at, theme,
+  config, run_status, harmonization_details=None) -> AtlasDocument` converts
+  mature internal stage mappings into the v2 aggregate;
+  `to_legacy(document) -> dict` projects the minimum internal harmonizer input.
+  Invalid identifiers, references, enum values, metadata, or summary
+  relationships raise during `AtlasDocument` validation.
+- [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py):
+  `(*, replace=os.replace)`; `publish(artifacts: Mapping[str | Path, Any]) ->
+  None` writes deterministic newline-terminated JSON. Destinations must be
+  unique. Serialization/validation/filesystem failures restore the complete
+  prior bundle and remove staging/backup files before propagating. If rollback
+  also fails, `ArtifactRollbackError(publication_error, rollback_errors,
+  recovery_paths)` preserves remaining backup files for explicit recovery.
+- [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py):
+  normalized schema-v2 run database with `create_run`, `get_run`,
+  `set_run_status`, `set_stage_state`, `add_work_item`,
+  `work_items`, `record_attempt`, `attempts`, `register_artifact`, `artifact`,
+  `artifacts`, `record_event`, and `events`. Relative artifact paths cannot
+  escape the run and a role cannot silently change path. Opening legacy or
+  unsupported schemas raises `IncompatibleRunStoreError`.
 - [`CheckpointStore(path)`](../src/ThematicAtlases/checkpoint.py): public
   `set_meta`, `get_meta_json`, `get_meta`, `validate_fingerprint`,
   `amend_fingerprint`, `put`, `get`, `items`, `has_retryable`,
@@ -483,7 +561,11 @@ queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
                      |                                 |
                      +------ text/review/filter -------+
                                       |
-                              atlas-shaped result
+                           legacy stage result
+                                      |
+                           AtlasDocumentAdapter
+                                      |
+                           Atlas v2 snapshot
 ```
 
 #### Numbered stages
@@ -497,8 +579,10 @@ queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
    dropping unsupported repositories.
 4. `AtlasFilterer.filter_jsons` maps full text with abstract/no-text outcomes,
    optionally calls review, applies the selected filter, and assembles output.
-5. An output path and traced run persist JSON/checkpoints; otherwise the mapping
-   is returned in memory. Empty searches and links return an empty atlas shape.
+5. `AtlasDocumentAdapter` assembles and validates an Atlas v2 snapshot whose
+   run status is `running`. An output path receives that mapping atomically.
+   Tracing writes `collection_snapshot.json` and registers only the
+   `collection_snapshot` role. Empty searches return a valid empty document.
 
 #### Pseudocode
 
@@ -508,8 +592,10 @@ Atlas.collect_datasets(args)                    # interface/orchestrator
      -> EuropePMCWrapper.collect_accessions     # search/datalinks/fullTextXML
         -> extract_accessions_from_text         # internal deterministic scan
      -> metadata_handler.collect_accession...   # internal -> external/system
-  -> AtlasFilterer.filter_jsons(...)            # internal call
-  <- {"accessions": ..., "publication_texts": ...}
+  -> AtlasFilterer.filter_jsons(...)            # internal legacy stage call
+  -> AtlasDocumentAdapter.assemble(...)         # boundary conversion
+  -> JsonArtifactBundlePublisher.publish(...)   # persistence, if requested
+  <- AtlasDocument v2 mapping
 ```
 
 #### Evidence
@@ -531,9 +617,11 @@ create_atlas -> preflight/cache -> collect -> harmonize
      |              |                          |
      +-- error       +-- empty ----------------+--> empty atlas
                                                 |
-                                  item failure -> original + error status
+                                  item failure -> original + diagnostic
                                                |
-                                      JSON + summary/details
+                                   AtlasDocumentAdapter
+                                               |
+                             staged Atlas + summary bundle
 ```
 
 #### Numbered stages
@@ -541,21 +629,28 @@ create_atlas -> preflight/cache -> collect -> harmonize
 1. `Atlas.create_atlas` performs eligible credential/cache preflight.
 2. Invalid query/review/cache configuration or failed credential/cache
    preparation raises before collection.
-3. It calls `collect_datasets`; an empty collection remains a valid empty atlas.
-4. It calls `harmonize_datasets`; caught item failures retain original metadata.
-5. Requested atlas/details and the automatic summary are written atomically
-   enough for their individual file operations; tracing commits readable stage
-   outputs and final markers. Filesystem errors propagate.
+3. It invokes the mature collection stage behind the public adapter; an empty
+   collection remains a valid empty Atlas v2 document.
+4. It invokes the mature harmonization stage; caught item failures retain
+   original metadata and become v2 diagnostics/status.
+5. `AtlasDocumentAdapter` assembles and validates the final aggregate.
+6. When `out` is set, `JsonArtifactBundlePublisher` stages and parses the Atlas
+   plus derived summary, backs up any prior pair, then replaces both. A failed
+   replacement restores the full prior pair or leaves no first-run artifacts.
+7. A trace writes readable stage files and registers `final_atlas`, `summary`,
+   and details roles in `atlas_run.sqlite3`; filesystem errors propagate.
 
 #### Pseudocode
 
 ```text
 Atlas.create_atlas(args)                        # interface/orchestrator
   -> _preflight_credentials/_prepare_cache      # internal/external policy
-  -> collect_datasets(...)                      # internal workflow
-  -> harmonize_datasets(...)                    # internal workflow
-  -> _write_json + build_atlas_summary          # persistence/internal
-  <- final atlas
+  -> _collect_datasets_legacy(...)              # internal stage workflow
+  -> AtlasHarmonizer.harmonize_datasets(...)    # internal stage workflow
+  -> AtlasDocumentAdapter.assemble(...)         # boundary conversion
+  -> JsonArtifactBundlePublisher.publish(...)   # bundle persistence
+  -> AtlasRunStore stage/artifact/event writes  # trace persistence
+  <- AtlasDocument v2 mapping
 ```
 
 #### Evidence
@@ -563,8 +658,9 @@ Atlas.create_atlas(args)                        # interface/orchestrator
 Definitions/calls:
 [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py),
 [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py),
-[`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py), and
-[`build_atlas_summary`](../src/ThematicAtlases/summary.py).
+[`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py),
+[`AtlasDocumentAdapter`](../src/ThematicAtlases/document_adapter.py), and
+[`JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py).
 
 <a id="workflow-harmonization"></a>
 ### Workflow 3: Harmonization
@@ -587,24 +683,31 @@ dataset -> eligible? -- no --> not_run/original
 
 #### Numbered stages
 
-1. `AtlasHarmonizer` validates controls and computes work keys.
-2. Non-mapping/list metadata is retained with `not_run`; duplicate work keys
+1. Public `Atlas.harmonize_datasets` parses and validates Atlas v2. Unknown or
+   legacy v1 wire fields fail before delegated harmonization.
+2. `AtlasDocumentAdapter.to_legacy` projects the minimum stage mapping, then
+   `AtlasHarmonizer` validates controls and computes work keys.
+3. Non-mapping/list metadata is retained with `not_run`; duplicate work keys
    share one result without changing accession order.
-3. Model-enabled controls preflight credentials; invalid options or credentials
+4. Model-enabled controls preflight credentials; invalid options or credentials
    fail the invocation before provider work.
-4. Unique eligible work calls the delegated ontology harmonizer, serially or
+5. Unique eligible work calls the delegated ontology harmonizer, serially or
    with bounded workers.
-5. Results and details are memoized/checkpointed; caught item failures remain
-   local and retain original metadata. Requested details-file errors propagate.
+6. Results and details are memoized/checkpointed; caught item failures remain
+   local and retain original metadata. The adapter assembles and validates the
+   returned v2 document. Requested details-file errors propagate.
 
 #### Pseudocode
 
 ```text
 Atlas.harmonize_datasets(datasets)              # interface
+  -> AtlasDocument.from_mapping                 # strict v2 validation
+  -> AtlasDocumentAdapter.to_legacy             # internal projection
   -> AtlasHarmonizer.harmonize_datasets         # internal call
      -> ontology_harmonizer.harmonize           # external package/API calls
      -> CheckpointStore.put                     # persistence call
-  <- updated atlas + optional details sidecar
+  -> AtlasDocumentAdapter.assemble              # strict v2 result
+  <- updated Atlas v2 + optional details sidecar
 ```
 
 #### Evidence
@@ -635,25 +738,30 @@ select trace -> validate fingerprint -> retry request?
 #### Numbered stages
 
 1. CLI retry flags become stage/item/degraded-stage selections.
-2. `Atlas.resume` selects an explicit or newest incomplete trace and validates
-   its manifest and fingerprint; missing, ambiguous, or incompatible state raises.
+2. `Atlas.resume` selects an explicit or newest incomplete trace and requires a
+   compatible authoritative `atlas_run.sqlite3` before it validates the
+   manifest/item-cache fingerprint; missing, ambiguous, legacy, or incompatible
+   state raises without silent migration.
 3. `CheckpointStore.request_retries` validates requested boundaries and
    archives selected rows; invalid stages/items leave live rows unchanged.
 4. Resume reconstructs completed search, datalink, text, metadata, review, and
    harmonization boundaries and invokes only missing/requeued work.
-5. A reusable final result is returned/written immediately. Retryable item
-   failures remain resumable; terminal item outcomes are reused unless explicitly
-   selected by supported retry policy.
+5. A reusable internal result is converted to Atlas v2 and returned/published
+   immediately. Collection-only publication registers `collection_snapshot`;
+   complete publication registers `final_atlas`. Retryable item failures remain
+   resumable; terminal outcomes are reused unless explicitly selected.
 
 #### Pseudocode
 
 ```text
 thematic-atlas resume(args)                     # interface
   -> Atlas.resume(...)                          # orchestrator
+     -> AtlasRunStore lifecycle/artifact calls  # authoritative persistence
      -> CheckpointStore.request_retries         # persistence call, optional
      -> CheckpointStore.get/items               # persistence calls
      -> collection/review/harmonization         # internal calls as needed
-  <- resumed output or validation error
+     -> AtlasDocumentAdapter + bundle publisher # output boundary
+  <- resumed Atlas v2 or validation error
 ```
 
 #### Evidence
@@ -914,19 +1022,29 @@ and [`run_reference_review`](../run_reference_set_review.py).
 - Add CLI options by updating parser validation and forwarding tests, the README
   option table, this handoff, and fingerprints when the option changes work.
 - Add checkpointed stages with stable stage/item keys, explicit status/failure
-  categories, immediate commits, deterministic reconstruction, and selective
-  retry tests. Never mark an external call complete before its durable result.
-- Change atlas or trace schemas only with compatibility handling for existing
-  traces and consumers; keep shared publication references and archived traces
-  directly readable/resumable where promised.
+  categories, immediate item-cache commits, normalized `AtlasRunStore` stage
+  state, deterministic reconstruction, and selective retry tests. Never mark
+  an external call complete before its durable result.
+- Extend the public wire contract by changing the typed `AtlasDocument` model,
+  strict codec, adapter, owner golden fixture, downstream copied fixtures, and
+  docs together. Do not assemble public JSON in stage components or add
+  unversioned top-level fragments.
+- Change trace schemas through explicit schema versions/migrations. Keep
+  `atlas_run.sqlite3` authoritative, `resume_state.sqlite` internal, artifact
+  paths run-relative, and role/path conflicts fail-closed. Do not infer v2
+  lifecycle state from legacy JSON filenames.
+- Publish related JSON through `JsonArtifactBundlePublisher`; add fault
+  injection for every new bundle boundary so first-run cleanup and overwrite
+  restoration remain proven.
 - Add review/harmonization providers behind injected collaborators. Keep
   credentials and provider payloads out of logs, isolate per-item failures, and
   document which controls require network/model access.
 - Add principal workflows to the architecture map, workflow section,
   `docs/index.md`, README Guide when user-facing, and focused/full tests.
 - Avoid direct wrapper-to-CLI coupling, hidden mutation of caller mappings,
-  bypassing `CheckpointStore`, unverified archive deletion, or copying delegated
-  sibling-package internals into this repository's documentation.
+  bypassing the adapter/run-store/publisher boundaries, unverified archive
+  deletion, or copying delegated sibling-package internals into this
+  repository's documentation.
 
 <a id="project-purpose-and-layout"></a>
 ## Project Purpose And Layout
@@ -1221,13 +1339,13 @@ directly resumable by using its workflow archive directory as `dev_out_dir`.
 
 Public methods:
 
-- `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None)`: wires component instances, one optional shared ontology store, eager-cache policy, and query-generation/credential-preflight dependencies.
-- `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True)`: optionally generates queries, runs collection/filtering and harmonization, writes/returns the final atlas, automatically writes a summary beside `out`, and can write an opt-in trace bundle.
+- `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None, document_adapter=None, artifact_publisher=None)`: wires component instances, one optional shared ontology store, eager-cache policy, query-generation/credential-preflight dependencies, the v2 boundary adapter, and the rollback-safe publisher.
+- `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True)`: optionally generates queries, runs collection/filtering and harmonization, returns Atlas v2, publishes the v2 document and derived summary as one bundle beside `out`, and can write an opt-in trace bundle.
 - `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
 - `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.
-- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review. The legacy maximum is global; an ordered per-query list permits independent result sets. Full-text accession discovery is on by default. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata, writes `resume_publication_collection.json`, and omits reviewed/final-atlas trace markers.
-- `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: delegates to `AtlasHarmonizer`, replaces supported metadata, and optionally writes a details sidecar.
+- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v2 with run status `running`. The legacy maximum is global; an ordered per-query list permits independent result sets. Full-text accession discovery is on by default. With review-before-metadata enabled, repository-filtered accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
+- `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: requires an Atlas v2 mapping, delegates its projected metadata to `AtlasHarmonizer`, returns validated Atlas v2, and optionally writes a details sidecar. Legacy v1 mappings fail closed.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
@@ -1236,7 +1354,22 @@ Whole-run archives differ from checkpoint comparison archives.
 `CheckpointStore.archive_stage()` and `archive_items()` move selected checkpoint
 rows to comparison databases while leaving the parent run active.
 
-When `create_atlas(out="atlas.json")` succeeds, it also writes `atlas.summary.json` with operational counts and a deterministic scientific profile derived from MINiML samples, platforms, and characteristics. With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run directory under `dev_out_dir` containing `resume_state.sqlite`, a manifest, readable collection/review checkpoints, and final output/summary; full atlas traces also include pre/post harmonization metadata and target details. `CheckpointStore` uses WAL mode, full synchronous commits, a configuration fingerprint, and one row per stage/item. Statuses distinguish reusable success/no-data outcomes, non-retryable consumed-call failures, and transient failures that should be attempted again. `archive_stage(...)` transactionally moves a complete stage into comparison tables in a separate SQLite database; `archive_items(stage, item_keys, ...)` performs the same verified operation for an explicit subset. Both preserve unrelated rows/stages, reject missing selections or archive-ID reuse, and delete live rows only after archive counts match.
+When `create_atlas(out="atlas.json")` succeeds, it also writes
+`atlas.summary.json` with schema/run/atlas identity and dataset/publication/
+completed/failed counts. Both files are one rollback-safe publication bundle.
+With `dev_trace=True`, `create_atlas()` or `collect_datasets()` writes a run
+directory under `dev_out_dir` containing authoritative `atlas_run.sqlite3`,
+internal `resume_state.sqlite`, a manifest, and readable stage artifacts. Full
+atlas traces register final/details/summary roles; collection traces register a
+separate snapshot role. `CheckpointStore` uses WAL mode, full synchronous
+commits, a configuration fingerprint, and one row per stage/item. Statuses
+distinguish reusable success/no-data outcomes, non-retryable consumed-call
+failures, and transient failures that should be attempted again.
+`archive_stage(...)` transactionally moves a complete stage into comparison
+tables in a separate SQLite database; `archive_items(stage, item_keys, ...)`
+does the same for an explicit subset. Both preserve unrelated rows/stages,
+reject missing selections or archive-ID reuse, and delete live rows only after
+archive counts match.
 
 Checkpoint schema version 2 migrates existing databases in place and records
 attempt counts, failure timestamps, error type/category, and immutable history
@@ -1774,14 +1907,23 @@ root directory.
 
 Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
 
-`collect-datasets` and `create-atlas` both call `Atlas.collect_datasets()` for the collection and publication text mapping stage. Supplying `--theme` or `--theme-file` opts into `agentic_curator` thematic review for each unique publication text before review filtering is applied. `create-atlas` then harmonizes the atlas, writes the requested final JSON and automatic summary, and optionally writes the trace bundle. The standalone `harmonize-datasets` command reads `--file`, transforms the atlas, and writes required `--out`; both harmonizing commands can write the optional details sidecar.
+`collect-datasets` and `create-atlas` share the mature collection and
+publication-text stage components. Supplying `--theme` or `--theme-file` opts
+into `agentic_curator` thematic review for each unique publication text before
+review filtering. Both public commands return/write Atlas v2 through
+`AtlasDocumentAdapter`. `create-atlas` then harmonizes and transactionally
+publishes the requested final JSON plus automatic summary. The standalone
+`harmonize-datasets` command requires Atlas v2 at `--file`, writes Atlas v2 at
+`--out`, and fails closed on legacy v1. Both harmonizing commands can write the
+optional details sidecar.
 
-`resume` selects `--run-id` or the newest incomplete trace under
+`resume` selects `--run-id` or the newest incomplete v2 trace under
 `--dev-out-dir` (default `.dev`), optionally writes `--out`, and
 `--stop-before-review` returns the collection snapshot. Repeatable
 `--retry-stage`, `--retry-item STAGE:KEY`, and `--retry-degraded-stage`
-requests are validated and forwarded to `Atlas.resume`; malformed item syntax
-or unsupported selections raise rather than silently requeueing other work.
+requests are validated and forwarded to `Atlas.resume`; missing
+`atlas_run.sqlite3`, malformed item syntax, or unsupported selections raise
+rather than migrating state or silently requeueing other work.
 
 <a id="archive-reference"></a>
 ## Archive Reference
