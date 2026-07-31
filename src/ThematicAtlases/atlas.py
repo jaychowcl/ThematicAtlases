@@ -1004,6 +1004,7 @@ class Atlas:
         self._ontologies_cached = True
 
     def _write_json(self, result: dict | list[dict], out: str) -> None:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
 

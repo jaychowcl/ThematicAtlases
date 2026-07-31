@@ -294,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
             datasets=datasets,
             harmonization_details_out=args.harmonization_details_out,
         )
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(result, handle, indent=2)
     elif args.command == "resume":

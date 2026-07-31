@@ -3,6 +3,7 @@ from concurrent.futures import as_completed, ThreadPoolExecutor
 import hashlib
 import json
 import logging
+from pathlib import Path
 
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 
@@ -210,6 +211,7 @@ class AtlasHarmonizer:
 
         result = {**datasets, "accessions": accessions}
         if details_out is not None:
+            Path(details_out).parent.mkdir(parents=True, exist_ok=True)
             with open(details_out, "w", encoding="utf-8") as handle:
                 json.dump(details, handle, indent=2)
 
