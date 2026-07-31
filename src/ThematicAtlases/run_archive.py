@@ -15,6 +15,11 @@ import uuid
 
 
 _WORKFLOW_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_CHECKPOINT_DATABASE = "atlas_run.sqlite3"
+_TRANSIENT_CHECKPOINT_FILES = {
+    f"{_CHECKPOINT_DATABASE}-wal",
+    f"{_CHECKPOINT_DATABASE}-shm",
+}
 _LOCKS: dict[Path, "_WorkflowLock"] = {}
 _LOCKS_GUARD = threading.RLock()
 
@@ -140,17 +145,33 @@ def _archive_one(
     workflow: str,
     artifacts: list[Path],
 ) -> None:
+    source_files = None
     if source is not None:
-        _prepare_checkpoint_database(source / "atlas_run.sqlite3")
+        _prepare_checkpoint_database(source / _CHECKPOINT_DATABASE)
         _reject_symlinks(source)
+        source_files = _tree_manifest(source)
 
     staging = destination.with_name(f".{destination.name}.tmp-{uuid.uuid4().hex}")
     try:
         if source is None:
             staging.mkdir(parents=True)
         else:
-            shutil.copytree(source, staging)
-            _verify_tree(source, staging)
+            source_root = source.resolve()
+
+            def ignore_transient_checkpoint_files(directory, names):
+                if Path(directory).resolve() != source_root:
+                    return []
+                return [
+                    name for name in names if name in _TRANSIENT_CHECKPOINT_FILES
+                ]
+
+            shutil.copytree(
+                source,
+                staging,
+                ignore=ignore_transient_checkpoint_files,
+            )
+            _assert_checkpoint_wal_empty(source / _CHECKPOINT_DATABASE)
+            _verify_tree(source, staging, expected_source=source_files)
 
         artifact_records = []
         if artifacts:
@@ -217,26 +238,59 @@ def _existing_artifacts(paths: list[str | Path] | tuple[str | Path, ...]) -> lis
 def _prepare_checkpoint_database(path: Path) -> None:
     if not path.exists():
         return
-    with sqlite3.connect(path, timeout=30) as connection:
-        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    connection = sqlite3.connect(path, timeout=30)
+    try:
+        checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if checkpoint is None or not checkpoint or checkpoint[0] != 0:
+            raise sqlite3.OperationalError(f"checkpoint database is busy: {path}")
         result = connection.execute("PRAGMA quick_check").fetchone()
+    finally:
+        connection.close()
+
     if result is None or result[0] != "ok":
         raise sqlite3.DatabaseError(f"checkpoint database failed quick_check: {path}")
+    _assert_checkpoint_wal_empty(path)
 
 
-def _verify_tree(source: Path, copied: Path) -> None:
-    source_files = {
-        path.relative_to(source): (path.stat().st_size, _sha256(path))
-        for path in source.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    }
-    copied_files = {
-        path.relative_to(copied): (path.stat().st_size, _sha256(path))
-        for path in copied.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    }
-    if source_files != copied_files:
+def _verify_tree(
+    source: Path,
+    copied: Path,
+    *,
+    expected_source: dict[Path, tuple[int, str]] | None = None,
+) -> None:
+    source_files = _tree_manifest(source)
+    copied_files = _tree_manifest(copied)
+    if expected_source is None:
+        expected_source = source_files
+    if expected_source != source_files or expected_source != copied_files:
         raise OSError(f"archive trace verification failed: {source}")
+
+
+def _tree_manifest(root: Path) -> dict[Path, tuple[int, str]]:
+    return {
+        path.relative_to(root): (path.stat().st_size, _sha256(path))
+        for path in root.rglob("*")
+        if path.is_file()
+        and not path.is_symlink()
+        and not _is_transient_checkpoint_file(root, path)
+    }
+
+
+def _is_transient_checkpoint_file(root: Path, path: Path) -> bool:
+    return path.parent == root and path.name in _TRANSIENT_CHECKPOINT_FILES
+
+
+def _assert_checkpoint_wal_empty(database: Path) -> None:
+    wal = Path(f"{database}-wal")
+    try:
+        size = wal.stat().st_size
+    except FileNotFoundError:
+        return
+    if size:
+        raise sqlite3.OperationalError(
+            f"checkpoint database WAL remained non-empty: {database}"
+        )
 
 
 def _reject_symlinks(root: Path) -> None:

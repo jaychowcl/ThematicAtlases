@@ -112,8 +112,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: decision-safe-run-archival
   title: [Verified run archival decision](codebase.md#decision-safe-run-archival)
   anchor: decision-safe-run-archival
-  purpose: Observed lock, verification, and atomic-publication rules for whole-run archives.
-  keywords: AD-005, archive, activity lock, checksum, atomic, symlink
+  purpose: Observed lock, SQLite checkpoint, stable-snapshot, verification, and atomic-publication rules for whole-run archives.
+  keywords: AD-005, archive, activity lock, WAL, SHM, snapshot, checksum, atomic, symlink
 
 - id: decision-central-atlas-document
   title: [Central Atlas document and run authority](codebase.md#decision-central-atlas-document)
@@ -232,8 +232,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-query-amendment-and-archive
   title: [Query amendment and archive workflow](codebase.md#workflow-query-amendment-and-archive)
   anchor: workflow-query-amendment-and-archive
-  purpose: Safe query-fingerprint replacement and verified whole-run relocation.
-  keywords: amend_queries, archive_existing_runs, checksum, activity lock
+  purpose: Safe query-fingerprint replacement and stable durable-snapshot whole-run relocation.
+  keywords: amend_queries, archive_existing_runs, checkpoint, WAL, snapshot, checksum, activity lock
 
 - id: workflow-independent-review
   title: [Independent review workflow](codebase.md#workflow-independent-review)

@@ -145,8 +145,11 @@ and [project layout](#project-purpose-and-layout).
 
 - **Status:** Observed
 - **Decision:** A new fixed workflow relocates inactive traces and artifacts
-  through an exclusive activity lock, staging copy, checksum verification, and
-  atomic publication before deleting any source.
+  through an exclusive activity lock, non-busy SQLite checkpoint, stable
+  durable-file snapshots, staging copy, checksum verification, and atomic
+  publication before deleting any source. SQLite's trace-root `-wal` and
+  `-shm` sidecars are transient snapshot inputs and are not archived; a
+  non-empty WAL after checkpointing fails closed.
 - **Rationale:** Not documented.
 - **Consequences:** Existing runs survive interrupted or conflicting archival,
   while active workflows, symlinks, unsafe names, and destination collisions
@@ -815,8 +818,9 @@ whole-run archival safely relocates inactive traces and fixed artifacts.
 ```text
 amend -> validate aligned query limits -> archive fingerprint -> install new
   \-> unchanged normalized configuration -----------------------> no-op/current
-archive run -> exclusive lock -> stage/copy/checksum -> publish -> delete source
-                              \-> active/symlink/collision => error, keep source
+archive run -> exclusive lock -> checkpoint -> snapshot/copy/resnapshot
+  -> matching durable checksums -> publish -> delete source
+  \-> busy/WAL/mutation/symlink/collision => error, keep source
 ```
 
 #### Numbered stages
@@ -828,8 +832,11 @@ archive run -> exclusive lock -> stage/copy/checksum -> publish -> delete source
    assigning fixed artifacts to the newest trace or an orphan archive.
 4. The archive implementation rejects active locks, symlinks, unsafe names,
    nested roots, and collisions before deletion.
-5. SQLite checkpointing, staged copy, checksums, manifest relocation, and
-   atomic publication precede source deletion; any failure keeps sources.
+5. SQLite checkpointing must report no busy readers and leave no non-empty WAL.
+   Durable files are hashed before and after a staged copy, while the exact
+   trace-root WAL/SHM sidecars are excluded; both source snapshots and the copy
+   must match before manifest relocation and atomic publication. Any failure
+   keeps sources.
 
 #### Pseudocode
 
@@ -837,7 +844,7 @@ archive run -> exclusive lock -> stage/copy/checksum -> publish -> delete source
 runner/Atlas amendment or archive               # interface
   -> CheckpointStore.amend_fingerprint          # persistence call
   -> run_archive.archive_existing_runs          # system call
-     -> SQLite checkpoint + copy + SHA-256      # persistence/system calls
+     -> SQLite checkpoint + stable snapshots   # persistence/system calls
   <- amendment path or archive paths
 ```
 
@@ -1373,9 +1380,13 @@ The shared `.out/ontology_store/` cache is deliberately excluded.
 
 Collectors, resumes, and standalone reviewers hold a shared workflow activity
 lock. Archiving requires the exclusive form, checkpoints and validates SQLite,
-copies to hidden staging, verifies SHA-256 checksums, atomically publishes the
-archive, and only then deletes the sources. Consequently a new run refuses to
-archive while a cooperating collector or reviewer is active. The archived
+requires a non-busy checkpoint with no non-empty WAL, hashes durable files
+before and after copying to hidden staging, verifies the staged SHA-256
+checksums, atomically publishes the archive, and only then deletes the sources.
+Trace-root SQLite WAL/SHM sidecars are excluded because they are transient and
+the checkpointed database is the durable resumable state. Consequently a new
+run refuses to archive while a cooperating collector or reviewer is active or
+when any durable file changes during copying. The archived
 `00_run_manifest.json` points at relocated artifacts, and the trace remains
 directly resumable by using its workflow archive directory as `dev_out_dir`.
 
@@ -1996,7 +2007,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication failures, review-before-metadata ordering/resume, evolving independent review, metadata audit artifacts, direct and legacy strategy isolation, shared-publication GSE aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, GEO-to-GSE resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit artifacts, direct and legacy strategy isolation, shared-publication GSE aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, GEO-to-GSE resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

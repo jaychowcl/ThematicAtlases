@@ -76,6 +76,45 @@ def test_archive_existing_runs_moves_all_traces_and_latest_artifacts(tmp_path) -
     )
 
 
+def test_archive_omits_transient_sidecars_and_preserves_healthy_database(
+    tmp_path, monkeypatch
+) -> None:
+    active = tmp_path / "active"
+    source = _trace(active, "run-1", tmp_path / "out.json")
+    durable = source / "durable.json"
+    durable.write_text('{"preserved": true}', encoding="utf-8")
+    original_prepare = run_archive._prepare_checkpoint_database
+
+    def prepare_with_sidecars(database_path):
+        original_prepare(database_path)
+        Path(f"{database_path}-wal").write_bytes(b"")
+        Path(f"{database_path}-shm").write_bytes(b"transient shared memory")
+
+    monkeypatch.setattr(run_archive, "_prepare_checkpoint_database", prepare_with_sidecars)
+
+    archived = Atlas.archive_existing_runs(
+        dev_out_dir=active,
+        archive_root=tmp_path / "archive",
+        workflow="discovery",
+    )[0]
+
+    assert not source.exists()
+    assert (archived / "durable.json").read_text(encoding="utf-8") == (
+        '{"preserved": true}'
+    )
+    assert not (archived / "atlas_run.sqlite3-wal").exists()
+    assert not (archived / "atlas_run.sqlite3-shm").exists()
+    with sqlite3.connect(archived / "atlas_run.sqlite3") as connection:
+        assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
+        row = connection.execute(
+            "SELECT payload FROM checkpoint_items "
+            "WHERE stage = ? AND item_key = ?",
+            ("datalinks", "MED:run-1"),
+        ).fetchone()
+    assert row is not None
+    assert json.loads(row[0]) == {"rows": []}
+
+
 def test_archive_existing_runs_is_noop_without_runs_or_artifacts(tmp_path) -> None:
     assert Atlas.archive_existing_runs(
         dev_out_dir=tmp_path / "active",
