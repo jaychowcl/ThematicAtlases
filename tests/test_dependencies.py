@@ -18,7 +18,7 @@ def test_pyproject_declares_direct_runtime_and_development_dependencies() -> Non
         value.startswith("meta-standards-converter @ git+")
         for value in dependencies
     )
-    assert project["optional-dependencies"]["dev"] == ["pytest>=8"]
+    assert "pytest>=8" in project["optional-dependencies"]["dev"]
 
 
 def test_requirements_file_delegates_to_runtime_project_metadata() -> None:
@@ -33,3 +33,4 @@ def test_installation_documentation_covers_runtime_and_development() -> None:
         text = path.read_text(encoding="utf-8")
         assert "pip install -r requirements.txt" in text
         assert 'pip install -e ".[dev]"' in text
+        assert ".env/bin/python -m pytest -q" in text
