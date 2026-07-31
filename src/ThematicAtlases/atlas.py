@@ -11,13 +11,14 @@ from ThematicAtlases.checkpoint import (
     is_retryable_error,
 )
 from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
+from ThematicAtlases.application import AtlasDocumentService
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.document_adapter import AtlasDocumentAdapter
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
-from ThematicAtlases.summary import build_atlas_summary, summary_path
+from ThematicAtlases.summary import build_atlas_summary
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
@@ -82,9 +83,9 @@ class Atlas:
         self._query_generator_instance = query_generator
         self._credential_checker = credential_checker
         self._credentials_checked = False
-        self._document_adapter = document_adapter or AtlasDocumentAdapter()
-        self._artifact_publisher = (
-            artifact_publisher or JsonArtifactBundlePublisher()
+        self._documents = AtlasDocumentService(
+            adapter=document_adapter or AtlasDocumentAdapter(),
+            publisher=artifact_publisher or JsonArtifactBundlePublisher(),
         )
 
     def create_atlas(
@@ -224,7 +225,7 @@ class Atlas:
             len(publication_texts),
         )
 
-        document = self._document_adapter.assemble(
+        document = self._documents.assemble(
             result,
             atlas_metadata=self.metadata,
             run_id=run_id,
@@ -246,13 +247,11 @@ class Atlas:
             harmonization_details=details,
         )
         result_mapping = document.to_mapping()
-        summary = self._document_summary(document, atlas_path=out)
+        summary = self._documents.summary(document, atlas_path=out)
 
         if out is not None:
             logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
-            self._artifact_publisher.publish(
-                {Path(out): result_mapping, summary_path(out): summary}
-            )
+            self._documents.publish(document, out, include_summary=True)
 
         if trace is not None:
             trace.write("06_final_atlas.json", result_mapping)
@@ -345,7 +344,7 @@ class Atlas:
             )
             trace.write(
                 "resume_publication_collection.summary.json",
-                self._document_summary(
+                self._documents.summary(
                     AtlasDocument.from_mapping(published), output_path
                 ),
             )
@@ -690,7 +689,7 @@ class Atlas:
             _trace_writer=_trace_writer,
             _finalize_trace=False,
         )
-        document = self._document_adapter.assemble(
+        document = self._documents.assemble(
             legacy,
             atlas_metadata=self.metadata,
             run_id=effective_run_id,
@@ -712,13 +711,13 @@ class Atlas:
         )
         result = document.to_mapping()
         if out is not None:
-            self._artifact_publisher.publish({Path(out): result})
+            self._documents.publish(document, out, include_summary=False)
         if dev_trace and _trace_writer is None:
             trace = DevTraceWriter.existing(Path(dev_out_dir) / effective_run_id)
             trace.write("collection_snapshot.json", result)
             trace.write(
                 "collection_snapshot.summary.json",
-                self._document_summary(document, out),
+                self._documents.summary(document, out),
             )
             trace.register_artifact(
                 "collection_snapshot", "collection_snapshot.json"
@@ -1063,13 +1062,13 @@ class Atlas:
         harmonization_options: dict | None = None,
     ) -> dict:
         document = AtlasDocument.from_mapping(datasets)
-        legacy = self._document_adapter.to_legacy(document)
+        legacy = self._documents.to_legacy(document)
         result, details = self._harmonizer.harmonize_datasets(
             datasets=legacy,
             details_out=harmonization_details_out,
             harmonization_options=harmonization_options,
         )
-        updated = self._document_adapter.assemble(
+        updated = self._documents.assemble(
             result,
             atlas_metadata={
                 "atlas_id": document.atlas.atlas_id,
@@ -1215,7 +1214,7 @@ class Atlas:
             return self._collect_datasets_legacy(**options)
         result = self.collect_datasets(**options)
         if isinstance(result, dict) and result.get("schema_version") == "2.0":
-            return self._document_adapter.to_legacy(
+            return self._documents.to_legacy(
                 AtlasDocument.from_mapping(result)
             )
         return result
@@ -1258,21 +1257,6 @@ class Atlas:
         )
         return RunStatus.PARTIAL if failed else RunStatus.COMPLETE
 
-    @staticmethod
-    def _document_summary(
-        document: AtlasDocument, atlas_path: str | None
-    ) -> dict:
-        return {
-            "schema_version": document.schema_version,
-            "atlas_id": document.atlas.atlas_id,
-            "run_id": document.run.run_id,
-            "atlas_path": atlas_path,
-            "dataset_count": document.summary.dataset_count,
-            "publication_count": document.summary.publication_count,
-            "completed_dataset_count": document.summary.completed_dataset_count,
-            "failed_dataset_count": document.summary.failed_dataset_count,
-        }
-
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
         with open(out, "w", encoding="utf-8") as handle:
@@ -1314,7 +1298,7 @@ class Atlas:
                 if manifest.get("command") == "collect-datasets"
                 else self._final_run_status(result)
             )
-            document = self._document_adapter.assemble(
+            document = self._documents.assemble(
                 result,
                 atlas_metadata=self.metadata,
                 run_id=trace.directory.name,
@@ -1343,12 +1327,11 @@ class Atlas:
             )
         published = document.to_mapping()
         if out is not None:
-            summary = self._document_summary(document, out)
-            self._artifact_publisher.publish(
-                {Path(out): published, summary_path(out): summary}
+            summary = self._documents.publish(
+                document, out, include_summary=True
             )
         else:
-            summary = self._document_summary(document, None)
+            summary = self._documents.summary(document, None)
         atlas_name = (
             "collection_snapshot.json"
             if artifact_role == "collection_snapshot"

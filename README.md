@@ -248,7 +248,7 @@ Atlas(
 )
 ```
 
-`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v2, while `artifact_publisher` provides an injectable transaction boundary for JSON bundles. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v2, while `artifact_publisher` provides an injectable transaction boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
 
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v2 wire
@@ -455,7 +455,8 @@ CLI or Python input
         -> `PublicationTextReviewer` (optional thematic review/filter)
      -> `AtlasHarmonizer` (optional ontology harmonization)
   -> AtlasDocumentAdapter -> validated AtlasDocument v2
-  -> JsonArtifactBundlePublisher -> Atlas JSON + derived summary/details
+  -> AtlasDocumentService
+     -> JsonArtifactBundlePublisher -> Atlas JSON + derived summary/details
   -> optional readable trace artifacts
      + atlas_run.sqlite3 (lifecycle, artifacts, item results, retries)
 ```

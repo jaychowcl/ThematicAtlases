@@ -133,6 +133,18 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Versioned domain dataclasses, owner-produced golden fixture, strict validation, deterministic JSON, and cross-reference invariants.
   keywords: AtlasDocument, schema_version, golden fixture, downstream contract, dataclass, codec, validation, atomic JSON
 
+- id: type-atlas-document-service
+  title: [AtlasDocumentService](codebase.md#type-atlas-document-service)
+  anchor: type-atlas-document-service
+  purpose: Application use case for Atlas v2 assembly, internal projection, summary derivation, and publication.
+  keywords: AtlasDocumentService, application, assemble, to_legacy, summary, publish
+
+- id: type-atlas-ports
+  title: [Atlas application ports](codebase.md#type-atlas-ports)
+  anchor: type-atlas-ports
+  purpose: Runtime-checkable collaborator protocols and dependency direction for extensible application composition.
+  keywords: CollectorPort, FiltererPort, HarmonizerPort, ArtifactPublisherPort, Protocol, dependency injection
+
 - id: type-atlas-document-adapter
   title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
   anchor: type-atlas-document-adapter

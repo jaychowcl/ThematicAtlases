@@ -19,7 +19,7 @@ model/ontology providers.
 CLI / Python / focused runners
               |
               v
-         Atlas orchestrator
+         Atlas facade
        /        |          \
 AtlasCollector AtlasFilterer AtlasHarmonizer
    |              |              |
@@ -28,6 +28,8 @@ Europe PMC   publication text   agentic-curator
 GEO/AE       thematic review    ontology services
    \              |              /
     +---- legacy stage maps -----+
+              |
+      AtlasDocumentService
               |
       AtlasDocumentAdapter
               |
@@ -285,6 +287,17 @@ and [fixed-runner workflow](#workflow-fixed-runners).
   resolution, credential/cache preflight, stage order, tracing, resume,
   amendment, archival delegation, v2 boundary conversion, and bundle
   publication.
+<a id="type-atlas-document-service"></a>
+- [`AtlasDocumentService`](../src/ThematicAtlases/application/atlas_documents.py)
+  is the application use case for v2 assembly, internal projection, derived
+  operational summaries, and single/bundle publication. It depends only on
+  `AtlasDocumentAdapter` and `ArtifactPublisherPort`, keeping this policy out of
+  the root facade.
+<a id="type-atlas-ports"></a>
+- [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) declares
+  runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and
+  `ArtifactPublisherPort`. Protocols document the dependency direction without
+  importing concrete wrappers into application services.
 <a id="type-atlas-document-adapter"></a>
 - [`AtlasDocumentAdapter`](../src/ThematicAtlases/document_adapter.py) is the
   internal anti-corruption layer between mature `accessions` /
@@ -393,6 +406,8 @@ otherwise.
 | Qualified export | Constructor/value and public contract |
 | --- | --- |
 | [`ThematicAtlases.domain`](../src/ThematicAtlases/domain.py) | Formally exports the `AtlasDocument` v2 type family and enums through its `__all__`. The codec accepts a mapping or UTF-8 JSON path and returns frozen typed values; validation failures raise `ValueError`; `dump` creates parents and atomically replaces deterministic JSON. [`tests/fixtures/contracts/atlas-document-v2.json`](../tests/fixtures/contracts/atlas-document-v2.json) is the owner-produced downstream wire-contract fixture. |
+| [`ThematicAtlases.application.AtlasDocumentService`](../src/ThematicAtlases/application/atlas_documents.py) | `(*, adapter=None, publisher=None)`; `assemble(stage_result, *, atlas_metadata, run_id, created_at, theme, config, run_status, harmonization_details=None) -> AtlasDocument`, `to_legacy(document) -> dict`, `summary(document, atlas_path) -> dict`, and `publish(document, out, *, include_summary) -> dict`. Validation and publication errors propagate; bundle rollback belongs to its publisher port. |
+| [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) | Formally exports runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and `ArtifactPublisherPort`. They specify callable inputs/outputs for injected application collaborators; concrete exceptions and side effects remain owned by each implementation. |
 | [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v2 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path, creates schema v1 for a new database, and rejects legacy/unrecognized state. Public methods are inventoried under supported helpers below. |
 | [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py) and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported related-JSON transaction boundary and its double-failure exception. `publish` either installs the complete bundle or restores the prior one; when restoration itself fails, the exception exposes the original publication error, rollback errors, and preserved recovery paths. |
 | [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler` expose routing. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
@@ -1027,6 +1042,10 @@ and [`run_reference_review`](../run_reference_set_review.py).
 - Add a metadata repository through an adapter with the collector handler
   contract, register selection/validation, preserve provenance/status fields,
   and test routing, no-data, transient, terminal, and resume behavior.
+- Add or replace a collector, filterer, harmonizer, or publisher through the
+  corresponding `ThematicAtlases.ports` protocol. Keep application assembly in
+  `AtlasDocumentService`; do not make a port depend on CLI parsing or a concrete
+  sibling package.
 - Add CLI options by updating parser validation and forwarding tests, the README
   option table, this handoff, and fingerprints when the option changes work.
 - Add checkpointed stages with stable stage/item keys, explicit status/failure
