@@ -1169,7 +1169,7 @@ are not part of the tracked source tree.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
   `agentic-curator>=2,<3`, `google-auth>=2,<3`,
-  `meta-standards-converter>=3,<4`, and `requests>=2.31,<3`. MSC 3 supplies
+  `meta-standards-converter>=4,<5`, and `requests>=2.31,<3`. MSC 4 supplies
   canonical H5AD metadata schema 3.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
