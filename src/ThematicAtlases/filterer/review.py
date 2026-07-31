@@ -22,7 +22,7 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct", "evidence_then_judgement"}
-REVIEW_CONTRACT_VERSION = 4
+REVIEW_CONTRACT_VERSION = 5
 
 logger = logging.getLogger(__name__)
 
@@ -495,6 +495,7 @@ class PublicationTextReviewer:
                 "judgement": str(review.get("judgement", "")),
                 "reasoning": str(review.get("reasoning", "")),
                 "confidence": str(review.get("confidence", "")),
+                "criteria": review.get("criteria", []),
                 "accessions_to_remove": removals,
                 "accession_assessments": review.get(
                     "accession_assessments", []
