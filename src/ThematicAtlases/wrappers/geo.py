@@ -7,6 +7,7 @@ from meta_standards_converter.enrichers.miniml_enricher import MINiMLEnricher
 import requests
 
 from ThematicAtlases.checkpoint import is_retryable_error
+from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.wrappers.enrichment import (
     CheckpointedINSDCFetcher,
     CheckpointedPubmedFetcher,
@@ -25,6 +26,7 @@ class GEOWrapper:
         timeout: int = 30,
         request_delay: float = 0.34,
         max_retries: int = 3,
+        request_policy: RequestPolicy | None = None,
     ):
         self._api_key = api_key
         self._tool = tool
@@ -36,6 +38,14 @@ class GEOWrapper:
         }
         self._base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self._retry_statuses = {429, 500, 502, 503, 504}
+        self._request_policy = request_policy or RequestPolicy(
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_statuses=self._retry_statuses,
+            sleep=time.sleep,
+            logger=logger,
+            name="GEO",
+        )
 
     def collect_accession_metadata(
         self,
@@ -265,45 +275,20 @@ class GEOWrapper:
         return self._get(url=f"{self._base_url}/esummary.fcgi", params=params)
 
     def _get(self, url: str, params: dict) -> dict:
-        for attempt in range(self._request_settings["max_retries"] + 1):
-            started = time.monotonic()
-            logger.debug(
-                "GEO HTTP request endpoint=%s attempt=%s timeout=%s",
-                url.rsplit("/", 1)[-1],
-                attempt + 1,
-                self._request_settings["timeout"],
-            )
-            response = requests.get(
-                url,
-                params=params,
-                timeout=self._request_settings["timeout"],
-            )
-
-            if (
-                response.status_code in self._retry_statuses
-                and attempt < self._request_settings["max_retries"]
-            ):
-                retry_delay = self._retry_delay(response=response, attempt=attempt)
-                logger.debug(
-                    "GEO retry status=%s attempt=%s delay=%s",
-                    response.status_code,
-                    attempt + 1,
-                    retry_delay,
-                )
-                time.sleep(retry_delay)
-                continue
-
-            response.raise_for_status()
-            logger.debug(
-                "GEO HTTP response endpoint=%s attempt=%s status=%s elapsed_seconds=%.3f",
-                url.rsplit("/", 1)[-1],
-                attempt + 1,
-                response.status_code,
-                time.monotonic() - started,
-            )
-            return response.json()
-
-        return {}
+        started = time.monotonic()
+        logger.debug(
+            "GEO HTTP request endpoint=%s timeout=%s",
+            url.rsplit("/", 1)[-1],
+            self._request_settings["timeout"],
+        )
+        response = self._request_policy.get(url, params=params)
+        logger.debug(
+            "GEO HTTP response endpoint=%s status=%s elapsed_seconds=%.3f",
+            url.rsplit("/", 1)[-1],
+            response.status_code,
+            time.monotonic() - started,
+        )
+        return response.json()
 
     def _params(self, params: dict) -> dict:
         params = dict(params)
@@ -320,15 +305,7 @@ class GEOWrapper:
         return params
 
     def _retry_delay(self, response: requests.Response, attempt: int) -> float:
-        retry_after = response.headers.get("Retry-After")
-
-        if retry_after is not None:
-            try:
-                return float(retry_after)
-            except ValueError:
-                pass
-
-        return min(0.5 * (2 ** attempt), 8.0)
+        return RequestPolicy.retry_delay(response, attempt)
 
     def _matching_summary(self, accession: str, summaries: dict) -> dict | None:
         result = summaries.get("result", {})

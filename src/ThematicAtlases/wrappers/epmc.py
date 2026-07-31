@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 import requests
 
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.accession_extraction import (
     extract_accessions_from_text,
 )
@@ -37,6 +38,7 @@ class EuropePMCWrapper:
         timeout: int = 30,
         request_delay: float = 0.5,
         max_retries: int = 3,
+        request_policy: RequestPolicy | None = None,
     ):
         self._request_settings = {
             "page_limit": page_limit,
@@ -53,6 +55,14 @@ class EuropePMCWrapper:
             "https://www.ebi.ac.uk/europepmc/webservices/rest/{epmc_id}/fullTextXML"
         )
         self._retry_statuses = {429, 500, 502, 503, 504}
+        self._request_policy = request_policy or RequestPolicy(
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_statuses=self._retry_statuses,
+            sleep=time.sleep,
+            logger=logger,
+            name="EuropePMC",
+        )
 
     def collect_accessions(
         self,
@@ -965,97 +975,45 @@ class EuropePMCWrapper:
             "synonym": "TRUE",
         }
 
-        for attempt in range(self._request_settings["max_retries"] + 1):
-            response = requests.get(
-                self._search_url,
-                params=params,
-                timeout=self._request_settings["timeout"],
-            )
-
-            if (
-                response.status_code in self._retry_statuses
-                and attempt < self._request_settings["max_retries"]
-            ):
-                retry_delay = self._retry_delay(response=response, attempt=attempt)
-                logger.debug(
-                    "EuropePMC retry status=%s attempt=%s delay=%s",
-                    response.status_code,
-                    attempt + 1,
-                    retry_delay,
-                )
-                time.sleep(retry_delay)
-                continue
-
-            response.raise_for_status()
-            return response.json()
-
-        return {}
+        return self._request_policy.get(
+            self._search_url,
+            params=params,
+        ).json()
 
     def _datalinks(self, source: str, epmc_id: str) -> dict:
         params = {"format": "json"}
         url = self._datalinks_url.format(source=source, epmc_id=epmc_id)
 
-        for attempt in range(self._request_settings["max_retries"] + 1):
-            try:
-                response = requests.get(
-                    url,
-                    params=params,
-                    timeout=self._request_settings["timeout"],
-                )
-            except requests.RequestException as error:
-                if attempt < self._request_settings["max_retries"]:
-                    retry_delay = min(0.5 * (2 ** attempt), 8.0)
-                    logger.debug(
-                        "EuropePMC datalinks retry error=%r attempt=%s delay=%s",
-                        error,
-                        attempt + 1,
-                        retry_delay,
-                    )
-                    time.sleep(retry_delay)
-                    continue
+        try:
+            response = self._request_policy.get(
+                url,
+                params=params,
+                retry_exceptions=True,
+                raise_for_status=False,
+            )
+        except requests.RequestException as error:
+            logger.debug(
+                "EuropePMC datalinks XML fallback error=%r source=%r epmc_id=%r",
+                error,
+                source,
+                epmc_id,
+            )
+            return self._datalinks_from_xml(url=url)
 
-                logger.debug(
-                    "EuropePMC datalinks XML fallback error=%r source=%r epmc_id=%r",
-                    error,
-                    source,
-                    epmc_id,
-                )
-                return self._datalinks_from_xml(url=url)
+        if response.status_code >= 500:
+            logger.debug(
+                "EuropePMC datalinks XML fallback status=%s source=%r epmc_id=%r",
+                response.status_code,
+                source,
+                epmc_id,
+            )
+            return self._datalinks_from_xml(url=url)
 
-            if (
-                response.status_code in self._retry_statuses
-                and attempt < self._request_settings["max_retries"]
-            ):
-                retry_delay = self._retry_delay(response=response, attempt=attempt)
-                logger.debug(
-                    "EuropePMC datalinks retry status=%s attempt=%s delay=%s",
-                    response.status_code,
-                    attempt + 1,
-                    retry_delay,
-                )
-                time.sleep(retry_delay)
-                continue
-
-            if response.status_code >= 500:
-                logger.debug(
-                    "EuropePMC datalinks XML fallback status=%s source=%r epmc_id=%r",
-                    response.status_code,
-                    source,
-                    epmc_id,
-                )
-                return self._datalinks_from_xml(url=url)
-
-            response.raise_for_status()
-            return response.json()
-
-        return {}
+        response.raise_for_status()
+        return response.json()
 
     def _datalinks_from_xml(self, url: str) -> dict:
-        response = requests.get(
-            url,
-            timeout=self._request_settings["timeout"],
-        )
-        response.raise_for_status()
+        response = self._request_policy.get(url, retry_exceptions=True)
         return self._datalinks_xml_to_json(response.text)
 
     def _datalinks_xml_to_json(self, text: str) -> dict:
@@ -1122,41 +1080,10 @@ class EuropePMCWrapper:
     def _full_text_xml(self, epmc_id: str) -> str:
         url = self._full_text_xml_url.format(epmc_id=epmc_id)
 
-        for attempt in range(self._request_settings["max_retries"] + 1):
-            response = requests.get(
-                url,
-                timeout=self._request_settings["timeout"],
-            )
-
-            if (
-                response.status_code in self._retry_statuses
-                and attempt < self._request_settings["max_retries"]
-            ):
-                retry_delay = self._retry_delay(response=response, attempt=attempt)
-                logger.debug(
-                    "EuropePMC fullTextXML retry status=%s attempt=%s delay=%s",
-                    response.status_code,
-                    attempt + 1,
-                    retry_delay,
-                )
-                time.sleep(retry_delay)
-                continue
-
-            response.raise_for_status()
-            return response.text
-
-        return ""
+        return self._request_policy.get(url).text
 
     def _retry_delay(self, response: requests.Response, attempt: int) -> float:
-        retry_after = response.headers.get("Retry-After")
-
-        if retry_after is not None:
-            try:
-                return float(retry_after)
-            except ValueError:
-                pass
-
-        return min(0.5 * (2 ** attempt), 8.0)
+        return RequestPolicy.retry_delay(response, attempt)
 
     def _publication_from_hit(self, query: str, hit: dict) -> dict:
         return {

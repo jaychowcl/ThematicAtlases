@@ -69,8 +69,8 @@ and [project layout](#project-purpose-and-layout).
   and atomic amendments.
 - **Package boundary:** `ThematicAtlases` owns atlas workflow policy.
   `benchmark_ThematicAtlases` consumes outputs but never mutates production
-  traces. ArrayExpress selection is accepted, but its wrapper returns delegated
-  placeholder metadata rather than implementing a live remote fetch.
+  traces. ArrayExpress identities can be selected/routed, but its default
+  wrapper rejects metadata collection until a real handler is injected.
 - **Privacy/trust boundary:** credentials, authorization headers, provider
   payloads, prompts, and responses must not be written to operational logs.
   Safe logs contain identifiers, status, duration, counts, and stage summaries.
@@ -223,7 +223,7 @@ and [project layout](#project-purpose-and-layout).
 | --- | --- | --- | --- | --- |
 | CLI/runners | `Atlas` | synchronous Python calls | caller owns inputs; `Atlas` owns run ordering | parser/validation error ends invocation |
 | `Atlas` | `AtlasCollector` | `collect_jsons` / `resume_metadata` | collector owns repository selection and metadata stage | item errors represented/checkpointed |
-| collector | Europe PMC/GEO/AE wrappers | adapter calls, outbound HTTP where implemented | wrappers own request normalization; trace owns durable results | transient requests retry; terminal items remain inspectable |
+| collector | Europe PMC/GEO/AE wrappers | adapter calls, outbound HTTP where implemented | wrappers own response normalization; shared `RequestPolicy` owns bounded GET retries | transient requests retry; unsupported default ArrayExpress metadata raises |
 | `Atlas` | `AtlasFilterer` | atlas-shaped mappings | filterer owns text map, review context, and filtering | review failures remain item-local in trace |
 | filterer | `PublicationTextReviewer` | publication/context mappings | reviewer owns judgement contract; filterer applies outcome filter | strategy/fingerprint mismatches fail |
 | `Atlas` | `AtlasHarmonizer` | dataset mappings and controls | harmonizer owns per-work-key cache and details | original metadata retained on failure |
@@ -408,7 +408,8 @@ otherwise.
 | [`ThematicAtlases.domain`](../src/ThematicAtlases/domain.py) | Formally exports the `AtlasDocument` v2 type family and enums through its `__all__`. The codec accepts a mapping or UTF-8 JSON path and returns frozen typed values; validation failures raise `ValueError`; `dump` creates parents and atomically replaces deterministic JSON. [`tests/fixtures/contracts/atlas-document-v2.json`](../tests/fixtures/contracts/atlas-document-v2.json) is the owner-produced downstream wire-contract fixture. |
 | [`ThematicAtlases.application.AtlasDocumentService`](../src/ThematicAtlases/application/atlas_documents.py) | `(*, adapter=None, publisher=None)`; `assemble(stage_result, *, atlas_metadata, run_id, created_at, theme, config, run_status, harmonization_details=None) -> AtlasDocument`, `to_legacy(document) -> dict`, `summary(document, atlas_path) -> dict`, and `publish(document, out, *, include_summary) -> dict`. Validation and publication errors propagate; bundle rollback belongs to its publisher port. |
 | [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) | Formally exports runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and `ArtifactPublisherPort`. They specify callable inputs/outputs for injected application collaborators; concrete exceptions and side effects remain owned by each implementation. |
-| [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v2 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path, creates schema v1 for a new database, and rejects legacy/unrecognized state. Public methods are inventoried under supported helpers below. |
+| [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v2 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path, creates SQL schema version 2 for a new database, and rejects legacy/foreign/newer state. Public methods are inventoried under supported helpers below. |
+| [`ThematicAtlases.infrastructure.RequestPolicy`](../src/ThematicAtlases/infrastructure/http.py) | `(*, timeout=30, max_retries=3, retry_statuses={429,500,502,503,504}, request_get=None, sleep=time.sleep, logger=None, name="HTTP")`; `get(url, *, params=None, retry_exceptions=False, raise_for_status=True) -> Response`. Retries are bounded, honor numeric `Retry-After`, otherwise use capped exponential delay, and propagate terminal request/status failures according to caller policy. |
 | [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py) and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported related-JSON transaction boundary and its double-failure exception. `publish` either installs the complete bundle or restores the prior one; when restoration itself fails, the exception exposes the original publication error, rollback errors, and preserved recovery paths. |
 | [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler` expose routing. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
 | [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
@@ -421,9 +422,9 @@ otherwise.
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Invalid worker/options or required credentials raise; caught item failures preserve input metadata; details may be written. |
-| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `collect_accession_metadata(jsons, checkpoint_store=None) -> list[dict]`; no network call, returns placeholder status and `accession_metadata=None`. |
-| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints; validates limits, retries configured statuses, uses abstract fallback, and checkpoints item outcomes. |
-| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=30, request_delay=0.34, max_retries=3)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities and delegated MINiML/PubMed/SRA/ENA handlers; normalizes to GSE, drops unresolved/GPL-only records, deduplicates, and represents metadata errors/status. |
+| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `collect_accession_metadata(jsons, checkpoint_store=None) -> list[dict]`; performs no network call and raises actionable `NotImplementedError` without mutating input. Callers may inject a real handler through `AtlasCollector(metadata_handlers=...)`. |
+| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3, request_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints through the injected/shared policy; validates limits, uses XML/abstract fallback, and checkpoints item outcomes. |
+| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=30, request_delay=0.34, max_retries=3, request_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared policy and delegates MINiML/PubMed/SRA/ENA handlers; normalizes to GSE, drops unresolved/GPL-only records, deduplicates, and represents metadata errors/status. |
 | [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
 
 Complete public-member signatures for the exported classes:
@@ -1481,7 +1482,10 @@ Repository filtering behavior:
   metadata checkpoints store provenance-independent packages; reuse rebuilds
   records from the latest accession snapshot so later publication links are not
   lost. Legacy record-shaped checkpoint payloads remain readable.
-- ArrayExpress metadata is placeholder-only for now. `ArrayExpressWrapper` preserves the input record and adds `metadata_repository="arrayexpress"`, `metadata_source="placeholder"`, `metadata_status="placeholder"`, and `accession_metadata=null`.
+- Default ArrayExpress metadata collection raises `NotImplementedError` before
+  mutating records or fabricating a status. Discovery-only retention remains
+  available with `collect_metadata=False`; applications can inject a real
+  `metadata_handlers["arrayexpress"]` implementation.
 
 <a id="filterer"></a>
 ### Filterer
@@ -1615,7 +1619,7 @@ Configured preferred ontology IDs, including their order, participate in the
 work key so changing preferences invalidates prior harmonization checkpoints;
 an empty preference list retains the legacy key shape. `max_workers=1` is the
 safe default; higher values opt into bounded parallel work with stable output
-order. Null ArrayExpress metadata never constructs the upstream harmonizer or
+order. Unsupported/empty metadata never constructs the upstream harmonizer or
 performs LLM calls.
 
 With a checkpoint store, each unique metadata/context/options work key is
@@ -1825,21 +1829,24 @@ Each accession deduplication pass logs one INFO-level stats message with input d
 - `request_delay=0.5`
 - `max_retries=3`
 
-These request tuning values are stored together in an internal settings dictionary. The base delay can be overridden explicitly by a caller, including with zero for controlled tests. Transient response statuses `429`, `500`, `502`, `503`, and `504` are retried. `Retry-After` is honored when present; otherwise retry delay uses short exponential backoff. Pagination is sequential, with no parallel requests.
+These request tuning values are stored together in an internal settings
+dictionary. `EuropePMCWrapper` and `GEOWrapper` delegate GET retry mechanics to
+the same injectable `RequestPolicy`; endpoint adapters retain parsing and
+fallback decisions. The base delay can be overridden explicitly by a caller,
+including with zero for controlled tests. Transient response statuses `429`,
+`500`, `502`, `503`, and `504` are retried. Numeric `Retry-After` is honored;
+otherwise retry delay uses capped exponential backoff. Pagination is
+sequential, with no parallel requests.
 
 <a id="arrayexpress-wrapper"></a>
 ### ArrayExpress Wrapper
 
-`ThematicAtlases.wrappers.ae.ArrayExpressWrapper` is a placeholder metadata handler for selected ArrayExpress records. It does not call a live ArrayExpress API yet.
-
-`collect_accession_metadata(jsons: list[dict]) -> list[dict]` preserves each input record and appends:
-
-```text
-metadata_repository=arrayexpress
-metadata_source=placeholder
-metadata_status=placeholder
-accession_metadata=null
-```
+`ThematicAtlases.wrappers.ae.ArrayExpressWrapper` is an explicit unsupported
+boundary, not a placeholder data producer. It performs no remote call and
+`collect_accession_metadata(jsons, checkpoint_store=None)` raises
+`NotImplementedError` without mutating input. Repository detection and
+discovery-only retention remain supported; applications must inject a real
+handler to enable ArrayExpress metadata collection.
 
 <a id="geo-wrapper"></a>
 ### GEO Wrapper

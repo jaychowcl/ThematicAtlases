@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v2 document with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata; ArrayExpress routing is supported with placeholder metadata while its live fetcher remains pending.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v2 document with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress identifiers can be routed to an injected handler, but the default wrapper rejects live metadata collection explicitly because no supported fetcher exists.
 
 The pipeline fetches open-access full text, deterministically discovers repository accessions from that text by default, falls back to abstracts for review only, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
 
@@ -171,6 +171,11 @@ case-insensitive duplicates with Europe PMC Datalinks, and then applies the
 existing repository selection. Unsupported identifier families are
 checkpointed/logged but remain absent from the final atlas until a metadata
 handler is added.
+
+Selecting `arrayexpress` with metadata collection enabled requires an injected
+Python metadata handler. The installed CLI uses the default wrapper and raises
+an actionable `NotImplementedError`; use `--skip-metadata` for discovery-only
+retention or select `geo` for supported enrichment.
 
 `create-atlas` accepts every collection option above, then harmonizes the result:
 

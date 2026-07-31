@@ -354,14 +354,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: rate-handling
   title: [Rate Handling](codebase.md#rate-handling)
   anchor: rate-handling
-  purpose: Remote request cadence, retry, timeout, and Retry-After behavior.
-  keywords: retry, Retry-After, timeout, request_delay, page_limit
+  purpose: Shared injectable HTTP request policy, endpoint cadence, bounded retry, timeout, and Retry-After behavior.
+  keywords: RequestPolicy, retry, Retry-After, timeout, request_policy, request_delay, EuropePMCWrapper, GEOWrapper
 
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)
   anchor: arrayexpress-wrapper
-  purpose: Current placeholder behavior and record status contract for ArrayExpress accessions.
-  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, metadata_status, placeholder
+  purpose: Explicit fail-fast default boundary and injected-handler extension contract for ArrayExpress accessions.
+  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, NotImplementedError, metadata_handlers, injection
 
 - id: geo-wrapper
   title: [GEO Wrapper](codebase.md#geo-wrapper)
