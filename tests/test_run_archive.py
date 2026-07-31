@@ -266,3 +266,143 @@ def test_archive_publish_failure_retains_sources_and_publishes_nothing(tmp_path,
 
     assert source.exists() and artifact.exists()
     assert not destination.exists()
+
+
+def test_archive_publish_failure_ignores_transient_sqlite_sidecar_changes(
+    tmp_path, monkeypatch
+) -> None:
+    active = tmp_path / "active"
+    artifact = tmp_path / "out.json"
+    source = _trace(active, "run-1", artifact)
+    artifact.write_text("{}", encoding="utf-8")
+    destination = tmp_path / "archive" / "discovery" / "run-1"
+    original_prepare = run_archive._prepare_checkpoint_database
+    original_copytree = run_archive.shutil.copytree
+    original_replace = run_archive.os.replace
+
+    def prepare_with_sidecars(database_path):
+        original_prepare(database_path)
+        Path(f"{database_path}-wal").write_bytes(b"")
+        Path(f"{database_path}-shm").write_bytes(b"initial shared memory")
+
+    def copy_while_sidecars_change(source_path, destination_path, *args, **kwargs):
+        result = original_copytree(source_path, destination_path, *args, **kwargs)
+        Path(f"{source_path / 'atlas_run.sqlite3'}-wal").unlink()
+        Path(f"{source_path / 'atlas_run.sqlite3'}-shm").write_bytes(
+            b"changed shared memory"
+        )
+        return result
+
+    def fail_publish(source_path, destination_path):
+        if Path(destination_path) == destination:
+            raise OSError("publish failed")
+        return original_replace(source_path, destination_path)
+
+    monkeypatch.setattr(run_archive, "_prepare_checkpoint_database", prepare_with_sidecars)
+    monkeypatch.setattr(run_archive.shutil, "copytree", copy_while_sidecars_change)
+    monkeypatch.setattr(run_archive.os, "replace", fail_publish)
+
+    with pytest.raises(OSError, match="publish failed"):
+        Atlas.archive_existing_runs(
+            dev_out_dir=active,
+            archive_root=tmp_path / "archive",
+            workflow="discovery",
+            artifact_paths=[artifact],
+        )
+
+    assert source.exists() and artifact.exists()
+    assert not destination.exists()
+    assert not list(destination.parent.glob(".run-1.tmp-*"))
+
+
+def test_archive_rejects_durable_trace_mutation_during_copy(
+    tmp_path, monkeypatch
+) -> None:
+    active = tmp_path / "active"
+    source = _trace(active, "run-1", tmp_path / "out.json")
+    durable = source / "durable.json"
+    durable.write_text('{"state": "before"}', encoding="utf-8")
+    destination = tmp_path / "archive" / "discovery" / "run-1"
+    original_copytree = run_archive.shutil.copytree
+
+    def copy_then_mutate(source_path, destination_path, *args, **kwargs):
+        result = original_copytree(source_path, destination_path, *args, **kwargs)
+        durable.write_text('{"state": "after"}', encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(run_archive.shutil, "copytree", copy_then_mutate)
+
+    with pytest.raises(OSError, match="archive trace verification failed"):
+        Atlas.archive_existing_runs(
+            dev_out_dir=active,
+            archive_root=tmp_path / "archive",
+            workflow="discovery",
+        )
+
+    assert source.exists()
+    assert durable.read_text(encoding="utf-8") == '{"state": "after"}'
+    assert not destination.exists()
+    assert not list(destination.parent.glob(".run-1.tmp-*"))
+
+
+def test_prepare_checkpoint_database_rejects_busy_checkpoint_and_closes(
+    tmp_path, monkeypatch
+) -> None:
+    database = tmp_path / "atlas_run.sqlite3"
+    database.touch()
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def fetchone(self):
+            return self.value
+
+    class Connection:
+        closed = False
+
+        def execute(self, statement):
+            if statement == "PRAGMA wal_checkpoint(TRUNCATE)":
+                return Result((1, 2, 1))
+            return Result(("ok",))
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    monkeypatch.setattr(run_archive.sqlite3, "connect", lambda *args, **kwargs: connection)
+
+    with pytest.raises(sqlite3.OperationalError, match="checkpoint database is busy"):
+        run_archive._prepare_checkpoint_database(database)
+
+    assert connection.closed
+
+
+def test_prepare_checkpoint_database_rejects_nonempty_wal_after_close(
+    tmp_path, monkeypatch
+) -> None:
+    database = tmp_path / "atlas_run.sqlite3"
+    database.touch()
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def fetchone(self):
+            return self.value
+
+    class Connection:
+        def execute(self, statement):
+            if statement == "PRAGMA wal_checkpoint(TRUNCATE)":
+                return Result((0, 0, 0))
+            return Result(("ok",))
+
+        def close(self):
+            Path(f"{database}-wal").write_bytes(b"uncheckpointed")
+
+    monkeypatch.setattr(
+        run_archive.sqlite3, "connect", lambda *args, **kwargs: Connection()
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match="WAL remained non-empty"):
+        run_archive._prepare_checkpoint_database(database)
