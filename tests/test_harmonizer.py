@@ -419,34 +419,58 @@ def test_harmonizer_skips_credential_preflight_when_all_model_stages_are_off() -
 
 
 @pytest.mark.parametrize(
-    "harmonization_options",
+    ("enabled_control", "upstream_status", "expected_quality"),
     [
-        {"target_checker": True, "direct_lookup_judge": False, "rag_lookup": False, "ols_lookup": False, "field_assignment_judge": False},
-        {"target_checker": False, "direct_lookup_judge": True, "rag_lookup": False, "ols_lookup": False, "field_assignment_judge": False},
-        {"target_checker": False, "direct_lookup_judge": False, "rag_lookup": True, "ols_lookup": False, "field_assignment_judge": False},
-        {"target_checker": False, "direct_lookup_judge": False, "rag_lookup": False, "ols_lookup": True, "ols_lookup_judge": True, "field_assignment_judge": False},
-        {"target_checker": False, "direct_lookup_judge": False, "rag_lookup": False, "ols_lookup": False, "field_assignment_judge": True},
+        ("target_checker", {}, "healthy"),
+        ("direct_lookup_judge", {"quality_status": "degraded"}, "degraded"),
+        ("rag_lookup", {}, "healthy"),
+        ("ols_lookup", {"target_checker": {"status": "failed"}}, "degraded"),
+        ("field_assignment_judge", {}, "healthy"),
     ],
 )
-def test_harmonizer_preflights_for_each_enabled_model_stage(
-    harmonization_options,
+def test_harmonizer_adapter_forwards_controls_and_maps_upstream_status(
+    enabled_control,
+    upstream_status,
+    expected_quality,
 ) -> None:
-    class RecordingChecker:
-        calls = 0
+    class StatusHarmonizer:
+        calls = []
 
-        def check(self):
-            self.__class__.calls += 1
+        def harmonize_miniml_json(self, **kwargs):
+            self.__class__.calls.append(kwargs)
+            return {
+                "miniml_json": kwargs["miniml_json"],
+                "harmonization_targets": [],
+                "workflow": "adapter-contract",
+                "target_paths": [],
+                **upstream_status,
+            }
 
-    RecordingChecker.calls = 0
-    AtlasHarmonizer(
-        ontology_harmonizer=RecordingOntologyHarmonizer(),
-        credential_checker=RecordingChecker(),
+    StatusHarmonizer.calls = []
+    controls = {
+        "target_checker": False,
+        "direct_lookup_judge": False,
+        "rag_lookup": False,
+        "ols_lookup": False,
+        "field_assignment_judge": False,
+        enabled_control: True,
+    }
+    if enabled_control == "ols_lookup":
+        controls["ols_lookup_judge"] = True
+
+    result, details = AtlasHarmonizer(
+        ontology_harmonizer=StatusHarmonizer(),
     ).harmonize_datasets(
         {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {"value": "x"}}]},
-        harmonization_options=harmonization_options,
+        harmonization_options=controls,
     )
 
-    assert RecordingChecker.calls == 1
+    assert StatusHarmonizer.calls == [
+        {"publication_context": None, "miniml_json": {"value": "x"}, **controls}
+    ]
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
+    assert result["accessions"][0]["ontology_harmonization_quality_status"] == expected_quality
+    assert details[0]["quality_status"] == expected_quality
 
 
 def test_harmonizer_memoizes_identical_metadata_and_context() -> None:
@@ -509,4 +533,80 @@ def test_harmonizer_parallel_workers_preserve_accession_order() -> None:
         "GSE2",
         "GSE3",
         "GSE4",
+    ]
+
+
+def test_harmonizer_rejects_zero_workers() -> None:
+    with pytest.raises(ValueError, match="max_workers must be a positive integer"):
+        AtlasHarmonizer(max_workers=0)
+
+
+def test_harmonizer_reuses_terminal_checkpoint_without_calling_adapter(tmp_path) -> None:
+    class UnexpectedHarmonizer:
+        def harmonize_miniml_json(self, **kwargs):
+            raise AssertionError("terminal work must not be replayed")
+
+    datasets = {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {"v": 1}}]}
+    harmonizer = AtlasHarmonizer(ontology_harmonizer=UnexpectedHarmonizer())
+    key = harmonizer._work_key({"v": 1}, None, {})
+    import hashlib
+
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    store.put(
+        "harmonization",
+        hashlib.sha256(key.encode("utf-8")).hexdigest(),
+        1,
+        "terminal_error",
+        error="invalid metadata",
+    )
+
+    result, details = harmonizer.harmonize_datasets(datasets, checkpoint_store=store)
+
+    assert result["accessions"][0]["ontology_harmonization_error"] == "invalid metadata"
+    assert details == [
+        {"datalink_id": "GSE1", "run_status": "error", "error": "invalid metadata"}
+    ]
+
+
+def test_harmonizer_replays_retryable_checkpoint_and_records_recovery(tmp_path) -> None:
+    class RecoveringHarmonizer:
+        calls = 0
+
+        def harmonize_miniml_json(self, **kwargs):
+            self.__class__.calls += 1
+            return {
+                "miniml_json": {**kwargs["miniml_json"], "recovered": True},
+                "harmonization_targets": [],
+                "workflow": "recovery",
+                "target_paths": [],
+            }
+
+    datasets = {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {"v": 1}}]}
+    harmonizer = AtlasHarmonizer(ontology_harmonizer=RecoveringHarmonizer())
+    key = harmonizer._work_key({"v": 1}, None, {})
+    import hashlib
+
+    work_key = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    store.put("harmonization", work_key, 1, "retryable_error", error="timeout")
+
+    result, _ = harmonizer.harmonize_datasets(datasets, checkpoint_store=store)
+
+    assert RecoveringHarmonizer.calls == 1
+    assert result["accessions"][0]["accession_metadata"]["recovered"] is True
+    assert store.get("harmonization", work_key)["status"] == "available"
+
+
+def test_harmonize_jsons_wrapper_returns_only_atlas_and_writes_details(tmp_path) -> None:
+    details = tmp_path / "nested" / "details.json"
+
+    result = AtlasHarmonizer().harmonize_jsons(
+        {"accessions": [{"datalink_id": "GSE1", "accession_metadata": None}]},
+        details_out=str(details),
+        harmonization_options={"target_checker": False},
+    )
+
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
+    assert json.loads(details.read_text(encoding="utf-8")) == [
+        {"datalink_id": "GSE1", "run_status": "not_run"}
     ]
