@@ -63,7 +63,7 @@ def _add_fulltext_accession_options(parser: argparse.ArgumentParser) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thematic-atlas",
-        description="Run placeholder ThematicAtlases atlas commands.",
+        description="Collect, review, harmonize, and resume thematic biomedical atlases.",
     )
     _add_logging_options(
         parser,
@@ -154,7 +154,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     harmonize = subparsers.add_parser(
         "harmonize-datasets",
-        help="Call the placeholder dataset harmonization workflow.",
+        help="Harmonize metadata in an existing atlas JSON file.",
     )
     _add_logging_options(
         harmonize,
