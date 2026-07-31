@@ -90,6 +90,98 @@ def test_adapter_assembles_one_valid_canonical_document_without_fragmented_json(
     assert document.summary.failed_dataset_count == 1
 
 
+def test_adapter_unwraps_agentic_curator_evidence_envelope():
+    legacy = _legacy_atlas()
+    expected = {
+        "evidence": "single-cell RNA sequencing of P0 telencephalic tissue",
+        "judgement": "relevant",
+        "confidence": "high",
+        "reason": "Directly supports the theme.",
+    }
+    legacy["publication_texts"]["PMID:1"]["agentic_curator"]["evidences"] = {
+        "evidences": [expected]
+    }
+
+    document = AtlasDocumentAdapter().assemble(
+        legacy,
+        atlas_metadata={"atlas_id": "atlas-review"},
+        run_id="run-review",
+        created_at="2026-07-31T00:00:00Z",
+        theme="neonatal cortical single-cell transcriptomics",
+        config={},
+        run_status=RunStatus.RUNNING,
+    )
+
+    assert document.publications[0].review.evidence == (expected,)
+
+
+def test_adapter_ignores_malformed_evidence_without_leaking_mapping_keys():
+    legacy = _legacy_atlas()
+    legacy["publication_texts"]["PMID:1"]["agentic_curator"]["evidences"] = {
+        "unexpected": ["must not leak"]
+    }
+
+    document = AtlasDocumentAdapter().assemble(
+        legacy,
+        atlas_metadata={"atlas_id": "atlas-review"},
+        run_id="run-review",
+        created_at="2026-07-31T00:00:00Z",
+        theme="review theme",
+        config={},
+        run_status=RunStatus.RUNNING,
+    )
+
+    assert document.publications[0].review.evidence == ()
+
+
+def test_adapter_projects_agentic_curator_harmonization_targets():
+    document = AtlasDocumentAdapter().assemble(
+        _legacy_atlas(),
+        atlas_metadata={"atlas_id": "atlas-lung"},
+        run_id="run-harmonization",
+        created_at="2026-07-31T00:00:00Z",
+        theme="lung",
+        config={},
+        run_status=RunStatus.COMPLETE,
+        harmonization_details=[
+            {
+                "datalink_id": "GSE1",
+                "degraded_stages": [],
+                "harmonization_targets": [
+                    {
+                        "pre_hz_field": "tissue",
+                        "pre_hz_label": "lung",
+                        "pre_hz_label_path": "/sample/0/tissue",
+                        "ontology_match": True,
+                        "ontology_id": "gsk",
+                        "ontology_lookup": {
+                            "id": "UBERON:0002048",
+                            "title": "lung",
+                            "ontology_id": "gsk",
+                        },
+                    },
+                    {
+                        "pre_hz_field": "disease",
+                        "pre_hz_label": "unknown syndrome",
+                        "pre_hz_field_path": "/sample/0/disease",
+                        "ontology_match": False,
+                    },
+                ],
+            }
+        ],
+    )
+
+    targets = document.datasets[0].harmonization.targets
+    assert targets[0].path == "/sample/0/tissue"
+    assert targets[0].raw_value == "lung"
+    assert targets[0].match.label == "lung"
+    assert targets[0].match.accession == "UBERON:0002048"
+    assert targets[0].match.framework == "gsk"
+    assert targets[1].path == "/sample/0/disease"
+    assert targets[1].raw_value == "unknown syndrome"
+    assert targets[1].match is None
+
+
 def test_adapter_wraps_multiple_miniml_packages_explicitly():
     legacy = _legacy_atlas()
     legacy["accessions"] = [

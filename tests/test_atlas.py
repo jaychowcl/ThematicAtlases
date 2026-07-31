@@ -100,7 +100,7 @@ def test_collect_datasets_generates_queries_inside_atlas(tmp_path) -> None:
     RecordingCollector.calls = []
     RecordingQueryGenerator.calls = []
 
-    Atlas(
+    result = Atlas(
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
@@ -121,6 +121,41 @@ def test_collect_datasets_generates_queries_inside_atlas(tmp_path) -> None:
         "generated two",
     ]
     assert RecordingCollector.calls[0]["file"] is None
+    assert result["run"]["config"]["queries"] == [
+        "explicit query",
+        "file query",
+        "generated one",
+        "generated two",
+    ]
+
+
+def test_create_and_resume_preserve_resolved_generated_query_provenance(tmp_path) -> None:
+    RecordingCollector.calls = []
+    RecordingQueryGenerator.calls = []
+    atlas = Atlas(
+        metadata={"atlas_id": "atlas-generated"},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=RecordingHarmonizer(),
+        query_generator=RecordingQueryGenerator(),
+    )
+
+    created = atlas.create_atlas(
+        query=["explicit query"],
+        theme="fibrosis theme",
+        generate_queries=True,
+        max_generated_queries=2,
+        collect_metadata=False,
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+    )
+    run_id = created["run"]["run_id"]
+    resumed = atlas.resume(dev_out_dir=str(tmp_path), run_id=run_id)
+
+    expected = ["explicit query", "generated one", "generated two"]
+    assert created["run"]["config"]["queries"] == expected
+    assert resumed["run"]["config"]["queries"] == expected
+    assert resumed == created
 
 
 def test_collect_datasets_validates_generated_queries_before_collection() -> None:
