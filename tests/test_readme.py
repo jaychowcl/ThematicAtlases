@@ -235,7 +235,7 @@ def test_readme_documents_runner_retry_controls_and_discovery_limits() -> None:
         ):
             assert option in entry
 
-    assert "50,000 raw hits" in text
+    assert "40,000 raw hits" in text
     assert "before cross-query deduplication" in text
     assert "Generated-query mode does not use those four static caps" in text
 

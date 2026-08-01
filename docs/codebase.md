@@ -432,7 +432,7 @@ otherwise.
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Invalid worker/options or required credentials raise; caught item failures preserve input metadata; details may be written. |
 | [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `collect_accession_metadata(jsons, checkpoint_store=None) -> list[dict]`; performs no network call and raises actionable `NotImplementedError` without mutating input. Callers may inject a real handler through `AtlasCollector(metadata_handlers=...)`. |
-| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3, request_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints through the injected/shared policy; validates limits, uses XML/abstract fallback, and checkpoints item outcomes. |
+| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3, request_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and the official bioRxiv/medRxiv details/JATS endpoints through the injected/shared policy; validates limits and JATS hosts, uses XML/JATS/abstract fallback, and checkpoints item outcomes. |
 | [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=30, request_delay=0.34, max_retries=3, request_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared policy and delegates MINiML/PubMed/SRA/ENA handlers; normalizes to GSE, drops unresolved/GPL-only records, deduplicates, and represents metadata errors/status. |
 | [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
 
@@ -581,9 +581,9 @@ The CLI/Python collection path resolves queries, finds dataset links, routes
 metadata, maps publication text, and optionally reviews/filter records.
 
 ```text
-queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
-   |          |             | unavailable/disabled             |
- invalid    no hits         +----------> datalinks only         v
+queries -> search -> datalinks + publication-text accession scan -> merge/dedupe
+   |          |             | disabled                           |
+ invalid    no hits         +----------> datalinks only           v
    v          v                                      repository filter
  error     empty atlas                               | unsupported
                                                     +--> dropped/checkpointed
@@ -609,9 +609,10 @@ queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
    the authoritative `run.config.queries` value and is checkpointed so trace
    publication and resume preserve the queries actually sent to discovery.
 3. `AtlasCollector.collect_jsons` calls Europe PMC Datalinks and, by default,
-   scans every available `fullTextXML` response with the deterministic
-   accession registry. It merges case-insensitive IDs with provenance before
-   dropping unsupported repositories.
+   scans Europe PMC `fullTextXML`, supported bioRxiv/medRxiv JATS, or abstract
+   fallback with the deterministic accession registry. It merges
+   case-insensitive IDs with precise provenance before dropping unsupported
+   repositories. `collect_datalinks()` itself remains API-only.
 4. `AtlasFilterer.filter_jsons` maps full text with abstract/no-text outcomes,
    optionally calls review, applies the selected filter, and assembles output.
 5. `AtlasDocumentAdapter` assembles and validates an Atlas v2 snapshot whose
@@ -624,7 +625,7 @@ queries -> search -> datalinks + fullTextXML accession scan -> merge/dedupe
 ```text
 Atlas.collect_datasets(args)                    # interface/orchestrator
   -> AtlasCollector.collect_jsons(...)          # internal call
-     -> EuropePMCWrapper.collect_accessions     # search/datalinks/fullTextXML
+     -> EuropePMCWrapper.collect_accessions     # search/datalinks/text scan
         -> extract_accessions_from_text         # internal deterministic scan
      -> metadata_handler.collect_accession...   # internal -> external/system
   -> AtlasFilterer.filter_jsons(...)            # internal legacy stage call
@@ -977,8 +978,8 @@ runner -> resolve fixed config -> resume?
 2. `run_fibrosis_discovery.py` uses the query catalog or generated-query mode
    and stops before review; amendment requires an explicit resume ID and retry
    controls only act during resume.
-3. Static discovery permits 5,000 + 15,000 + 15,000 + 15,000 =
-   50,000 raw hits before cross-query deduplication. Generated mode instead creates at most
+3. Static discovery permits 10,000 per query, or 40,000 raw hits before
+   cross-query deduplication. Generated mode instead creates at most
    three queries and has no static per-query limits or global cap.
 4. A new run obtains an exclusive lock and archives prior inactive traces;
    resume uses the existing trace without archival. Both keep the shared
@@ -1315,10 +1316,11 @@ ordered, versioned defaults live in
 catalog while preserving its existing exported query constants. The four
 queries are: the original
 human/fibrosis/transcriptomics query, an expanded core query, a high-specificity
-fibrotic-disease query, and a complementary human organ/disease query. The
-original query is capped at 5,000 raw results and each new query at 15,000.
-The four static caps therefore permit at most 50,000 raw hits before
-cross-query deduplication. Publications are deduplicated across query sets
+fibrotic-disease query, and a complementary human organ/disease query. Each
+query is capped at 10,000 raw results, so the four static caps permit at most
+40,000 raw hits before cross-query deduplication. The queries exclude reviews
+but do not require Europe PMC `HAS_DATA` or `HAS_LABSLINKS` flags. Publications
+are deduplicated across query sets
 before datalink calls while ordered query provenance is retained. The runner
 stops after incrementally collecting full text or abstracts for GEO-linked
 publications. It performs GEO repository routing and text mapping but does not
@@ -1675,11 +1677,11 @@ resume without refetching completed pages.
 
 Current public methods:
 
-- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, fetches Datalinks, scans every available full text by default, merges normalized accession records with provenance, and returns candidates before repository filtering.
+- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, fetches Datalinks, scans Europe PMC XML, supported preprint JATS, or abstract fallback by default, merges normalized accession records with provenance, and returns candidates before repository filtering.
 - `collect_publications(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches Europe PMC for each query and returns normalized, cross-query-deduplicated publication rows. The per-query limit list aligns with query order; configured limits can expand pagination beyond the default five pages.
-- `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches open-access full text when available and falls back to abstracts.
-- `collect_datalinks(publications: list[dict]) -> list[dict]`: calls the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records.
-- `accessions_from_fulltexts(publications, checkpoint_store=None) -> list[dict]`: extracts registry matches only from available `fullTextXML` records and checkpoints each publication.
+- `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches Europe PMC `fullTextXML`, then official bioRxiv/medRxiv JATS for supported preprints, and otherwise falls back to abstracts.
+- `collect_datalinks(publications: list[dict]) -> list[dict]`: calls only the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records; publication-text fetching belongs to `collect_accessions`.
+- `accessions_from_fulltexts(publications, checkpoint_store=None) -> list[dict]`: extracts registry matches from available Europe PMC XML or preprint JATS with `fulltext_regex` provenance and from abstract fallback with `abstract_regex` provenance, then checkpoints each publication.
 - `merge_accessions(datalink_accessions, scraped_accessions) -> list[dict]`: performs case-insensitive accession and publication merging while retaining discovery provenance.
 - `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
 
@@ -1687,7 +1689,17 @@ The wrapper uses `requests.get()` against:
 
 ```text
 https://www.ebi.ac.uk/europepmc/webservices/rest/search
+https://www.ebi.ac.uk/europepmc/webservices/rest/{source}/{epmc_id}/datalinks
+https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML
+https://api.biorxiv.org/details/{biorxiv|medrxiv}/{doi}/na/json
+https://www.biorxiv.org/...source.xml
+https://www.medrxiv.org/...source.xml
 ```
+
+Preprint JATS fetching is limited to Europe PMC `PPR` rows with bioRxiv or
+medRxiv DOI prefixes. The wrapper selects the latest numeric API version and
+accepts only HTTPS JATS URLs on the exact `www.biorxiv.org` or
+`www.medrxiv.org` hosts.
 
 Search parameters:
 
@@ -1726,7 +1738,7 @@ accessions. The enriched publication rows are carried forward and reused by
 `AtlasFilterer`, avoiding a second full-text request.
 
 <a id="fulltext-accession-discovery"></a>
-#### Full-text accession discovery
+#### Publication-text accession discovery
 
 The option is enabled by default across Python, the installed CLI, and fixed
 fibrosis runners. `--no-scrape-fulltext-accessions` restores Datalinks-only
@@ -1744,9 +1756,13 @@ normalizes them to uppercase:
   `?RP`, `?RS`, `?RX`, `?RR`, `?RZ`, and `?RA` for `S`, `E`, or `D`;
 - BioSample `SAMN`, `SAMEA`, and `SAMD`.
 
-Abstract fallback is never scanned. Datalink fields win conflicts, while
+Europe PMC XML and supported preprint JATS use `fulltext_regex`; abstract
+fallback uses `abstract_regex`. JATS parsing includes body and back-matter
+sections such as Data Availability but excludes the reference list. Datalink
+fields win conflicts, while
 `discovery_sources` and nested `accession_discovery_sources` retain
-`europe_pmc_datalink`, `fulltext_regex`, or both. Each publication's normalized
+`europe_pmc_datalink`, `fulltext_regex`, `abstract_regex`, or their applicable
+combination. Each publication's normalized
 candidates are stored under `fulltext_accession_discovery`, a retryable
 discovery boundary. The existing `AtlasCollector.filter_accessions()` remains
 authoritative: currently supported GEO and selected ArrayExpress experiment

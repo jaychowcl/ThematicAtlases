@@ -153,7 +153,9 @@ def test_collect_accessions_scrapes_all_fulltexts_by_default_and_merges_provenan
     assert result[1]["publications"][0]["text"] == "GSE1 and PRJNA10"
 
 
-def test_collect_accessions_does_not_scrape_abstract_fallbacks(monkeypatch) -> None:
+def test_collect_accessions_scrapes_abstract_fallbacks_with_precise_provenance(
+    monkeypatch,
+) -> None:
     wrapper = EuropePMCWrapper(request_delay=0)
     publication = {"query": "q", "source": "MED", "epmc_id": "1", "pmid": "1"}
     monkeypatch.setattr(
@@ -175,7 +177,168 @@ def test_collect_accessions_does_not_scrape_abstract_fallbacks(monkeypatch) -> N
         ],
     )
 
-    assert wrapper.collect_accessions(queries=["q"]) == []
+    assert wrapper.collect_accessions(queries=["q"]) == [
+        {
+            "datalink_id": "GSE123",
+            "datalink_id_scheme": "GEO",
+            "datalink_url": "",
+            "datalink_category": "GEO",
+            "accession_repository": "geo",
+            "accession_object_type": "series",
+            "discovery_sources": ["abstract_regex"],
+            "publications": [
+                {
+                    **publication,
+                    "text": "Abstract mentions GSE123",
+                    "text_source": "abstractText",
+                    "full_text_status": "missing_pmcid",
+                    "accession_discovery_sources": ["abstract_regex"],
+                }
+            ],
+        }
+    ]
+
+
+def test_collect_publication_texts_fetches_latest_supported_preprint_jats() -> None:
+    calls = []
+
+    class Response:
+        def __init__(self, payload=None, text=""):
+            self._payload = payload
+            self.text = text
+            self.status_code = 200
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class RequestPolicy:
+        def get(self, url, **kwargs):
+            calls.append(url)
+            if url == (
+                "https://api.biorxiv.org/details/biorxiv/"
+                "10.1101/2025.09.12.25335572/na/json"
+            ):
+                return Response({"collection": []})
+            if url == (
+                "https://api.biorxiv.org/details/medrxiv/"
+                "10.1101/2025.09.12.25335572/na/json"
+            ):
+                return Response(
+                    {
+                        "collection": [
+                            {
+                                "version": "1",
+                                "jatsxml": "https://www.medrxiv.org/old.source.xml",
+                            },
+                            {
+                                "version": "3",
+                                "jatsxml": "https://www.medrxiv.org/latest.source.xml",
+                            },
+                        ]
+                    }
+                )
+            if url == "https://www.medrxiv.org/latest.source.xml":
+                return Response(
+                    text=(
+                        "<article><body><sec><title>Methods</title><p>No accessions.</p>"
+                        "</sec></body><back><sec sec-type='data-availability'>"
+                        "<title>Data Availability</title><p>Data: GSE213030 and "
+                        "GSE254957.</p></sec><ref-list><ref><mixed-citation>"
+                        "Unrelated GSE999.</mixed-citation></ref></ref-list></back></article>"
+                    )
+                )
+            raise AssertionError(f"unexpected URL {url}")
+
+    wrapper = EuropePMCWrapper(request_delay=0, request_policy=RequestPolicy())
+    publication = {
+        "source": "PPR",
+        "epmc_id": "PPR1083600",
+        "doi": "10.1101/2025.09.12.25335572",
+        "abstractText": "Abstract without accessions",
+    }
+
+    enriched = wrapper.collect_publication_texts([publication])
+
+    assert calls == [
+        "https://api.biorxiv.org/details/biorxiv/10.1101/2025.09.12.25335572/na/json",
+        "https://api.biorxiv.org/details/medrxiv/10.1101/2025.09.12.25335572/na/json",
+        "https://www.medrxiv.org/latest.source.xml",
+    ]
+    assert enriched[0]["text_source"] == "preprintJATSXML"
+    assert enriched[0]["full_text_status"] == "available"
+    assert "GSE213030" in enriched[0]["text"]
+    assert "GSE999" not in enriched[0]["text"]
+    assert [
+        record["datalink_id"]
+        for record in wrapper.accessions_from_fulltexts(enriched)
+    ] == ["GSE213030", "GSE254957"]
+
+
+def test_collect_datalinks_remains_api_only(monkeypatch) -> None:
+    wrapper = EuropePMCWrapper(request_delay=0)
+    publication = {"source": "MED", "epmc_id": "1", "pmid": "1"}
+    monkeypatch.setattr(
+        wrapper,
+        "_datalinks",
+        lambda source, epmc_id: {"dataLinksList": {"Category": []}},
+    )
+    monkeypatch.setattr(
+        wrapper,
+        "collect_publication_texts",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("collect_datalinks must not fetch publication text")
+        ),
+    )
+
+    assert wrapper.collect_datalinks([publication]) == []
+
+
+def test_preprint_jats_rejects_untrusted_host_and_uses_abstract() -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+        text = ""
+
+        def json(self):
+            return {
+                "collection": [
+                    {
+                        "version": "1",
+                        "jatsxml": "https://attacker.example/paper.xml",
+                    }
+                ]
+            }
+
+        def raise_for_status(self):
+            return None
+
+    class RequestPolicy:
+        def get(self, url, **kwargs):
+            calls.append(url)
+            return Response()
+
+    wrapper = EuropePMCWrapper(request_delay=0, request_policy=RequestPolicy())
+    publication = {
+        "source": "PPR",
+        "epmc_id": "PPR1",
+        "doi": "10.1101/2025.01.01.123456",
+        "journalTitle": "bioRxiv",
+        "abstractText": "Fallback GSE999",
+    }
+
+    enriched = wrapper.collect_publication_texts([publication])
+
+    assert calls == [
+        "https://api.biorxiv.org/details/biorxiv/10.1101/2025.01.01.123456/na/json"
+    ]
+    assert enriched[0]["text_source"] == "abstractText"
+    assert enriched[0]["full_text_status"] == "error"
 
 
 def test_collect_accessions_can_disable_fulltext_scraping(monkeypatch) -> None:

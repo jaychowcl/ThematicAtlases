@@ -253,7 +253,7 @@ def test_principal_workflows_have_complete_contract_sections() -> None:
 def test_docs_correct_known_runtime_claims_and_layout() -> None:
     text = CODEBASE.read_text(encoding="utf-8")
 
-    assert "50,000 raw hits before cross-query deduplication" in text
+    assert "40,000 raw hits before cross-query deduplication" in text
     assert "reviewer.review_relevancy" in text
     assert "reviewer.review(" not in text
     assert "PublicationTextReviewer.review(" not in text

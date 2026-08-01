@@ -295,7 +295,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Fibrosis Run Scripts](codebase.md#fibrosis-run-script)
   anchor: fibrosis-run-script
   purpose: Full-atlas and discovery-only fixed configuration, resume, amendment, archival, and artifacts.
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, query catalog, OntoStore, .out
+  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, query catalog, 10000, no HAS_DATA gate, OntoStore, .out
 
 - id: cli-atlas
   title: [CLI Atlas](codebase.md#cli-atlas)
@@ -342,14 +342,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: epmc-wrapper
   title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
   anchor: epmc-wrapper
-  purpose: Search, pagination, deduplication, datalinks, full text, fallback, checkpoint, and endpoint detail.
-  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, accession extraction, discovery provenance, abstract, max_publications_per_query
+  purpose: Search, pagination, deduplication, datalinks, Europe PMC XML, preprint JATS, abstract fallback, checkpoint, and endpoint detail.
+  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
 
 - id: fulltext-accession-discovery
-  title: [Full-text Accession Discovery](codebase.md#fulltext-accession-discovery)
+  title: [Publication-text Accession Discovery](codebase.md#fulltext-accession-discovery)
   anchor: fulltext-accession-discovery
-  purpose: Default-on deterministic accession extraction, registry families, provenance merging, checkpointing, and repository filtering.
-  keywords: scrape_fulltext_accessions, fulltext_regex, discovery_sources, GEO, ArrayExpress, BioStudies, BioProject, INSDC, BioSample
+  purpose: Default-on deterministic publication-text accession extraction, registry families, provenance merging, checkpointing, and repository filtering.
+  keywords: scrape_fulltext_accessions, fulltext_regex, abstract_regex, preprint JATS, discovery_sources, GEO, ArrayExpress, BioStudies, BioProject, INSDC, BioSample
 
 - id: rate-handling
   title: [Rate Handling](codebase.md#rate-handling)

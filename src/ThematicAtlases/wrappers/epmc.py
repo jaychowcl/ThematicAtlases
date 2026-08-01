@@ -2,6 +2,7 @@ import logging
 import hashlib
 import time
 import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 
 import requests
 
@@ -24,6 +25,10 @@ DATASET_DATALINK_CATEGORIES = {
     "BioStudies: supplemental material and supporting data",
     "Functional Genomics Experiments",
 }
+
+PREPRINT_API_URL = "https://api.biorxiv.org/details/{server}/{doi}/na/json"
+PREPRINT_DOI_PREFIXES = ("10.1101/", "10.64898/")
+PREPRINT_JATS_HOSTS = frozenset({"www.biorxiv.org", "www.medrxiv.org"})
 
 
 def _periodic_progress(position: int, total: int) -> bool:
@@ -135,10 +140,16 @@ class EuropePMCWrapper:
                 continue
 
             matches = []
-            if (
-                publication.get("text_source") == "fullTextXML"
-                and publication.get("full_text_status") == "available"
-            ):
+            text_source = str(publication.get("text_source", ""))
+            discovery_source = None
+            if publication.get("full_text_status") == "available" and text_source in {
+                "fullTextXML",
+                "preprintJATSXML",
+            }:
+                discovery_source = "fulltext_regex"
+            elif text_source == "abstractText":
+                discovery_source = "abstract_regex"
+            if discovery_source:
                 matches = extract_accessions_from_text(
                     str(publication.get("text", ""))
                 )
@@ -150,11 +161,11 @@ class EuropePMCWrapper:
                     "datalink_category": match["datalink_category"],
                     "accession_repository": match["repository"],
                     "accession_object_type": match["object_type"],
-                    "discovery_sources": ["fulltext_regex"],
+                    "discovery_sources": [discovery_source],
                     "publications": [
                         {
                             **publication,
-                            "accession_discovery_sources": ["fulltext_regex"],
+                            "accession_discovery_sources": [discovery_source],
                         }
                     ],
                 }
@@ -197,20 +208,20 @@ class EuropePMCWrapper:
         indexes: dict[str, int] = {}
         for record, source in (
             *((record, "europe_pmc_datalink") for record in datalink_accessions),
-            *((record, "fulltext_regex") for record in scraped_accessions),
+            *((record, None) for record in scraped_accessions),
         ):
             accession = str(record.get("datalink_id", "")).strip()
             if not accession:
                 continue
             key = accession.upper()
+            record_sources = list(record.get("discovery_sources", []))
+            if source:
+                record_sources.append(source)
+            elif not record_sources:
+                record_sources.append("fulltext_regex")
             normalized = {
                 **record,
-                "discovery_sources": self._ordered_unique(
-                    [
-                        *record.get("discovery_sources", []),
-                        source,
-                    ]
-                ),
+                "discovery_sources": self._ordered_unique(record_sources),
                 "publications": [
                     {
                         **publication,
@@ -220,7 +231,17 @@ class EuropePMCWrapper:
                                     "accession_discovery_sources",
                                     [],
                                 ),
-                                source,
+                                *(
+                                    [source]
+                                    if source
+                                    else (
+                                        []
+                                        if publication.get(
+                                            "accession_discovery_sources"
+                                        )
+                                        else ["fulltext_regex"]
+                                    )
+                                ),
                             ]
                         ),
                     }
@@ -726,13 +747,8 @@ class EuropePMCWrapper:
             checkpoint_status = "available"
             checkpoint_error = None
 
-            if not full_text_id:
-                enriched_publication = self._publication_with_fallback_text(
-                    publication=publication,
-                    full_text_status="missing_pmcid",
-                )
-            else:
-                try:
+            try:
+                if full_text_id:
                     logger.debug(
                         "EuropePMC fullTextXML request epmc_id=%r",
                         full_text_id,
@@ -744,33 +760,41 @@ class EuropePMCWrapper:
                         "text_source": "fullTextXML",
                         "full_text_status": "available",
                     }
-                except requests.HTTPError as error:
-                    response = error.response
-                    status_code = response.status_code if response is not None else None
-                    full_text_status = (
-                        "unavailable" if status_code == 404 else "error"
+                else:
+                    preprint_text = self._preprint_full_text(publication)
+                    enriched_publication = (
+                        preprint_text
+                        if preprint_text is not None
+                        else self._publication_with_fallback_text(
+                            publication=publication,
+                            full_text_status="missing_pmcid",
+                        )
                     )
-                    enriched_publication = self._publication_with_fallback_text(
-                        publication=publication,
-                        full_text_status=full_text_status,
-                    )
-                    if status_code != 404:
-                        checkpoint_status = "retryable_error"
-                        checkpoint_error = str(error)
-                except requests.RequestException as error:
-                    enriched_publication = self._publication_with_fallback_text(
-                        publication=publication,
-                        full_text_status="error",
-                    )
+            except requests.HTTPError as error:
+                response = error.response
+                status_code = response.status_code if response is not None else None
+                full_text_status = "unavailable" if status_code == 404 else "error"
+                enriched_publication = self._publication_with_fallback_text(
+                    publication=publication,
+                    full_text_status=full_text_status,
+                )
+                if status_code != 404:
                     checkpoint_status = "retryable_error"
                     checkpoint_error = str(error)
-                except ET.ParseError as error:
-                    enriched_publication = self._publication_with_fallback_text(
-                        publication=publication,
-                        full_text_status="error",
-                    )
-                    checkpoint_status = "terminal_error"
-                    checkpoint_error = str(error)
+            except requests.RequestException as error:
+                enriched_publication = self._publication_with_fallback_text(
+                    publication=publication,
+                    full_text_status="error",
+                )
+                checkpoint_status = "retryable_error"
+                checkpoint_error = str(error)
+            except (ET.ParseError, ValueError) as error:
+                enriched_publication = self._publication_with_fallback_text(
+                    publication=publication,
+                    full_text_status="error",
+                )
+                checkpoint_status = "terminal_error"
+                checkpoint_error = str(error)
 
             if enriched_publication["full_text_status"] == "available":
                 full_text_available += 1
@@ -1177,6 +1201,72 @@ class EuropePMCWrapper:
 
         return ""
 
+    def _preprint_full_text(self, publication: dict) -> dict | None:
+        source = str(publication.get("source", "")).strip().upper()
+        doi = str(publication.get("doi", "")).strip().lower()
+        doi = doi.removeprefix("https://doi.org/")
+        if source != "PPR" or not doi.startswith(PREPRINT_DOI_PREFIXES):
+            return None
+
+        journal = str(publication.get("journalTitle", "")).strip().lower()
+        if journal in {"biorxiv", "medrxiv"}:
+            servers = [journal]
+        else:
+            servers = ["biorxiv", "medrxiv"]
+
+        for server in servers:
+            api_url = PREPRINT_API_URL.format(server=server, doi=doi)
+            logger.debug(
+                "Preprint details request server=%r doi=%r",
+                server,
+                doi,
+            )
+            response = self._request_policy.get(api_url)
+            payload = response.json()
+            collection = (
+                payload.get("collection", [])
+                if isinstance(payload, dict)
+                else []
+            )
+            candidates = [
+                item
+                for item in collection
+                if isinstance(item, dict) and item.get("jatsxml")
+            ]
+            if not candidates:
+                continue
+            latest = max(candidates, key=self._preprint_version)
+            jats_url = str(latest["jatsxml"]).strip()
+            self._validate_preprint_jats_url(jats_url)
+            logger.debug(
+                "Preprint JATS request server=%r doi=%r version=%r",
+                server,
+                doi,
+                latest.get("version"),
+            )
+            full_text_xml = self._request_policy.get(jats_url).text
+            return {
+                **publication,
+                "text": self._plain_text_from_xml(full_text_xml),
+                "text_source": "preprintJATSXML",
+                "full_text_status": "available",
+            }
+        return None
+
+    @staticmethod
+    def _preprint_version(item: dict) -> tuple[int, str]:
+        value = str(item.get("version", "")).strip()
+        try:
+            return int(value), value
+        except ValueError:
+            return -1, value
+
+    @staticmethod
+    def _validate_preprint_jats_url(url: str) -> None:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname not in PREPRINT_JATS_HOSTS:
+            raise ValueError("untrusted preprint JATS URL")
+
     def _plain_text_from_xml(self, full_text_xml: str) -> str:
         root = ET.fromstring(full_text_xml)
         sections = []
@@ -1192,19 +1282,20 @@ class EuropePMCWrapper:
                 ]
             )
 
-        for section in root.findall(".//body//sec"):
-            title_element = section.find("title")
-            title = self._section_title(
-                title=self._text_from_xml_element(element=title_element),
-                fallback=section.tag,
-            )
-            sections.append(
-                self._xml_section(
-                    element=section,
-                    title=title,
-                    excluded_children={title_element},
+        for selector in (".//body//sec", ".//back//sec"):
+            for section in root.findall(selector):
+                title_element = section.find("title")
+                title = self._section_title(
+                    title=self._text_from_xml_element(element=title_element),
+                    fallback=section.tag,
                 )
-            )
+                sections.append(
+                    self._xml_section(
+                        element=section,
+                        title=title,
+                        excluded_children={title_element},
+                    )
+                )
 
         sections = [
             section

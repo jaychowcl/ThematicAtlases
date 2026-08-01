@@ -78,7 +78,7 @@ def test_discovery_collects_publications_without_review_or_harmonization(
         "review_strategy": "direct",
         "metadata_repositories": ["geo"],
         "max_publications": None,
-        "max_publications_per_query": [5000, 15000, 15000, 15000],
+        "max_publications_per_query": [10000, 10000, 10000, 10000],
         "collect_metadata": True,
         "generate_queries": False,
         "max_generated_queries": 3,
@@ -110,7 +110,7 @@ def test_discovery_collects_publications_without_review_or_harmonization(
     displayed = json.loads(capsys.readouterr().out)
     assert displayed["max_publications"] is None
     assert displayed["scrape_fulltext_accessions"] is True
-    assert displayed["max_publications_per_query"] == [5000, 15000, 15000, 15000]
+    assert displayed["max_publications_per_query"] == [10000, 10000, 10000, 10000]
     assert len(displayed["query"]) == 4
     assert displayed["harmonization"] is False
     assert displayed["collect_metadata"] is True
@@ -136,7 +136,8 @@ def test_static_query_has_narrowed_mandatory_concepts() -> None:
     assert 'TITLE_ABS:("gene expression" OR "RNA sequencing"' in query
     assert 'TITLE_ABS:(fibrosis OR fibrotic OR fibrosed' in query
     assert '"systemic sclerosis"' in query
-    assert '(HAS_DATA:y OR HAS_LABSLINKS:y)' in query
+    assert 'HAS_DATA:' not in query
+    assert 'HAS_LABSLINKS:' not in query
     assert 'NOT PUB_TYPE:review' in query
 
     assert ' OR sclerosis OR ' not in query
@@ -148,6 +149,19 @@ def test_static_query_has_narrowed_mandatory_concepts() -> None:
 
     assert script.FIBROSIS_DISCOVERY_QUERIES[0] == script.FIBROSIS_DISCOVERY_QUERY
     assert len(script.FIBROSIS_DISCOVERY_QUERIES) == 4
+    assert script.MAX_PUBLICATIONS_PER_QUERY == [10000, 10000, 10000, 10000]
+
+
+def test_organ_complement_covers_indexing_and_assay_wording_gaps() -> None:
+    query = " ".join(script.FIBROSIS_ORGAN_DISEASE_COMPLEMENT_QUERY.split())
+
+    assert "HAS_DATA:" not in query
+    assert "HAS_LABSLINKS:" not in query
+    assert "ORGANISM_ID:9606" in query
+    assert 'TITLE_ABS:"diabetic kidney disease"' in query
+    assert '"single nucleus RNA"' in query
+    assert "snRNAseq" in query
+    assert '"diseased proximal tubule"' in query
 
 
 def test_generate_query_flag_uses_llm_query_instead_of_static_query(
@@ -255,7 +269,7 @@ def test_discovery_can_amend_queries_before_resuming(tmp_path, monkeypatch) -> N
             "dev_out_dir": str(tmp_path / ".out" / "dev_trace_discovery"),
             "run_id": "run-1",
             "queries": script.FIBROSIS_DISCOVERY_QUERIES,
-            "max_publications_per_query": [5000, 15000, 15000, 15000],
+            "max_publications_per_query": [10000, 10000, 10000, 10000],
         },
     )
     assert calls[1][0] == "resume"

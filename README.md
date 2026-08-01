@@ -8,7 +8,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v2 document with publication provenance. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress identifiers can be routed to an injected handler, but the default wrapper rejects live metadata collection explicitly because no supported fetcher exists.
 
-The pipeline fetches open-access full text, deterministically discovers repository accessions from that text by default, falls back to abstracts for review only, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
+The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
 
 ## Installation
 
@@ -161,7 +161,7 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--max-publications N` | Positive global cap on raw searched publications before datalink fetching. |
 | `--skip-metadata` | Keep repository-filtered accessions without calling metadata handlers. |
 | `--review-before-metadata` | Review repository-filtered publications first and enrich only survivors; requires a theme. |
-| `--scrape-fulltext-accessions`, `--no-scrape-fulltext-accessions` | Enable or disable deterministic accession discovery from available Europe PMC full text. Enabled by default; abstract fallback is never scanned. |
+| `--scrape-fulltext-accessions`, `--no-scrape-fulltext-accessions` | Enable or disable deterministic accession discovery from Europe PMC XML, supported bioRxiv/medRxiv JATS, or abstract fallback. Enabled by default. |
 | `--metadata-repository {geo,arrayexpress}` | Select a repository; repeat to select both. Default: GEO only. |
 | `--theme TEXT` | Inline thematic-review theme. |
 | `--theme-file PATH` | Read the theme from UTF-8 text; takes precedence over `--theme`. |
@@ -170,7 +170,7 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--review-filter {none,not-relevant,not-relevant-and-unsure}` | Remove selected review outcomes. Default `none`; removal requires a theme. |
 | `--review-strategy {direct,evidence_then_judgement}` | Review contract. Default `direct`; the other choice is the legacy two-stage strategy. |
 
-Full-text discovery recognizes GEO, ArrayExpress/BioStudies, BioProject,
+Publication-text discovery recognizes GEO, ArrayExpress/BioStudies, BioProject,
 INSDC/SRA/ENA/DRA, and BioSample object-level accessions. It records
 `discovery_sources` and per-publication `accession_discovery_sources`, merges
 case-insensitive duplicates with Europe PMC Datalinks, and then applies the
@@ -430,8 +430,9 @@ Important defaults and configuration sources:
   are appended.
 - `docs/theme_fibrosis.txt` is the fixed fibrosis theme.
   `config/fibrosis_discovery_queries.json` is the ordered, versioned static
-  query catalog used by the discovery runner. Its per-query caps are 5,000,
-  15,000, 15,000, and 15,000: at most 50,000 raw hits before cross-query deduplication.
+  query catalog used by the discovery runner. All four per-query caps are
+  10,000: at most 40,000 raw hits before cross-query deduplication. The static
+  queries do not require Europe PMC data- or lablink flags.
   Generated-query mode does not use those four static caps; it
   generates at most three queries and leaves the global publication cap unset.
 - CLI data is written with `--out`; logging goes to stdout unless `--log-file`
@@ -459,7 +460,7 @@ or Docker configuration in this repository.
 CLI or Python input
   -> Atlas (query ordering, credentials, trace orchestration)
      -> `AtlasCollector`
-        -> EuropePMCWrapper (search, datalinks)
+        -> EuropePMCWrapper (search, datalinks, publication-text accession scan)
         -> GEOWrapper / ArrayExpressWrapper (metadata routing)
      -> `AtlasFilterer`
         -> EuropePMCWrapper (full text or abstract fallback)
