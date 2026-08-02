@@ -3,10 +3,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ThematicAtlases.collector import AtlasCollector
-from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
+
+
+_default_collector_factory = None
+_default_filterer_factory = None
+
+
+def configure_default_resume_factories(*, collector_factory, filterer_factory) -> None:
+    """Wire concrete resume collaborators without reverse component imports."""
+
+    global _default_collector_factory, _default_filterer_factory
+    _default_collector_factory = collector_factory
+    _default_filterer_factory = filterer_factory
 
 
 class TracePublicationReviewResumer:
@@ -21,8 +31,10 @@ class TracePublicationReviewResumer:
         epmc_wrapper_factory=None,
     ):
         self._publication_text_reviewer = publication_text_reviewer
-        self._collector_factory = collector_factory or AtlasCollector
-        self._filterer_factory = filterer_factory or AtlasFilterer
+        self._collector_factory = collector_factory or _default_collector_factory
+        self._filterer_factory = filterer_factory or _default_filterer_factory
+        if self._collector_factory is None or self._filterer_factory is None:
+            raise RuntimeError("default publication-review resume wiring is not configured")
         self._epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
 
     def resume(

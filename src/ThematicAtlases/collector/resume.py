@@ -11,17 +11,24 @@ from ThematicAtlases.wrappers.enrichment import EnrichmentAuditor, load_retry_ta
 
 
 logger = logging.getLogger(__name__)
+_default_collector_factory = None
+
+
+def configure_default_collector_factory(factory) -> None:
+    """Wire the concrete collector without importing it back into this module."""
+
+    global _default_collector_factory
+    _default_collector_factory = factory
 
 
 class TraceMetadataResumer:
     """Collect metadata for one stable snapshot of an evolving trace."""
 
     def __init__(self, *, collector_factory=None, epmc_wrapper_factory=None):
-        if collector_factory is None:
-            from ThematicAtlases.collector.collector import AtlasCollector
-
-            collector_factory = AtlasCollector
-        self._collector_factory = collector_factory
+        resolved_factory = collector_factory or _default_collector_factory
+        if resolved_factory is None:
+            raise RuntimeError("default AtlasCollector wiring is not configured")
+        self._collector_factory = resolved_factory
         self._epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
 
     def resume(

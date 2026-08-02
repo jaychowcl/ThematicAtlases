@@ -4,6 +4,10 @@ import logging
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
+from ThematicAtlases.collector.resume import (
+    TraceMetadataResumer,
+    configure_default_collector_factory,
+)
 
 ARRAYEXPRESS_ACCESSION_PREFIXES = ("E-MTAB", "E-GEOD", "E-MEXP")
 DEFAULT_METADATA_REPOSITORIES = ("geo",)
@@ -51,8 +55,6 @@ class AtlasCollector:
         if self._metadata_resume_orchestrator_factory is not None:
             instance = self._metadata_resume_orchestrator_factory()
         else:
-            from ThematicAtlases.collector.resume import TraceMetadataResumer
-
             instance = TraceMetadataResumer(collector_factory=lambda: self)
         self._metadata_resume_orchestrator_instance = instance
         return instance
@@ -372,3 +374,6 @@ class AtlasCollector:
             )
 
         return normalized
+
+
+configure_default_collector_factory(AtlasCollector)

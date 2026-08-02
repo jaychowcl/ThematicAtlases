@@ -9,6 +9,7 @@ from pathlib import Path
 from agentic_curator.curators.ontology_harmonizer import (
     build_miniml_metadata_context,
 )
+from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
 
 ACCESSIONS = "accessions"
 AGENTIC_CURATOR = "agentic_curator"
@@ -607,8 +608,6 @@ class PublicationTextReviewer:
                 self
             )
             return self._resume_orchestrator_instance
-
-        from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
 
         self._resume_orchestrator_instance = TracePublicationReviewResumer(self)
         return self._resume_orchestrator_instance

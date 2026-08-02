@@ -2103,3 +2103,15 @@ emits the matching operational envelope after the SQLite commit. Qualified
 symbols are `ThematicAtlases.operational_events.EVENT_SCHEMA_VERSION`,
 `ThematicAtlases.operational_events.OperationalEventEmitter`, and
 `ThematicAtlases.operational_events.redact`.
+
+<a id="resume-dependency-wiring"></a>
+## Resume Dependency Wiring
+
+Collector and review resume modules now depend only on checkpoints, trace
+storage, provider wrappers, and injected collaborator factories. They do not
+import their owning collector/filterer implementations, and the owning modules
+contain no method-local component imports. Package composition registers the v1
+default factories after concrete classes are defined; explicit factories remain
+authoritative in tests and custom integrations. This preserves the public
+`TraceMetadataResumer()` and `PublicationTextReviewer.resume()` behavior while
+making the dependency direction one-way and inspectable.

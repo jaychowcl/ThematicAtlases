@@ -380,3 +380,9 @@ Use `--query <keyword>` when the id is unknown.
   anchor: operational-events-v1
   purpose: Shared redacted event envelope, SQLite authority, JSONL/logging sinks, and JSON/Prometheus metric export.
   keywords: OperationalEventEmitter, schema 1.0, JSONL, structured logging, redaction, metrics, Prometheus, AtlasRunStore
+
+- id: resume-dependency-wiring
+  title: [Resume Dependency Wiring](codebase.md#resume-dependency-wiring)
+  anchor: resume-dependency-wiring
+  purpose: One-way injected factory registration that removes collector/filterer mutual and method-local imports.
+  keywords: TraceMetadataResumer, TracePublicationReviewResumer, dependency direction, factory, import cycle, injection
