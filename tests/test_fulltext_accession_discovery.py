@@ -1,4 +1,5 @@
 from ThematicAtlases.accession_extraction import (
+    extract_accessions_from_links,
     extract_accessions_from_text,
 )
 from ThematicAtlases.checkpoint import CheckpointStore
@@ -78,6 +79,87 @@ def test_extract_accessions_normalizes_case_deduplicates_and_rejects_near_matche
     assert [match["accession"] for match in matches] == ["GSE123"]
 
 
+def test_extract_accessions_recognizes_curated_biomedical_repository_ids() -> None:
+    matches = extract_accessions_from_text(
+        "EGAS00001006330 EGAD00001001234 phs001234.v2.p1 SCP259 syn12345 "
+        "PXD012345 MTBLS123 SDY456 PRJCA789 CRA123456 HRA001149"
+    )
+
+    assert [match["accession"] for match in matches] == [
+        "EGAS00001006330",
+        "EGAD00001001234",
+        "PHS001234.V2.P1",
+        "SCP259",
+        "SYN12345",
+        "PXD012345",
+        "MTBLS123",
+        "SDY456",
+        "PRJCA789",
+        "CRA123456",
+        "HRA001149",
+    ]
+    assert [match["repository"] for match in matches] == [
+        "ega",
+        "ega",
+        "dbgap",
+        "single_cell_portal",
+        "synapse",
+        "pride",
+        "metabolights",
+        "immport",
+        "ngdc",
+        "ngdc",
+        "ngdc",
+    ]
+
+
+def test_extract_accessions_rejects_curated_repository_near_matches() -> None:
+    assert extract_accessions_from_text(
+        "EGAS123 phsABC SCPx259 xSCP259 PXDabc MTBLS SDYx CRA HRAfoo"
+    ) == []
+
+
+def test_extract_accessions_from_curated_repository_links() -> None:
+    collection = "ddfad306-714d-4cc0-9985-d9072820c530"
+    dataset = "9a305865-e7b0-4e8a-bbbf-0b63287e85fd"
+    links = [
+        f"https://cellxgene.cziscience.com/collections/{collection}",
+        f"https://cellxgene.cziscience.com/e/{dataset}.cxg/",
+        "https://singlecell.broadinstitute.org/single_cell/study/SCP259/example",
+        "https://www.synapse.org/Synapse:#!Synapse:syn12345",
+        "https://zenodo.org/records/18432222",
+        "https://doi.org/10.6084/m9.figshare.11786238.v2",
+        "https://doi.org/10.5061/dryad.abc123",
+        "https://doi.org/10.17632/abc123xyz.3",
+        "https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/ABC123",
+    ]
+
+    matches = extract_accessions_from_links(links)
+
+    assert [(match["accession"], match["repository"]) for match in matches] == [
+        (f"CELLXGENE-COLLECTION:{collection.upper()}", "cellxgene"),
+        (f"CELLXGENE-DATASET:{dataset.upper()}", "cellxgene"),
+        ("SCP259", "single_cell_portal"),
+        ("SYN12345", "synapse"),
+        ("ZENODO:18432222", "zenodo"),
+        ("FIGSHARE:11786238.V2", "figshare"),
+        ("DRYAD:10.5061/DRYAD.ABC123", "dryad"),
+        ("MENDELEY:ABC123XYZ.3", "mendeley_data"),
+        ("DATAVERSE:10.7910/DVN/ABC123", "dataverse"),
+    ]
+    assert [match["datalink_url"] for match in matches] == links
+
+
+def test_extract_accessions_from_links_ignores_generic_file_sharing() -> None:
+    assert extract_accessions_from_links(
+        [
+            "https://drive.google.com/file/d/abc/view",
+            "https://dropbox.com/s/abc/data.zip",
+            "https://bucket.s3.amazonaws.com/data.h5ad",
+        ]
+    ) == []
+
+
 def test_collect_accessions_scrapes_all_fulltexts_by_default_and_merges_provenance(
     monkeypatch,
 ) -> None:
@@ -151,6 +233,32 @@ def test_collect_accessions_scrapes_all_fulltexts_by_default_and_merges_provenan
     ]
     assert result[1]["discovery_sources"] == ["fulltext_regex"]
     assert result[1]["publications"][0]["text"] == "GSE1 and PRJNA10"
+
+
+def test_collect_accessions_scans_hidden_jats_link_targets(monkeypatch) -> None:
+    wrapper = EuropePMCWrapper(request_delay=0)
+    publication = {"query": "q", "source": "MED", "epmc_id": "1", "pmid": "1"}
+    monkeypatch.setattr(wrapper, "collect_publications", lambda **kwargs: [publication])
+    monkeypatch.setattr(wrapper, "collect_datalinks", lambda **kwargs: [])
+    monkeypatch.setattr(
+        wrapper,
+        "collect_publication_texts",
+        lambda **kwargs: [
+            {
+                **publication,
+                "text": "Download the processed atlas.",
+                "full_text_links": ["https://zenodo.org/records/18432222"],
+                "text_source": "fullTextXML",
+                "full_text_status": "available",
+            }
+        ],
+    )
+
+    result = wrapper.collect_accessions(queries=["q"])
+
+    assert result[0]["datalink_id"] == "ZENODO:18432222"
+    assert result[0]["datalink_url"] == "https://zenodo.org/records/18432222"
+    assert result[0]["accession_repository"] == "zenodo"
 
 
 def test_collect_accessions_scrapes_abstract_fallbacks_with_precise_provenance(

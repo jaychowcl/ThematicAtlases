@@ -133,7 +133,151 @@ def test_create_atlas_returns_v2_and_publishes_derived_summary(tmp_path):
         "publication_count": 0,
         "run_id": document.run.run_id,
         "schema_version": "2.0",
+        "unsupported_accession_count": 0,
+        "unsupported_accession_repository_counts": {},
+        "unsupported_accessions_path": None,
     }
+
+
+def test_create_atlas_isolates_unsupported_accessions_and_writes_explicit_report(
+    tmp_path,
+):
+    class MixedCollector:
+        def collect_jsons(self, **_kwargs):
+            return [
+                {
+                    "datalink_id": "GSE1",
+                    "metadata_repository": "geo",
+                    "metadata_status": "available",
+                    "accession_metadata": {"series": {"iid": "GSE1"}},
+                    "publications": [{"pmid": "1", "title": "Shared paper"}],
+                },
+                {
+                    "datalink_id": "SCP259",
+                    "metadata_repository": "single_cell_portal",
+                    "metadata_status": "unsupported",
+                    "accession_metadata": None,
+                    "accession_repository": "single_cell_portal",
+                    "accession_object_type": "study",
+                    "datalink_url": "https://singlecell.broadinstitute.org/single_cell/study/SCP259",
+                    "discovery_sources": ["fulltext_regex"],
+                    "publications": [{"pmid": "1", "title": "Shared paper"}],
+                },
+            ]
+
+    class SupportedOnlyFilterer:
+        calls = []
+
+        def filter_jsons(self, jsons=None, **_kwargs):
+            self.__class__.calls.append(list(jsons or []))
+            assert [record["datalink_id"] for record in jsons] == ["GSE1"]
+            return {"accessions": list(jsons), "publication_texts": {}}
+
+    class SupportedOnlyHarmonizer:
+        calls = []
+
+        def harmonize_datasets(self, datasets, details_out=None, **_kwargs):
+            self.__class__.calls.append(datasets)
+            assert [record["datalink_id"] for record in datasets["accessions"]] == [
+                "GSE1"
+            ]
+            return datasets, []
+
+    output = tmp_path / "atlas.json"
+    unsupported_output = tmp_path / "unsupported.json"
+    atlas = Atlas(
+        metadata={"atlas_id": "atlas-test", "title": "Test atlas"},
+        collector=MixedCollector(),
+        filterer=SupportedOnlyFilterer(),
+        harmonizer=SupportedOnlyHarmonizer(),
+    )
+
+    result = atlas.create_atlas(
+        query=["lung"],
+        theme="lung",
+        out=str(output),
+        unsupported_accessions_out=str(unsupported_output),
+    )
+
+    assert [dataset["dataset_id"] for dataset in result["datasets"]] == ["GSE1"]
+    assert [publication["publication_id"] for publication in result["publications"]] == [
+        "PMID:1"
+    ]
+    report = json.loads(unsupported_output.read_text())
+    assert report["schema_version"] == "1.0"
+    assert report["summary"] == {
+        "accession_count": 1,
+        "repository_counts": {"single_cell_portal": 1},
+    }
+    assert report["accessions"] == [
+        {
+            "datalink_id": "SCP259",
+            "datalink_id_scheme": "",
+            "datalink_url": "https://singlecell.broadinstitute.org/single_cell/study/SCP259",
+            "datalink_category": "",
+            "accession_repository": "single_cell_portal",
+            "accession_object_type": "study",
+            "metadata_repository": "single_cell_portal",
+            "metadata_status": "unsupported",
+            "accession_metadata": None,
+            "discovery_sources": ["fulltext_regex"],
+            "publications": [
+                {
+                    "pmid": "1",
+                    "title": "Shared paper",
+                }
+            ],
+        }
+    ]
+    summary = json.loads((tmp_path / "atlas.summary.json").read_text())
+    assert summary["dataset_count"] == 1
+    assert summary["unsupported_accession_count"] == 1
+    assert summary["unsupported_accession_repository_counts"] == {
+        "single_cell_portal": 1
+    }
+    assert summary["unsupported_accessions_path"] == str(unsupported_output)
+
+
+def test_create_atlas_reports_unsupported_aggregates_without_writing_inventory(
+    tmp_path,
+):
+    class UnsupportedOnlyCollector:
+        def collect_jsons(self, **_kwargs):
+            return [
+                {
+                    "datalink_id": "PRJNA123",
+                    "metadata_repository": "bioproject",
+                    "metadata_status": "unsupported",
+                    "accession_metadata": None,
+                    "publications": [{"pmid": "1"}],
+                }
+            ]
+
+    class EmptyOnly:
+        def filter_jsons(self, jsons=None, **_kwargs):
+            assert jsons == []
+            return {"accessions": [], "publication_texts": {}}
+
+        def harmonize_datasets(self, datasets, **_kwargs):
+            assert datasets["accessions"] == []
+            return datasets, []
+
+    output = tmp_path / "atlas.json"
+    atlas = Atlas(
+        metadata={"atlas_id": "atlas-test", "title": "Test atlas"},
+        collector=UnsupportedOnlyCollector(),
+        filterer=EmptyOnly(),
+        harmonizer=EmptyOnly(),
+    )
+
+    result = atlas.create_atlas(query=["lung"], theme="lung", out=str(output))
+
+    assert result["datasets"] == []
+    assert result["publications"] == []
+    assert not (tmp_path / "atlas.unsupported-accessions.json").exists()
+    summary = json.loads((tmp_path / "atlas.summary.json").read_text())
+    assert summary["unsupported_accession_count"] == 1
+    assert summary["unsupported_accessions_path"] is None
 
 
 def test_create_atlas_derives_nonblank_theme_from_query():

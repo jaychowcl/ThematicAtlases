@@ -493,6 +493,7 @@ def test_collect_datasets_passes_options_to_atlas(
                 max_generated_queries=3,
                 review_before_metadata=False,
                 scrape_fulltext_accessions=True,
+                unsupported_accessions_out=None,
             ):
             self.__class__.calls.append(
                 {
@@ -510,6 +511,7 @@ def test_collect_datasets_passes_options_to_atlas(
                         "max_generated_queries": max_generated_queries,
                         "review_before_metadata": review_before_metadata,
                         "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                        "unsupported_accessions_out": unsupported_accessions_out,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -558,6 +560,7 @@ def test_collect_datasets_passes_options_to_atlas(
                 "max_generated_queries": 3,
                 "review_before_metadata": False,
                 "scrape_fulltext_accessions": True,
+                "unsupported_accessions_out": None,
         }
     ]
 
@@ -603,6 +606,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 max_generated_queries=3,
                 review_before_metadata=False,
                 scrape_fulltext_accessions=True,
+                unsupported_accessions_out=None,
             ):
             self.__class__.calls.append(
                 {
@@ -623,6 +627,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                         "max_generated_queries": max_generated_queries,
                         "review_before_metadata": review_before_metadata,
                         "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                        "unsupported_accessions_out": unsupported_accessions_out,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -650,6 +655,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 ".dev/custom",
                 "--harmonization-details-out",
                 "harmonization.json",
+                "--unsupported-accessions-out",
+                "unsupported.json",
             ]
         )
         == 0
@@ -677,6 +684,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "max_generated_queries": 3,
                 "review_before_metadata": False,
                 "scrape_fulltext_accessions": True,
+                "unsupported_accessions_out": "unsupported.json",
         }
     ]
 

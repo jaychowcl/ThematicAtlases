@@ -300,6 +300,83 @@ def test_filter_accessions_drops_unhandled_records() -> None:
     assert AtlasCollector().filter_accessions(records) == []
 
 
+def test_filter_accessions_preserves_recognized_unsupported_repositories() -> None:
+    records = [
+        {
+            "datalink_id": "PRJNA123",
+            "datalink_id_scheme": "BioProject",
+            "accession_repository": "bioproject",
+            "accession_object_type": "project",
+            "publications": [{"pmid": "1"}],
+        },
+        {
+            "datalink_id": "CELLXGENE-COLLECTION:ABC",
+            "datalink_id_scheme": "CELLxGENE",
+            "accession_repository": "cellxgene",
+            "accession_object_type": "collection",
+            "publications": [{"pmid": "2"}],
+        },
+    ]
+
+    assert AtlasCollector().filter_accessions(records) == [
+        {
+            **records[0],
+            "metadata_repository": "bioproject",
+            "metadata_status": "unsupported",
+            "accession_metadata": None,
+        },
+        {
+            **records[1],
+            "metadata_repository": "cellxgene",
+            "metadata_status": "unsupported",
+            "accession_metadata": None,
+        },
+    ]
+
+
+def test_collect_accession_metadata_never_calls_unsupported_handler() -> None:
+    class UnexpectedHandler:
+        metadata_handler_status = "unsupported"
+
+        def __init__(self):
+            raise AssertionError("unsupported handler must not be instantiated")
+
+    record = {
+        "datalink_id": "SCP259",
+        "datalink_id_scheme": "SingleCellPortal",
+        "accession_repository": "single_cell_portal",
+        "metadata_repository": "single_cell_portal",
+        "metadata_status": "unsupported",
+        "accession_metadata": None,
+        "publications": [{"pmid": "1"}],
+    }
+    collector = AtlasCollector(
+        metadata_handlers={"single_cell_portal": UnexpectedHandler},
+    )
+
+    assert collector.collect_accession_metadata([record]) == [record]
+
+
+def test_default_arrayexpress_handler_is_preserved_as_unsupported() -> None:
+    record = {
+        "datalink_id": "E-MTAB-1",
+        "datalink_id_scheme": "ArrayExpress",
+        "accession_repository": "arrayexpress",
+        "publications": [{"pmid": "1"}],
+    }
+
+    assert AtlasCollector(metadata_repositories=["arrayexpress"]).filter_accessions(
+        [record]
+    ) == [
+        {
+            **record,
+            "metadata_repository": "arrayexpress",
+            "metadata_status": "unsupported",
+            "accession_metadata": None,
+        }
+    ]
+
+
 def test_filter_accessions_keeps_arrayexpress_when_selected() -> None:
     records = [
         {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},
