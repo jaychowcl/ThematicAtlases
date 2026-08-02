@@ -92,7 +92,9 @@ def test_create_atlas_rolls_back_the_public_bundle_when_summary_publish_fails(
     )
 
     with pytest.raises(OSError, match="injected summary publication failure"):
-        atlas.create_atlas(query=["lung"], out=str(output))
+        atlas.create_atlas(
+            query=["lung"], theme="lung", generate_queries=False, out=str(output)
+        )
 
     assert json.loads(output.read_text(encoding="utf-8")) == {"old": "atlas"}
     assert json.loads(summary.read_text(encoding="utf-8")) == {"old": "summary"}
@@ -117,7 +119,7 @@ def test_create_atlas_returns_v2_and_publishes_derived_summary(tmp_path):
     output = tmp_path / "atlas.json"
 
     result = _atlas().create_atlas(
-        query=["lung"], theme="lung", out=str(output)
+        query=["lung"], theme="lung", generate_queries=False, out=str(output)
     )
 
     document = AtlasDocument.from_mapping(result)
@@ -195,6 +197,7 @@ def test_create_atlas_isolates_unsupported_accessions_and_writes_explicit_report
     result = atlas.create_atlas(
         query=["lung"],
         theme="lung",
+        generate_queries=False,
         out=str(output),
         unsupported_accessions_out=str(unsupported_output),
     )
@@ -270,7 +273,9 @@ def test_create_atlas_reports_unsupported_aggregates_without_writing_inventory(
         harmonizer=EmptyOnly(),
     )
 
-    result = atlas.create_atlas(query=["lung"], theme="lung", out=str(output))
+    result = atlas.create_atlas(
+        query=["lung"], theme="lung", generate_queries=False, out=str(output)
+    )
 
     assert result["datasets"] == []
     assert result["publications"] == []
@@ -280,10 +285,9 @@ def test_create_atlas_reports_unsupported_aggregates_without_writing_inventory(
     assert summary["unsupported_accessions_path"] is None
 
 
-def test_create_atlas_derives_nonblank_theme_from_query():
-    result = _atlas().create_atlas(query=["lung"])
-
-    assert result["atlas"]["theme"] == "lung"
+def test_create_atlas_rejects_missing_theme():
+    with pytest.raises(ValueError, match="requires a non-empty theme"):
+        _atlas().create_atlas(query=["lung"], generate_queries=False)
 
 
 def test_harmonize_datasets_accepts_v2_and_rejects_legacy_v1():
@@ -302,6 +306,7 @@ def test_traced_create_records_normalized_lifecycle_and_final_artifact_roles(tmp
     _atlas().create_atlas(
         query=["lung"],
         theme="lung",
+        generate_queries=False,
         dev_trace=True,
         dev_out_dir=str(tmp_path),
     )

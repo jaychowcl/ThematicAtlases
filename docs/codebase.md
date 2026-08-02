@@ -266,7 +266,11 @@ validation when they modify a trace.
 
 The CLI is a thin adapter: it constructs `Atlas(metadata={})`, translates
 hyphenated review filter values, resolves logging precedence, and forwards
-validated arguments. Complete user options live in the [README CLI guide](../README.md#cli-guide).
+validated arguments. `create-atlas` requires a nonblank inline/file theme and
+defaults both query generation and thematic review on; their independent
+BooleanOptional controls can disable either behavior. `collect-datasets`
+retains its query-first, optional-theme, opt-in-generation contract. Complete
+user options live in the [README CLI guide](../README.md#cli-guide).
 
 <a id="interface-python-atlas"></a>
 ### Python `Atlas` interface
@@ -392,7 +396,7 @@ combined with Atlas-managed ontology-store/cache options.
 
 | Member | Exact signature | Return, failure, and side effects |
 | --- | --- | --- |
-| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None) -> dict` | Returns a validated Atlas v2 mapping after collection and harmonization. Unsupported discoveries are terminal before review/harmonization; summaries include their aggregate counts and the detailed inventory is written only to an explicit path or trace. When `out` is set, related JSON publishes as one rollback-safe bundle. Invalid options/contracts, credentials, cache preparation, files, publication, or uncaught provider failures raise. |
+| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=True, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, thematic_review=True) -> dict` | Requires a nonblank theme and returns a validated Atlas v2 mapping after collection and harmonization. Generation defaults on and appends generated queries after explicit/file queries; disabling it requires an input query. Thematic review defaults on independently and can be disabled only with no review filter or review-before-metadata. Unsupported discoveries are terminal before review/harmonization; summaries include their aggregate counts and the detailed inventory is written only to an explicit path or trace. When `out` is set, related JSON publishes as one rollback-safe bundle. Invalid options/contracts, credentials, cache preparation, files, publication, or uncaught provider failures raise. |
 | [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, _trace_writer=None) -> dict` | Returns a validated Atlas v2 mapping with run status `running`; `out` atomically receives the same mapping. An explicit unsupported path writes the separate inventory; a traced collection retains it and registers `collection_snapshot`, never `final_atlas`. Validates aligned positive limits, review/theme combinations, query generation, and trace fingerprints before eligible network/model work. `_trace_writer` is internal. |
 | [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Requires Atlas v2 input, projects it to the internal stage contract, and returns validated v2 with harmonized status/details. Legacy/unknown wire fields fail validation. Unsupported/null metadata is `not_run`; caught item failures retain original metadata as `error`. |
 | [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects a v2 trace, requires authoritative `atlas_run.sqlite3`, optionally archives/requeues selected item-cache rows, reuses completed boundaries, and returns/publishes Atlas v2. Missing/ambiguous/incompatible runs, fingerprint mismatches, or invalid retry requests raise. |
@@ -669,8 +673,11 @@ create_atlas -> preflight/cache -> collect -> harmonize
 
 #### Numbered stages
 
-1. `Atlas.create_atlas` performs eligible credential/cache preflight.
-2. Invalid query/review/cache configuration or failed credential/cache
+1. `Atlas.create_atlas` validates its required nonblank theme, ensures a query
+   exists when default-on generation is disabled, and validates the independent
+   default-on thematic-review switch before external work.
+2. It performs eligible query-generation, review, and ontology credential/cache
+   preflight. Invalid query/review/cache configuration or failed credential/cache
    preparation raises before collection.
 3. It invokes the mature collection stage behind the public adapter; an empty
    collection remains a valid empty Atlas v2 document.
@@ -689,7 +696,9 @@ create_atlas -> preflight/cache -> collect -> harmonize
 #### Pseudocode
 
 ```text
-Atlas.create_atlas(args)                        # interface/orchestrator
+Atlas.create_atlas(theme, explicit/file args)   # interface/orchestrator
+  -> validate theme/generation/review controls  # no external work yet
+  -> explicit + file + generated queries        # stable ordering
   -> _preflight_credentials/_prepare_cache      # internal/external policy
   -> _collect_datasets_legacy(...)              # internal stage workflow
   -> AtlasHarmonizer.harmonize_datasets(...)    # internal stage workflow
@@ -1412,7 +1421,7 @@ directly resumable by using its workflow archive directory as `dev_out_dir`.
 Public methods:
 
 - `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None, document_adapter=None, artifact_publisher=None)`: wires component instances, one optional shared ontology store, eager-cache policy, query-generation/credential-preflight dependencies, the v2 boundary adapter, and the rollback-safe publisher.
-- `create_atlas(..., review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=False, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: optionally generates queries, runs collection/filtering and harmonization, returns Atlas v2, publishes the v2 document and derived summary as one bundle beside `out`, optionally publishes a separate unsupported inventory, and can write an opt-in trace bundle.
+- `create_atlas(..., theme, review_strategy="direct", dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=True, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, thematic_review=True)`: requires a nonblank theme, defaults query generation and thematic review on independently, runs collection/filtering and harmonization, returns Atlas v2, publishes the v2 document and derived summary as one bundle beside `out`, optionally publishes a separate unsupported inventory, and can write an opt-in trace bundle.
 - `_dev_run_id()` is internal run allocation policy. It returns
   `YYYYMMDDTHHMMSSffffffZ-xxxxxxxx`, combining UTC microseconds and 32 random
   bits so trace directories are sortable and collision-resistant.
@@ -1992,7 +2001,7 @@ change.
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
 - `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 - `resume [--verbose] [--log-file LOG_FILE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`

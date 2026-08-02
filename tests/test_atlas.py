@@ -94,6 +94,93 @@ class RecordingQueryGenerator:
         return {"queries": ["generated one", "generated two"]}
 
 
+def test_create_atlas_requires_nonblank_theme_before_external_work() -> None:
+    RecordingCollector.calls = []
+
+    with pytest.raises(ValueError, match="create_atlas requires a non-empty theme"):
+        Atlas(
+            metadata={},
+            collector=RecordingCollector(),
+            harmonizer=RecordingHarmonizer(),
+        ).create_atlas(theme=" ", generate_queries=False, query=["manual"])
+
+    assert RecordingCollector.calls == []
+
+
+def test_create_atlas_defaults_to_generated_queries_and_thematic_review() -> None:
+    RecordingCollector.calls = []
+    RecordingFilterer.calls = []
+    RecordingQueryGenerator.calls = []
+
+    result = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=RecordingHarmonizer(),
+        query_generator=RecordingQueryGenerator(),
+    ).create_atlas(theme="fibrosis")
+
+    assert RecordingQueryGenerator.calls == [("fibrosis", 3)]
+    assert RecordingFilterer.calls[0]["theme"] == "fibrosis"
+    assert result["run"]["config"]["options"]["thematic_review"] is True
+
+
+def test_create_atlas_without_generation_requires_a_query_before_collection() -> None:
+    RecordingCollector.calls = []
+
+    with pytest.raises(ValueError, match="requires at least one query"):
+        Atlas(
+            metadata={},
+            collector=RecordingCollector(),
+            harmonizer=RecordingHarmonizer(),
+        ).create_atlas(theme="fibrosis", generate_queries=False)
+
+    assert RecordingCollector.calls == []
+
+
+def test_create_atlas_can_disable_thematic_review_without_review_llm_preflight() -> None:
+    class UnexpectedCredentialChecker:
+        def check(self):
+            raise AssertionError("review credentials should not be checked")
+
+    RecordingFilterer.calls = []
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+        harmonizer=RecordingHarmonizer(),
+        credential_checker=UnexpectedCredentialChecker(),
+    ).create_atlas(
+        query=["manual"],
+        theme="fibrosis",
+        generate_queries=False,
+        thematic_review=False,
+    )
+
+    assert RecordingFilterer.calls[0]["theme"] is None
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"review_filter": "not_relevant"}, "review_filter"),
+        ({"review_before_metadata": True}, "review_before_metadata"),
+    ],
+)
+def test_create_atlas_rejects_review_controls_when_thematic_review_is_disabled(
+    options,
+    message,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        Atlas(metadata={}, harmonizer=RecordingHarmonizer()).create_atlas(
+            query=["manual"],
+            theme="fibrosis",
+            generate_queries=False,
+            thematic_review=False,
+            **options,
+        )
+
+
 def test_collect_datasets_generates_queries_inside_atlas(tmp_path) -> None:
     query_file = tmp_path / "queries.txt"
     query_file.write_text("# ignored\nfile query\n", encoding="utf-8")
@@ -281,8 +368,8 @@ def test_create_atlas_eagerly_caches_injected_ontostore_once_before_collection()
         cache_ontologies=True,
     )
 
-    atlas.create_atlas(query=["a"])
-    atlas.create_atlas(query=["a"])
+    atlas.create_atlas(query=["a"], theme="theme", generate_queries=False)
+    atlas.create_atlas(query=["a"], theme="theme", generate_queries=False)
 
     assert events == ["cache", "collect", "collect"]
 
@@ -306,7 +393,7 @@ def test_create_atlas_preflights_credentials_before_semantic_cache() -> None:
         ontostore=RecordingStore(),
         cache_ontologies=True,
         credential_checker=RecordingChecker(),
-    ).create_atlas(query=["a"])
+    ).create_atlas(query=["a"], theme="theme", generate_queries=False)
 
     assert events[:2] == ["credentials", "cache"]
 
@@ -321,7 +408,7 @@ def test_create_atlas_does_not_cache_ontologies_by_default() -> None:
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
         ontostore=UnexpectedStore(),
-    ).create_atlas(query=["a"])
+    ).create_atlas(query=["a"], theme="theme", generate_queries=False)
 
 
 def test_ontology_cache_failure_prevents_collection() -> None:
@@ -339,7 +426,7 @@ def test_ontology_cache_failure_prevents_collection() -> None:
             collector=UnexpectedCollector(),
             ontostore=FailingStore(),
             cache_ontologies=True,
-        ).create_atlas(query=["a"])
+        ).create_atlas(query=["a"], theme="theme", generate_queries=False)
 
 
 def test_atlas_rejects_managed_ontostore_with_custom_harmonizer() -> None:
@@ -515,6 +602,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
         max_publications=25,
         collect_metadata=False,
         harmonization_details_out="harmonization.json",
+        generate_queries=False,
     )
     document = AtlasDocument.from_mapping(result)
     assert document.run.run_id == "20260623T142233"
@@ -571,7 +659,12 @@ def test_create_atlas_writes_final_harmonized_object(tmp_path) -> None:
 
     outfile = tmp_path / "atlas.json"
 
-    RecordingAtlas(metadata={}).create_atlas(query=["a"], out=str(outfile))
+    RecordingAtlas(metadata={}).create_atlas(
+        query=["a"],
+        theme="theme",
+        generate_queries=False,
+        out=str(outfile),
+    )
 
     document = AtlasDocument.load(outfile)
     assert [item.dataset_id for item in document.datasets] == ["GSE1"]
@@ -590,7 +683,7 @@ def test_create_atlas_without_output_or_trace_writes_no_files(
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
-    ).create_atlas(query=["a"])
+    ).create_atlas(query=["a"], theme="theme", generate_queries=False)
 
     assert list(tmp_path.iterdir()) == []
 
@@ -606,7 +699,13 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
-    ).create_atlas(query=["a"], dev_trace=True, dev_out_dir=str(dev_dir))
+    ).create_atlas(
+        query=["a"],
+        theme="theme",
+        generate_queries=False,
+        dev_trace=True,
+        dev_out_dir=str(dev_dir),
+    )
 
     run_dir = dev_dir / "20260623T142233"
     assert sorted(path.name for path in run_dir.iterdir()) == [
@@ -632,7 +731,7 @@ def test_create_atlas_logs_progress_and_stats(caplog) -> None:
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
-    ).create_atlas(query=["a"])
+    ).create_atlas(query=["a"], theme="theme", generate_queries=False)
 
     assert "Atlas create_atlas progress stage=collect-datasets" in caplog.text
     assert "Atlas create_atlas progress stage=harmonize-datasets" in caplog.text
@@ -883,6 +982,8 @@ def test_create_atlas_passes_checkpoint_store_to_harmonizer(tmp_path) -> None:
         harmonizer=CheckpointHarmonizer(),
     ).create_atlas(
         query=["fibrosis"],
+        theme="fibrosis",
+        generate_queries=False,
         dev_trace=True,
         dev_out_dir=str(tmp_path),
     )

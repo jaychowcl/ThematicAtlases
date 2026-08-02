@@ -141,7 +141,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--theme", default=None)
     create.add_argument("--theme-file", default=None)
-    create.add_argument("--query-generator", action="store_true", default=False)
+    create.add_argument(
+        "--query-generator",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="generate theme-derived queries (enabled by default)",
+    )
+    create.add_argument(
+        "--thematic-review",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="review publication relevance to the theme (enabled by default)",
+    )
     create.add_argument("--max-generated-queries", type=_positive_int, default=3)
     create.add_argument("--harmonization-details-out", default=None)
     create.add_argument(
@@ -276,6 +287,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.command == "create-atlas":
         theme = _input_value(value=args.theme, file=args.theme_file)
+        if theme is None or not theme.strip():
+            parser.error(
+                "create-atlas requires a non-empty --theme or --theme-file"
+            )
         atlas.create_atlas(
             query=args.query,
             file=args.file,
@@ -294,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
             review_before_metadata=args.review_before_metadata,
             scrape_fulltext_accessions=args.scrape_fulltext_accessions,
             unsupported_accessions_out=args.unsupported_accessions_out,
+            thematic_review=args.thematic_review,
         )
     elif args.command == "harmonize-datasets":
         with open(args.file, encoding="utf-8") as handle:

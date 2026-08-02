@@ -141,6 +141,54 @@ def test_query_generator_flag_and_theme_file_are_forwarded_to_create_method(
     assert RecordingCollectionAtlas.calls[0]["generate_queries"] is True
 
 
+def test_create_atlas_defaults_to_query_generation_and_thematic_review(
+    monkeypatch,
+) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    assert main(["create-atlas", "--theme", "fibrosis theme"]) == 0
+
+    call = RecordingCollectionAtlas.calls[0]
+    assert call["generate_queries"] is True
+    assert call["thematic_review"] is True
+
+
+def test_create_atlas_can_disable_generation_with_an_explicit_query(
+    monkeypatch,
+) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    assert main([
+        "create-atlas",
+        "--theme",
+        "fibrosis theme",
+        "--query",
+        "manual query",
+        "--no-query-generator",
+        "--no-thematic-review",
+    ]) == 0
+
+    call = RecordingCollectionAtlas.calls[0]
+    assert call["generate_queries"] is False
+    assert call["thematic_review"] is False
+
+
+@pytest.mark.parametrize("theme_args", [[], ["--theme", "   "]])
+def test_create_atlas_cli_requires_a_nonblank_theme(
+    theme_args,
+    monkeypatch,
+) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    with pytest.raises(SystemExit):
+        main(["create-atlas", *theme_args])
+
+    assert RecordingCollectionAtlas.calls == []
+
+
 def test_query_generator_with_empty_theme_is_forwarded_to_method(tmp_path, monkeypatch) -> None:
     theme_file = tmp_path / "theme.txt"
     theme_file.write_text("\n", encoding="utf-8")
@@ -200,6 +248,9 @@ def test_fulltext_accession_scraping_defaults_on_and_can_be_disabled(
             "create-atlas",
             "--query",
             "fibrosis",
+            "--theme",
+            "fibrosis",
+            "--no-query-generator",
             "--no-scrape-fulltext-accessions",
         ]
     ) == 0
@@ -267,7 +318,10 @@ def test_create_atlas_does_not_emit_stdout(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["create-atlas", "--query", "fibrosis"]) == 0
+    assert main([
+        "create-atlas", "--query", "fibrosis", "--theme", "fibrosis",
+        "--no-query-generator",
+    ]) == 0
 
     output = capsys.readouterr()
 
@@ -284,7 +338,10 @@ def test_create_atlas_writes_final_filtered_object(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["create-atlas", "--query", "fibrosis", "--out", str(outfile)]) == 0
+    assert main([
+        "create-atlas", "--query", "fibrosis", "--theme", "fibrosis",
+        "--no-query-generator", "--no-thematic-review", "--out", str(outfile),
+    ]) == 0
 
     output = capsys.readouterr()
 
@@ -337,7 +394,10 @@ def test_verbose_create_atlas_emits_info_logging_to_stdout(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["--verbose", "create-atlas", "--query", "fibrosis"]) == 0
+    assert main([
+        "--verbose", "create-atlas", "--query", "fibrosis", "--theme",
+        "fibrosis", "--no-query-generator",
+    ]) == 0
 
     output = capsys.readouterr()
 
@@ -353,7 +413,10 @@ def test_create_atlas_accepts_verbose_after_command(
     monkeypatch.setattr(atlas_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(atlas_module, "GEOWrapper", FakeGEOWrapper)
 
-    assert main(["create-atlas", "--verbose", "--query", "fibrosis"]) == 0
+    assert main([
+        "create-atlas", "--verbose", "--query", "fibrosis", "--theme",
+        "fibrosis", "--no-query-generator",
+    ]) == 0
 
     output = capsys.readouterr()
     assert "INFO:ThematicAtlases.atlas:Atlas create_atlas progress stage=collect-datasets" in output.out
@@ -379,7 +442,7 @@ def test_verbose_log_file_writes_logs_and_keeps_stdout_json(
                 "collect-datasets",
                 "--query",
                 "fibrosis",
-            ]
+                ]
         )
         == 0
     )
@@ -442,6 +505,9 @@ def test_verbose_create_atlas_log_file_writes_logs_only_to_file(
                 "create-atlas",
                 "--query",
                 "fibrosis",
+                "--theme",
+                "fibrosis",
+                "--no-query-generator",
             ]
         )
         == 0
@@ -493,7 +559,7 @@ def test_collect_datasets_passes_options_to_atlas(
                 max_generated_queries=3,
                 review_before_metadata=False,
                 scrape_fulltext_accessions=True,
-                unsupported_accessions_out=None,
+                    unsupported_accessions_out=None,
             ):
             self.__class__.calls.append(
                 {
@@ -511,7 +577,7 @@ def test_collect_datasets_passes_options_to_atlas(
                         "max_generated_queries": max_generated_queries,
                         "review_before_metadata": review_before_metadata,
                         "scrape_fulltext_accessions": scrape_fulltext_accessions,
-                        "unsupported_accessions_out": unsupported_accessions_out,
+                            "unsupported_accessions_out": unsupported_accessions_out,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -607,6 +673,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 review_before_metadata=False,
                 scrape_fulltext_accessions=True,
                 unsupported_accessions_out=None,
+                thematic_review=True,
             ):
             self.__class__.calls.append(
                 {
@@ -628,6 +695,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                         "review_before_metadata": review_before_metadata,
                         "scrape_fulltext_accessions": scrape_fulltext_accessions,
                         "unsupported_accessions_out": unsupported_accessions_out,
+                        "thematic_review": thematic_review,
                 }
             )
             return {"accessions": [], "publication_texts": {}}
@@ -657,6 +725,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "harmonization.json",
                 "--unsupported-accessions-out",
                 "unsupported.json",
+                "--no-query-generator",
             ]
         )
         == 0
@@ -684,7 +753,8 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 "max_generated_queries": 3,
                 "review_before_metadata": False,
                 "scrape_fulltext_accessions": True,
-                "unsupported_accessions_out": "unsupported.json",
+            "unsupported_accessions_out": "unsupported.json",
+            "thematic_review": True,
         }
     ]
 

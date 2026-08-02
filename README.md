@@ -60,6 +60,7 @@ Create and harmonize an atlas end to end:
 
 ```bash
 thematic-atlas create-atlas \
+  --theme "human fibrosis transcriptomics" \
   --query "human fibrosis transcriptomics" \
   --out atlas.json
 ```
@@ -74,6 +75,7 @@ from ThematicAtlases.atlas import Atlas
 
 atlas = Atlas(metadata={})
 result = atlas.create_atlas(
+    theme="human fibrosis transcriptomics",
     query=["human fibrosis transcriptomics"],
     max_publications=25,
     out="atlas.json",
@@ -189,7 +191,9 @@ handler status. Discovered ArrayExpress records therefore follow the same
 terminal inventory path without invoking its placeholder metadata method.
 Applications can inject a supported handler to enable normal routing.
 
-`create-atlas` accepts every collection option above, then harmonizes the result:
+`create-atlas` requires a non-empty theme, defaults theme-derived query
+generation and thematic review on, then harmonizes the result. Explicit
+queries are followed by query-file entries and then generated queries:
 
 ```bash
 thematic-atlas create-atlas [OPTIONS]
@@ -199,6 +203,8 @@ It additionally supports:
 
 | Option | Behavior |
 | --- | --- |
+| `--query-generator`, `--no-query-generator` | Enable or disable theme-derived query generation. Enabled by default for creation. Disabling it requires at least one nonblank `--query` or query-file entry. |
+| `--thematic-review`, `--no-thematic-review` | Enable or disable publication thematic review. Enabled by default. Disabling it is incompatible with a non-`none` review filter or `--review-before-metadata`. |
 | `--dev-trace` | Write a timestamped manifest, SQLite checkpoints, readable stage artifacts, final atlas, and summary. |
 | `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
 | `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, paths, and errors. |
@@ -319,14 +325,25 @@ Atlas.create_atlas(
     max_publications_per_query=None, reviewer=None,
     collect_metadata=True, dev_trace=False,
     dev_out_dir=".dev", harmonization_details_out=None,
-    generate_queries=False, max_generated_queries=3,
+    generate_queries=True, max_generated_queries=3,
     harmonization_options=None, review_before_metadata=False,
     scrape_fulltext_accessions=True,
     unsupported_accessions_out=None,
+    thematic_review=True,
 )
 ```
 
-Collection parameters behave as above. `harmonization_options` is forwarded to the ontology workflow, and `harmonization_details_out` writes its sidecar. When `out` is provided, the Atlas v2 document and derived summary are staged, validated, and published as one rollback-safe bundle. The summary always reports unsupported counts; the detailed report is published only for `unsupported_accessions_out` or retained in a development trace. See the [harmonizer internals](docs/codebase.md#harmonizer).
+Creation requires a nonblank `theme`. Query generation defaults on; when it
+is disabled, `query` and/or `file` must provide at least one nonblank query.
+`thematic_review=True` is independent of generation and may be disabled to
+avoid review model calls; disabled review requires `review_filter="none"` and
+`review_before_metadata=False`. `harmonization_options` is forwarded to the
+ontology workflow, and `harmonization_details_out` writes its sidecar. When
+`out` is provided, the Atlas v2 document and derived summary are staged,
+validated, and published as one rollback-safe bundle. The summary always
+reports unsupported counts; the detailed report is published only for
+`unsupported_accessions_out` or retained in a development trace. See the
+[harmonizer internals](docs/codebase.md#harmonizer).
 
 `Atlas.harmonize_datasets(...)` accepts an Atlas v2 mapping and returns a
 validated Atlas v2 copy with supported metadata harmonized. Legacy v1 stage

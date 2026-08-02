@@ -108,13 +108,29 @@ class Atlas:
         dev_trace: bool = False,
         dev_out_dir: str = ".dev",
         harmonization_details_out: str | None = None,
-        generate_queries: bool = False,
+        generate_queries: bool = True,
         max_generated_queries: int = 3,
         harmonization_options: dict | None = None,
         review_before_metadata: bool = False,
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
+        thematic_review: bool = True,
     ) -> dict:
+        if theme is None or not theme.strip():
+            raise ValueError("create_atlas requires a non-empty theme")
+        if not generate_queries and not self._has_input_queries(query, file):
+            raise ValueError(
+                "create_atlas requires at least one query when query generation "
+                "is disabled"
+            )
+        if not thematic_review and review_filter != "none":
+            raise ValueError(
+                "review_filter must be 'none' when thematic_review is disabled"
+            )
+        if not thematic_review and review_before_metadata:
+            raise ValueError(
+                "review_before_metadata requires thematic_review to be enabled"
+            )
         if self._cache_ontologies:
             self._preflight_credentials()
         self._prepare_ontology_cache()
@@ -159,6 +175,7 @@ class Atlas:
                     "review_before_metadata": review_before_metadata,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
                     "unsupported_accessions_out": unsupported_accessions_out,
+                    "thematic_review": thematic_review,
                 },
             )
             trace.run_store.set_run_status(run_id, "running")
@@ -181,6 +198,7 @@ class Atlas:
             review_before_metadata=review_before_metadata,
             scrape_fulltext_accessions=scrape_fulltext_accessions,
             _resolution=collection_resolution,
+            _thematic_review=thematic_review,
         )
         if max_publications_per_query is not None:
             collect_kwargs["max_publications_per_query"] = (
@@ -250,6 +268,7 @@ class Atlas:
                 "generate_queries": generate_queries,
                 "review_before_metadata": review_before_metadata,
                 "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                "thematic_review": thematic_review,
                 "harmonization_options": dict(harmonization_options or {}),
             },
             run_status=self._final_run_status(result),
@@ -323,6 +342,9 @@ class Atlas:
         """Resume an incomplete development trace from its latest valid stage."""
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
         manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
+        thematic_review = manifest.get(
+            "thematic_review", manifest.get("theme") is not None
+        )
         trace = DevTraceWriter.existing(run_dir)
         run_store = trace.run_store
         run_store.set_run_status(run_dir.name, "running")
@@ -369,6 +391,7 @@ class Atlas:
                 ),
                 stop_before_review=True,
                 _trace_writer=trace,
+                _thematic_review=thematic_review,
             ))
             published = self._write_resumed_outputs(
                 result=result,
@@ -393,7 +416,7 @@ class Atlas:
         if self._cache_ontologies:
             self._preflight_credentials()
         self._prepare_ontology_cache()
-        if manifest.get("theme") is not None:
+        if manifest.get("generate_queries", False) or thematic_review:
             self._preflight_credentials()
         logger.info("Atlas resume selected run_id=%s run_dir=%s", run_dir.name, run_dir)
 
@@ -485,8 +508,12 @@ class Atlas:
                             }
                     datasets = self._filter_jsons(
                         jsons=review_input,
-                        theme=manifest.get("theme"),
-                        review_filter=manifest.get("review_filter", "none"),
+                        theme=(manifest.get("theme") if thematic_review else None),
+                        review_filter=(
+                            manifest.get("review_filter", "none")
+                            if thematic_review
+                            else "none"
+                        ),
                         review_strategy=manifest.get("review_strategy", "direct"),
                         _review_progress_callback=lambda texts: trace.write(
                             "resume_review_progress.json",
@@ -517,6 +544,7 @@ class Atlas:
                             False,
                         ),
                         _trace_writer=trace,
+                        _thematic_review=thematic_review,
                     ))
 
             if manifest.get("command") == "collect-datasets":
@@ -824,6 +852,7 @@ class Atlas:
         _trace_writer: DevTraceWriter | None = None,
         _finalize_trace: bool = True,
         _resolution: dict[str, list[str]] | None = None,
+        _thematic_review: bool = True,
     ) -> dict:
         if review_before_metadata and theme is None:
             raise ValueError("review_before_metadata requires a theme")
@@ -881,7 +910,9 @@ class Atlas:
         trace_run_id = (
             _trace_writer.directory.name if _trace_writer is not None else None
         )
-        if generate_queries or (theme is not None and not stop_before_review):
+        if generate_queries or (
+            _thematic_review and theme is not None and not stop_before_review
+        ):
             self._preflight_credentials()
         if generate_queries:
             generation_input = {
@@ -987,6 +1018,8 @@ class Atlas:
                 fingerprint_configuration["review_before_metadata"] = True
             if scrape_fulltext_accessions:
                 fingerprint_configuration["scrape_fulltext_accessions"] = True
+            if not _thematic_review:
+                fingerprint_configuration["thematic_review"] = False
             checkpoint_store.validate_fingerprint(fingerprint_configuration)
         logger.info("Atlas collect_datasets progress stage=collect-accessions")
         accessions = self._collect_jsons(
@@ -1037,8 +1070,16 @@ class Atlas:
             )
         result = self._filter_jsons(
             jsons=accessions,
-            theme=None if stop_before_review else theme,
-            review_filter="none" if stop_before_review else review_filter,
+            theme=(
+                theme
+                if _thematic_review and not stop_before_review
+                else None
+            ),
+            review_filter=(
+                review_filter
+                if _thematic_review and not stop_before_review
+                else "none"
+            ),
             review_strategy=review_strategy,
             reviewer=reviewer,
             _review_progress_callback=review_progress_callback,
@@ -1274,6 +1315,15 @@ class Atlas:
         queries.extend(generated_queries)
         return queries
 
+    def _has_input_queries(
+        self,
+        query: list[str] | None,
+        file: str | None,
+    ) -> bool:
+        if any(isinstance(value, str) and value.strip() for value in query or ()):
+            return True
+        return bool(file is not None and self._load_queries(file=file))
+
     def _load_queries(self, file: str) -> list[str]:
         with open(file, encoding="utf-8") as handle:
             return [
@@ -1306,6 +1356,10 @@ class Atlas:
         if type(self).collect_datasets is Atlas.collect_datasets:
             return self._collect_datasets_legacy(**options)
         resolution = options.pop("_resolution", None)
+        thematic_review = options.pop("_thematic_review", True)
+        if not thematic_review:
+            options["theme"] = None
+            options["review_filter"] = "none"
         result = self.collect_datasets(**options)
         if isinstance(result, dict) and result.get("schema_version") == "2.0":
             document = AtlasDocument.from_mapping(result)

@@ -104,6 +104,7 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
         query=["fibrosis"],
         out=str(output),
         theme="fibrosis",
+        generate_queries=False,
         review_filter="not_relevant",
         dev_trace=True,
         dev_out_dir=str(trace_root),
@@ -164,6 +165,8 @@ def test_real_component_atlas_system_workflow_preserves_empty_results(tmp_path) 
 
     result = _atlas(EmptyEPMC).create_atlas(
         query=["none"],
+        theme="none",
+        generate_queries=False,
         out=str(output),
         harmonization_details_out=str(details),
     )

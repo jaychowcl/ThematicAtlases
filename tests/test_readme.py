@@ -137,10 +137,11 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "run_id", "review_before_metadata", "stop_before_review",
         "scrape_fulltext_accessions", "unsupported_accessions_out", "_trace_writer",
     ]
-    assert list(inspect.signature(Atlas.create_atlas).parameters)[-3:] == [
+    assert list(inspect.signature(Atlas.create_atlas).parameters)[-4:] == [
         "review_before_metadata",
         "scrape_fulltext_accessions",
         "unsupported_accessions_out",
+        "thematic_review",
     ]
     assert list(inspect.signature(Atlas.harmonize_datasets).parameters) == [
         "self", "datasets", "harmonization_details_out", "harmonization_options"
