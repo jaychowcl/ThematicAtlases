@@ -14,11 +14,6 @@ def test_subprocess_is_blocked_by_default() -> None:
         subprocess.Popen(["python", "--version"])
 
 
-@pytest.mark.allow_network
-def test_allow_network_marker_restores_socket_implementation() -> None:
-    assert socket.create_connection.__module__ == "socket"
-
-
 @pytest.mark.allow_subprocess
 def test_allow_subprocess_marker_restores_popen_implementation() -> None:
     assert subprocess.Popen.__module__ == "subprocess"
@@ -27,5 +22,5 @@ def test_allow_subprocess_marker_restores_popen_implementation() -> None:
 def test_external_effect_markers_are_registered(pytestconfig) -> None:
     markers = pytestconfig.getini("markers")
 
-    assert any(value.startswith("allow_network:") for value in markers)
+    assert not any(value.startswith("allow_network:") for value in markers)
     assert any(value.startswith("allow_subprocess:") for value in markers)

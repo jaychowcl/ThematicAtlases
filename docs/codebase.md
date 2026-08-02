@@ -1212,7 +1212,7 @@ are not part of the tracked source tree.
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets, HTTP transports, and subprocess creation unless a test declares the registered `allow_network` or `allow_subprocess` marker.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard always blocks sockets and HTTP transports. Subprocess creation is blocked unless a test declares the registered `allow_subprocess` marker. The repository deliberately has no marker that can enable live network access.
 - The distribution uses a `src/` layout with setuptools package discovery for both `ThematicAtlases` and `benchmark_ThematicAtlases`.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
 
