@@ -160,8 +160,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-json-artifact-bundle-publisher
   title: [JsonArtifactBundlePublisher](codebase.md#type-json-artifact-bundle-publisher)
   anchor: type-json-artifact-bundle-publisher
-  purpose: Deterministic staged JSON publication with whole-bundle backup, rollback, and cleanup.
-  keywords: JsonArtifactBundlePublisher, stage, validate, backup, rollback, os.replace, atomic
+  purpose: Crash-durable immutable JSON generations, atomic current pointer, compatibility views, recovery, and resolution.
+  keywords: JsonArtifactBundlePublisher, generation, current.json, fsync, manifest, compatibility, recovery, atomic
 
 - id: type-atlas-collector
   title: [AtlasCollector](codebase.md#type-atlas-collector)

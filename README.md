@@ -277,7 +277,7 @@ Atlas(
 )
 ```
 
-`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable transaction boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
 
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v1 wire
@@ -346,8 +346,10 @@ avoid review model calls; disabled review requires `review_filter="none"` and
 `review_before_metadata=False`. `harmonization_options` is forwarded to the
 ontology workflow, and `harmonization_details_out` writes its sidecar. When
 `out` is provided, the Atlas v1 document and derived summary are staged,
-validated, and published as one rollback-safe bundle. The summary always
-reports unsupported counts; the detailed report is published only for
+validated, and published as one immutable generation selected by an atomically
+replaced `.artifact-bundles/<bundle>/current.json` pointer. Direct output files
+remain compatibility views and are restored on failed publication. The summary
+always reports unsupported counts; the detailed report is published only for
 `unsupported_accessions_out` or retained in a development trace. See the
 [harmonizer internals](docs/codebase.md#harmonizer).
 

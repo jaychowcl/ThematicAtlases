@@ -31,7 +31,7 @@ class HarmonizerPort(Protocol):
 class ArtifactPublisherPort(Protocol):
     """Publish one related set of serialized artifacts or raise."""
 
-    def publish(self, artifacts: Mapping[Any, Any]) -> None: ...
+    def publish(self, artifacts: Mapping[Any, Any]) -> Any: ...
 
 
 __all__ = [

@@ -63,7 +63,9 @@ and [project layout](#project-purpose-and-layout).
   responses or external ontology availability.
 - **Persistence boundary:** output JSON and sidecars are caller-visible.
   `JsonArtifactBundlePublisher` stages and validates related JSON before
-  rollback-safe replacement. `DevTraceWriter` owns readable trace artifacts;
+  publishing an immutable generation through one atomic current pointer. Direct
+  outputs remain rollback-safe compatibility views. `DevTraceWriter` owns
+  readable trace artifacts;
   `AtlasRunStore` owns lifecycle/stage/artifact/event truth, while
   `CheckpointStore` owns internal item results, fingerprints, retry history,
   and atomic amendments.
@@ -204,9 +206,10 @@ and [project layout](#project-purpose-and-layout).
   failures are retryable; one item failure must not discard unrelated successes.
 - Output order and schemas remain stable under bounded parallel harmonization.
   Original metadata is retained when an item cannot be harmonized.
-- Related public Atlas/summary JSON is staged, parsed, and published as one
-  rollback-safe bundle. A first-run failure leaves no final artifact; an
-  overwrite failure restores the entire prior bundle.
+- Related public Atlas/summary JSON is staged, parsed, copied to an immutable
+  generation, fsynced, and selected by one atomically replaced pointer. A
+  first-run failure leaves no final compatibility view or current pointer; an
+  overwrite failure preserves the prior pointer and restores every view.
 - `atlas_run.sqlite3` is the sole Atlas-run database for run, stage,
   artifact-role, event, item-result, and retry state. Resume does not infer or
   silently migrate missing v1 lifecycle state from a legacy
@@ -425,7 +428,7 @@ otherwise.
 | [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) | Formally exports runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and `ArtifactPublisherPort`. They specify callable inputs/outputs for injected application collaborators; concrete exceptions and side effects remain owned by each implementation. |
 | [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v1 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path, creates SQL schema version 2 for a new database, and rejects legacy/foreign/newer state. Public methods are inventoried under supported helpers below. |
 | [`ThematicAtlases.infrastructure.RequestPolicy`](../src/ThematicAtlases/infrastructure/http.py) | `(*, timeout=30, max_retries=3, retry_statuses={429,500,502,503,504}, request_get=None, sleep=time.sleep, logger=None, name="HTTP")`; `get(url, *, params=None, retry_exceptions=False, raise_for_status=True) -> Response`. Retries are bounded, honor numeric `Retry-After`, otherwise use capped exponential delay, and propagate terminal request/status failures according to caller policy. |
-| [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py) and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported related-JSON transaction boundary and its double-failure exception. `publish` either installs the complete bundle or restores the prior one; when restoration itself fails, the exception exposes the original publication error, rollback errors, and preserved recovery paths. |
+| [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py), [`PublishedArtifactBundle`](../src/ThematicAtlases/artifact_publisher.py), [`resolve_current_bundle`](../src/ThematicAtlases/artifact_publisher.py), and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported immutable-generation publication boundary, verified resolver, and recovery-specific double-failure exception. `publish` makes one fsynced manifest pointer authoritative while maintaining direct compatibility views; failed restoration exposes the publication error, recovery errors, and preserved recovery paths. |
 | [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler` expose routing. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
 | [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
 | [`ThematicAtlases.filterer.ACCESSIONS`](../src/ThematicAtlases/filterer/review.py) | `"accessions"` atlas key. |
@@ -528,11 +531,15 @@ Complete public-member signatures for the exported classes:
   relationships raise during `AtlasDocument` validation.
 - [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py):
   `(*, replace=os.replace)`; `publish(artifacts: Mapping[str | Path, Any]) ->
-  None` writes deterministic newline-terminated JSON. Destinations must be
-  unique. Serialization/validation/filesystem failures restore the complete
-  prior bundle and remove staging/backup files before propagating. If rollback
-  also fails, `ArtifactRollbackError(publication_error, rollback_errors,
-  recovery_paths)` preserves remaining backup files for explicit recovery.
+  PublishedArtifactBundle` writes deterministic newline-terminated JSON into an
+  immutable generation, fsyncs files/directories, then atomically replaces one
+  `current.json` manifest pointer. Destinations must be unique and share one
+  parent. Direct output files remain compatibility views. A failed publication
+  preserves the prior pointer and restores every view; if restoration also
+  fails, `ArtifactRollbackError(publication_error, rollback_errors,
+  recovery_paths)` identifies preserved backups and the generation for recovery.
+  `resolve_current_bundle(pointer_path)` verifies pointer, manifest, artifact
+  paths, and SHA-256 digests before returning the selected generation.
 - [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py):
   normalized Atlas v1 run database (SQL schema version 2) with `create_run`, `get_run`,
   `set_run_status`, `set_stage_state`, `add_work_item`,

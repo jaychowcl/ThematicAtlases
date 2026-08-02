@@ -6,6 +6,7 @@ import pytest
 from ThematicAtlases.artifact_publisher import (
     ArtifactRollbackError,
     JsonArtifactBundlePublisher,
+    resolve_current_bundle,
 )
 
 
@@ -13,7 +14,7 @@ def test_json_bundle_publisher_stages_validates_and_publishes_all_outputs(tmp_pa
     atlas = tmp_path / "nested" / "atlas.json"
     summary = tmp_path / "nested" / "atlas.summary.json"
 
-    JsonArtifactBundlePublisher().publish(
+    published = JsonArtifactBundlePublisher().publish(
         {atlas: {"schema_version": "1.0"}, summary: {"dataset_count": 1}}
     )
 
@@ -22,6 +23,14 @@ def test_json_bundle_publisher_stages_validates_and_publishes_all_outputs(tmp_pa
     assert atlas.read_text().endswith("\n")
     assert not list((tmp_path / "nested").glob(".*.stage"))
     assert not list((tmp_path / "nested").glob(".*.backup"))
+    assert published.pointer_path.is_file()
+    resolved = resolve_current_bundle(published.pointer_path)
+    assert json.loads(resolved.artifacts["atlas"].read_text()) == {
+        "schema_version": "1.0"
+    }
+    assert json.loads(resolved.artifacts["atlas.summary"].read_text()) == {
+        "dataset_count": 1
+    }
 
 
 def test_json_bundle_publisher_restores_complete_prior_bundle_on_commit_failure(
@@ -45,10 +54,7 @@ def test_json_bundle_publisher_restores_complete_prior_bundle_on_commit_failure(
 
     assert json.loads(atlas.read_text()) == {"old": "atlas"}
     assert json.loads(summary.read_text()) == {"old": "summary"}
-    assert sorted(path.name for path in tmp_path.iterdir()) == [
-        "atlas.json",
-        "atlas.summary.json",
-    ]
+    assert not list(tmp_path.rglob("current.json"))
 
 
 def test_json_bundle_publisher_leaves_no_first_run_artifacts_on_failure(tmp_path):
@@ -68,7 +74,7 @@ def test_json_bundle_publisher_leaves_no_first_run_artifacts_on_failure(tmp_path
 
     assert not atlas.exists()
     assert not summary.exists()
-    assert list(tmp_path.iterdir()) == []
+    assert not list(tmp_path.rglob("current.json"))
 
 
 def test_json_bundle_publisher_preserves_backup_when_rollback_itself_fails(
@@ -85,9 +91,7 @@ def test_json_bundle_publisher_preserves_backup_when_rollback_itself_fails(
             summary
         ):
             raise OSError("publication failed")
-        if str(source).endswith(".backup") and os.fspath(destination) == os.fspath(
-            atlas
-        ):
+        if "recovery" in str(source) and os.fspath(destination) == os.fspath(atlas):
             raise OSError("rollback failed")
         real_replace(source, destination)
 
@@ -102,3 +106,16 @@ def test_json_bundle_publisher_preserves_backup_when_rollback_itself_fails(
     assert recovery_path.exists()
     assert json.loads(recovery_path.read_text()) == {"old": "atlas"}
     assert json.loads(summary.read_text()) == {"old": "summary"}
+
+
+def test_json_bundle_pointer_switch_retains_prior_generation(tmp_path):
+    atlas = tmp_path / "atlas.json"
+    summary = tmp_path / "atlas.summary.json"
+    publisher = JsonArtifactBundlePublisher()
+    first = publisher.publish({atlas: {"value": 1}, summary: {"value": 1}})
+    second = publisher.publish({atlas: {"value": 2}, summary: {"value": 2}})
+
+    assert first.generation_path != second.generation_path
+    assert json.loads(first.artifacts["atlas"].read_text()) == {"value": 1}
+    current_atlas = resolve_current_bundle(second.pointer_path).artifacts["atlas"]
+    assert json.loads(current_atlas.read_text()) == {"value": 2}
