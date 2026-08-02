@@ -11,6 +11,7 @@
 import pytest
 
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
+from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
 
 
@@ -52,3 +53,18 @@ def test_biorxiv_details_and_jats_contract():
 
 def test_geo_esearch_and_esummary_contract():
     assert GEOWrapper(timeout=10, request_delay=0, max_retries=0).get_gse("GSM11805") == "GSE781"
+
+
+def test_arrayexpress_biostudies_magetab_contract():
+    record = {
+        "datalink_id": "E-MTAB-6486",
+        "datalink_id_scheme": "ArrayExpress",
+        "publications": [],
+    }
+
+    result = ArrayExpressWrapper().collect_accession_metadata([record])
+
+    assert result[0]["metadata_status"] == "available"
+    package = result[0]["accession_metadata"]
+    assert package["mage_tab"]["model"]["schema_version"] == 1
+    assert package["mage_tab"]["model"]["assay_paths"]

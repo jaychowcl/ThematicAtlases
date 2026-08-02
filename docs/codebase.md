@@ -1226,7 +1226,8 @@ are not part of the tracked source tree.
 ### Live API provider contracts
 
 `tests/live_api/test_public_provider_contracts.py` owns Europe PMC
-search/datalinks/full text, bioRxiv details/JATS, and GEO E-utilities contracts.
+search/datalinks/full text, bioRxiv details/JATS, GEO E-utilities, and
+ArrayExpress BioStudies MAGE-TAB parsing contracts.
 They use 10-second timeouts, no retries or delays, at most 12 sends per test,
 and a fixed EBI/NCBI/preprint host allowlist. Run them with
 `RUN_LIVE_API_TESTS=1 .env/bin/python -m pytest tests/live_api -m live_api -vv`.
