@@ -10,6 +10,8 @@ import sqlite3
 import threading
 from typing import Any, Iterator, Mapping
 
+from ThematicAtlases.operational_events import OperationalEventEmitter, redact
+
 
 APPLICATION_ID = 0x41544C53  # ATLS
 SCHEMA_VERSION = 2
@@ -23,8 +25,14 @@ class IncompatibleRunStoreError(ValueError):
 class AtlasRunStore:
     """Own normalized lifecycle, work, attempt, artifact, and event records."""
 
-    def __init__(self, path: str | Path):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        event_emitter: OperationalEventEmitter | None = None,
+    ):
         self.path = Path(path)
+        self._event_emitter = event_emitter
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._initialize()
@@ -375,6 +383,7 @@ class AtlasRunStore:
         work_item_id: int | None = None,
         detail: Mapping[str, Any] | None = None,
     ) -> int:
+        safe_detail = redact(dict(detail or {}))
         with self._lock, self._connection() as connection:
             row = connection.execute(
                 "SELECT COALESCE(MAX(sequence), 0) AS sequence "
@@ -394,8 +403,17 @@ class AtlasRunStore:
                     event_type,
                     stage,
                     work_item_id,
-                    self._json(detail or {}),
+                    self._json(safe_detail),
                 ),
+            )
+        if self._event_emitter is not None:
+            self._event_emitter.emit(
+                event_type,
+                component="AtlasRunStore",
+                run_id=run_id,
+                stage=stage,
+                status=str(safe_detail.get("status") or "recorded"),
+                attributes={**safe_detail, "work_item_id": work_item_id, "sequence": sequence},
             )
         return sequence
 

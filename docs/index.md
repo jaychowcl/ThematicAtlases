@@ -374,3 +374,9 @@ Use `--query <keyword>` when the id is unknown.
   anchor: geo-wrapper
   purpose: GEO normalization, NCBI lookup, MINiML conversion, enrichment, checkpoints, repair, and record shape.
   keywords: GEOWrapper, GSE, GSM, GDS, GPL, NCBI, MINiML, PubMed, SRA, ENA
+
+- id: operational-events-v1
+  title: [Operational Events V1](codebase.md#operational-events-v1)
+  anchor: operational-events-v1
+  purpose: Shared redacted event envelope, SQLite authority, JSONL/logging sinks, and JSON/Prometheus metric export.
+  keywords: OperationalEventEmitter, schema 1.0, JSONL, structured logging, redaction, metrics, Prometheus, AtlasRunStore
