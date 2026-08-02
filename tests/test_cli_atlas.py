@@ -839,13 +839,13 @@ def test_unknown_command_exits_with_argparse_error() -> None:
     assert exc_info.value.code == 2
 
 
-def test_command_help_describes_the_atlas_v2_workflow_contracts() -> None:
+def test_command_help_describes_the_atlas_v1_workflow_contracts() -> None:
     help_text = cli_module._build_parser().format_help()
 
-    assert "Collect and review datasets into an Atlas v2 snapshot." in help_text
-    assert "Create and harmonize a complete Atlas v2 document." in help_text
-    assert "Harmonize metadata in an existing Atlas v2 document." in help_text
-    assert "Resume a traced Atlas v2 workflow" in help_text
+    assert "Collect and review datasets into an Atlas v1 snapshot." in help_text
+    assert "Create and harmonize a complete Atlas v1 document." in help_text
+    assert "Harmonize metadata in an existing Atlas v1 document." in help_text
+    assert "Resume a traced Atlas v1 workflow" in help_text
 
 
 def test_unknown_command_argument_exits_with_argparse_error() -> None:

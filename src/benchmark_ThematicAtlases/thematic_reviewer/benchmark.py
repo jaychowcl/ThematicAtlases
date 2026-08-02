@@ -55,7 +55,7 @@ class ThematicReviewerBenchmark:
         reviewed_publications = self._reviewed_publication_groups(output)
         rows = self._match_rows(references, reviewed_publications)
         return {
-            "schema_version": "1.1",
+            "schema_version": "1.0",
             "benchmark": {
                 "method": "reference_publication_recall",
                 "reference_set": {

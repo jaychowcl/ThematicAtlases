@@ -14,7 +14,7 @@ def initialize_run_store(run_dir, status="running"):
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     run_id = str(manifest.get("run_id") or run_dir.name)
     store = AtlasRunStore(run_dir / "atlas_run.sqlite3")
-    store.create_run(run_id, f"atlas-{run_id}", "2.0", manifest)
+    store.create_run(run_id, f"atlas-{run_id}", "1.0", manifest)
     store.set_run_status(run_id, status)
     return store
 
@@ -508,7 +508,7 @@ def test_collect_datasets_writes_final_atlas_object(tmp_path) -> None:
     ).collect_datasets(query=["a"], out=str(outfile))
 
     document = AtlasDocument.load(outfile)
-    assert document.schema_version == "2.0"
+    assert document.schema_version == "1.0"
     assert [item.dataset_id for item in document.datasets] == ["GSE1"]
     assert [item.publication_id for item in document.publications] == ["1"]
 

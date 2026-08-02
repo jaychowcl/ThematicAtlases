@@ -25,7 +25,7 @@ class RecordingBenchmark:
             )
             reference_id = reference_data["id"]
         return {
-            "schema_version": "1.1",
+            "schema_version": "1.0",
             "benchmark": {"reference_set": {"id": reference_id}},
             "summary": {"matched_count": 1},
         }

@@ -83,10 +83,10 @@
       ]
     },
     "created_at": "2026-07-31T13:39:54Z",
-    "run_id": "01JATLASV2FIXTURE",
+    "run_id": "01JATLASV1FIXTURE",
     "status": "partial"
   },
-  "schema_version": "2.0",
+  "schema_version": "1.0",
   "summary": {
     "completed_dataset_count": 1,
     "dataset_count": 2,

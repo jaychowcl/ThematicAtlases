@@ -75,7 +75,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     collect = subparsers.add_parser(
         "collect-datasets",
-        help="Collect and review datasets into an Atlas v2 snapshot.",
+        help="Collect and review datasets into an Atlas v1 snapshot.",
     )
     _add_logging_options(
         collect,
@@ -115,7 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     create = subparsers.add_parser(
         "create-atlas",
-        help="Create and harmonize a complete Atlas v2 document.",
+        help="Create and harmonize a complete Atlas v1 document.",
     )
     _add_logging_options(
         create,
@@ -168,7 +168,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     harmonize = subparsers.add_parser(
         "harmonize-datasets",
-        help="Harmonize metadata in an existing Atlas v2 document.",
+        help="Harmonize metadata in an existing Atlas v1 document.",
     )
     _add_logging_options(
         harmonize,
@@ -182,7 +182,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resume = subparsers.add_parser(
         "resume",
         help=(
-            "Resume a traced Atlas v2 workflow and optionally requeue "
+            "Resume a traced Atlas v1 workflow and optionally requeue "
             "selected failures."
         ),
     )

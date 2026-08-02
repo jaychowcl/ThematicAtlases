@@ -134,7 +134,7 @@ def test_create_atlas_returns_v2_and_publishes_derived_summary(tmp_path):
         "failed_dataset_count": 0,
         "publication_count": 0,
         "run_id": document.run.run_id,
-        "schema_version": "2.0",
+        "schema_version": "1.0",
         "unsupported_accession_count": 0,
         "unsupported_accession_repository_counts": {},
         "unsupported_accessions_path": None,
@@ -290,7 +290,7 @@ def test_create_atlas_rejects_missing_theme():
         _atlas().create_atlas(query=["lung"], generate_queries=False)
 
 
-def test_harmonize_datasets_accepts_v2_and_rejects_legacy_v1():
+def test_harmonize_datasets_accepts_v1_and_rejects_legacy_unversioned():
     collected = _atlas().collect_datasets(query=["lung"], run_id="run-1")
 
     result = _atlas().harmonize_datasets(collected)

@@ -24,7 +24,7 @@ class DevTraceWriter:
             self._run_store.create_run(
                 run_id=run_id,
                 atlas_id=str(manifest.get("atlas_id") or f"atlas-{run_id}"),
-                schema_version="2.0",
+                schema_version="1.0",
                 config={
                     key: value
                     for key, value in full_manifest.items()

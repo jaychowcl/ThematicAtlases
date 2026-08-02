@@ -1,4 +1,4 @@
-"""Application service for the public Atlas v2 document boundary."""
+"""Application service for the public Atlas v1 document boundary."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from ThematicAtlases.summary import summary_path
 
 
 class AtlasDocumentService:
-    """Assemble, project, summarize, and publish Atlas v2 documents."""
+    """Assemble, project, summarize, and publish Atlas v1 documents."""
 
     def __init__(
         self,

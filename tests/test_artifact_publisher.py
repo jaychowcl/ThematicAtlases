@@ -14,10 +14,10 @@ def test_json_bundle_publisher_stages_validates_and_publishes_all_outputs(tmp_pa
     summary = tmp_path / "nested" / "atlas.summary.json"
 
     JsonArtifactBundlePublisher().publish(
-        {atlas: {"schema_version": "2.0"}, summary: {"dataset_count": 1}}
+        {atlas: {"schema_version": "1.0"}, summary: {"dataset_count": 1}}
     )
 
-    assert json.loads(atlas.read_text()) == {"schema_version": "2.0"}
+    assert json.loads(atlas.read_text()) == {"schema_version": "1.0"}
     assert json.loads(summary.read_text()) == {"dataset_count": 1}
     assert atlas.read_text().endswith("\n")
     assert not list((tmp_path / "nested").glob(".*.stage"))

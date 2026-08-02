@@ -65,7 +65,7 @@ def test_document_round_trips_deterministically(tmp_path):
 
     assert output.read_text(encoding="utf-8").endswith("\n")
     assert AtlasDocument.load(output) == document
-    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "2.0"
+    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "1.0"
     assert document.to_mapping() == AtlasDocument.from_mapping(
         document.to_mapping()
     ).to_mapping()
@@ -74,7 +74,7 @@ def test_document_round_trips_deterministically(tmp_path):
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
-        (lambda data: data.update(schema_version="1.0"), "unsupported Atlas schema"),
+        (lambda data: data.update(schema_version="2.0"), "unsupported Atlas schema"),
         (
             lambda data: data["datasets"].append(dict(data["datasets"][0])),
             "duplicate dataset_id",
@@ -121,12 +121,12 @@ def test_owner_golden_fixture_is_a_valid_stable_wire_contract():
         Path(__file__).parent
         / "fixtures"
         / "contracts"
-        / "atlas-document-v2.json"
+        / "atlas-document-v1.json"
     )
 
     document = AtlasDocument.load(fixture)
 
-    assert document.schema_version == "2.0"
+    assert document.schema_version == "1.0"
     assert [dataset.dataset_id for dataset in document.datasets] == [
         "GSE100",
         "GSE200",

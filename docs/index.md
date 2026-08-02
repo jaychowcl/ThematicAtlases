@@ -27,12 +27,12 @@ Use `--query <keyword>` when the id is unknown.
   title: [Architectural Decisions](codebase.md#architectural-decisions)
   anchor: architectural-decisions
   purpose: Evidence-safe documented and observed design choices, consequences, and affected components.
-  keywords: AD-001, AD-002, AD-003, AD-004, AD-005, AD-006, Atlas v2, observed, documented, decisions
+  keywords: AD-001, AD-002, AD-003, AD-004, AD-005, AD-006, Atlas v1, observed, documented, decisions
 
 - id: design-invariants-and-expectations
   title: [Design Invariants And Expectations](codebase.md#design-invariants-and-expectations)
   anchor: design-invariants-and-expectations
-  purpose: Atlas v2 validation, state authority, transaction, compatibility, retry, archive, logging, and privacy rules future changes must preserve.
+  purpose: Atlas v1 validation, state authority, transaction, compatibility, retry, archive, logging, and privacy rules future changes must preserve.
   keywords: AtlasDocument, schema_version, atlas_run.sqlite3, run ID, UTC, entropy, rollback, fingerprint, retryable, archive
 
 - id: component-relationships-and-data-flow
@@ -118,8 +118,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: decision-central-atlas-document
   title: [Central Atlas document and run authority](codebase.md#decision-central-atlas-document)
   anchor: decision-central-atlas-document
-  purpose: Observed Atlas v2 public-boundary, normalized lifecycle authority, and fail-closed compatibility decision.
-  keywords: AD-006, AtlasDocument, AtlasDocumentAdapter, atlas_run.sqlite3, single database, v1, v2
+  purpose: Observed Atlas v1 public-boundary, normalized lifecycle authority, and fail-closed compatibility decision.
+  keywords: AD-006, AtlasDocument, AtlasDocumentAdapter, atlas_run.sqlite3, single database, v1, legacy unversioned
 
 - id: type-atlas
   title: [Atlas orchestrator](codebase.md#type-atlas)
@@ -128,7 +128,7 @@ Use `--query <keyword>` when the id is unknown.
   keywords: Atlas, create_atlas, collect_datasets, resume, harmonize
 
 - id: type-atlas-document
-  title: [AtlasDocument v2](codebase.md#type-atlas-document)
+  title: [AtlasDocument v1](codebase.md#type-atlas-document)
   anchor: type-atlas-document
   purpose: Versioned domain dataclasses, owner-produced golden fixture, strict validation, deterministic JSON, and cross-reference invariants.
   keywords: AtlasDocument, schema_version, golden fixture, downstream contract, dataclass, codec, validation, atomic JSON
@@ -136,7 +136,7 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-document-service
   title: [AtlasDocumentService](codebase.md#type-atlas-document-service)
   anchor: type-atlas-document-service
-  purpose: Application use case for Atlas v2 assembly, internal projection, summary derivation, and publication.
+  purpose: Application use case for Atlas v1 assembly, internal projection, summary derivation, and publication.
   keywords: AtlasDocumentService, application, assemble, to_legacy, summary, publish
 
 - id: type-atlas-ports
@@ -148,13 +148,13 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-document-adapter
   title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
   anchor: type-atlas-document-adapter
-  purpose: Internal anti-corruption boundary for strict Atlas v2 projection, evidence envelopes, and provider harmonization targets.
-  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, publication_texts, evidence, pre_hz, ontology_lookup, v2 projection
+  purpose: Internal anti-corruption boundary for strict Atlas v1 projection, evidence envelopes, and provider harmonization targets.
+  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, publication_texts, evidence, pre_hz, ontology_lookup, v1 projection
 
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
   anchor: type-atlas-run-store
-  purpose: Versioned normalized Atlas v2 run, stage, work, attempt, metadata, artifact, and event persistence.
+  purpose: Versioned normalized Atlas v1 run, stage, work, attempt, metadata, artifact, and event persistence.
   keywords: AtlasRunStore, atlas_run.sqlite3, schema version 2, work_items, attempts, run_metadata, triggers, artifacts, events
 
 - id: type-json-artifact-bundle-publisher
@@ -173,7 +173,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
   purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, review revision 3, contract version 5
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, review revision 1, contract version 5
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
@@ -214,7 +214,7 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-atlas-creation
   title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)
   anchor: workflow-atlas-creation
-  purpose: Theme-first query generation/review, collection, harmonization, Atlas v2 assembly, rollback-safe bundle publication, normalized tracing, and outputs.
+  purpose: Theme-first query generation/review, collection, harmonization, Atlas v1 assembly, rollback-safe bundle publication, normalized tracing, and outputs.
   keywords: create_atlas, required theme, generated queries, thematic_review, AtlasDocumentAdapter, JsonArtifactBundlePublisher, unsupported inventory, atlas_run.sqlite3, summary, rollback, trace
 
 - id: workflow-harmonization
@@ -270,8 +270,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: runtime-and-packaging
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
-  purpose: Python, setuptools, independent v2 dependencies, editable-install, canonical offline test, and console-command contract.
-  keywords: pyproject, Python 3.10, version 2.0.0, requirements, independent dependencies, pytest, fail-closed network, allow_subprocess, thematic-atlas
+  purpose: Python, setuptools, independent v1 dependencies, editable-install, canonical offline test, and console-command contract.
+  keywords: pyproject, Python 3.10, version 1.0.0, requirements, independent dependencies, pytest, fail-closed network, allow_subprocess, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)

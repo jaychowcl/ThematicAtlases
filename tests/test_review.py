@@ -111,7 +111,7 @@ class DirectReviewer:
                 }
             ],
             "accession_assessments": [assessment],
-            "review_revision": 3,
+            "review_revision": 1,
             "strategy": strategy,
         }
 
@@ -150,7 +150,7 @@ def traced_publication(
         run_store.create_run(
             trace_dir.name,
             f"atlas-{trace_dir.name}",
-            "2.0",
+            "1.0",
             manifest,
         )
     store = CheckpointStore(state_path)
@@ -588,7 +588,7 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
     )
 
     trace = texts["1"]["agentic_curator"]
-    assert trace["review_revision"] == 3
+    assert trace["review_revision"] == 1
     assert trace["criteria"] == [
         {
             "id": "theme_condition",

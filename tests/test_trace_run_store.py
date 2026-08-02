@@ -19,13 +19,13 @@ def test_new_trace_initializes_authoritative_v2_run_store_and_registers_artifact
             "query": ["lung"],
         },
     )
-    trace.write("06_final_atlas.json", {"schema_version": "2.0"})
+    trace.write("06_final_atlas.json", {"schema_version": "1.0"})
 
     trace.register_artifact("final_atlas", "06_final_atlas.json")
 
     run = trace.run_store.get_run("run-1")
     assert run["atlas_id"] == "atlas-1"
-    assert run["schema_version"] == "2.0"
+    assert run["schema_version"] == "1.0"
     assert run["config"]["query"] == ["lung"]
     artifact = trace.run_store.artifact("run-1", "final_atlas")
     content = (trace.directory / "06_final_atlas.json").read_bytes()

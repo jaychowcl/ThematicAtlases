@@ -1,4 +1,4 @@
-"""Normalized, transactional operational state for one or more Atlas v2 runs."""
+"""Normalized, transactional operational state for one or more Atlas v1 runs."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ RUN_STATUSES = {"planned", "running", "complete", "partial", "failed"}
 
 
 class IncompatibleRunStoreError(ValueError):
-    """Raised when a pre-v2 or unknown database is opened as an AtlasRunStore."""
+    """Raised when a pre-v1 or unknown database is opened as an AtlasRunStore."""
 
 
 class AtlasRunStore:
@@ -68,11 +68,11 @@ class AtlasRunStore:
             }
             if "checkpoint_meta" in existing and "schema_migrations" not in existing:
                 raise IncompatibleRunStoreError(
-                    "legacy checkpoint database is not an Atlas v2 run store"
+                    "legacy checkpoint database is not an Atlas v1 run store"
                 )
             if existing and "schema_migrations" not in existing:
                 raise IncompatibleRunStoreError(
-                    "unrecognized database is not an Atlas v2 run store"
+                    "unrecognized database is not an Atlas v1 run store"
                 )
             if "schema_migrations" in existing:
                 application_id = int(
@@ -211,7 +211,7 @@ class AtlasRunStore:
                             f"ALTER TABLE {table} ADD COLUMN {name} {definition}"
                         )
             connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            for version, revision in ((1, "atlas-v2-foundation"), (2, "atlas-v2-work")):
+            for version, revision in ((1, "atlas-v1-foundation"), (2, "atlas-v1-work")):
                 schema_sql = f"AtlasRunStore schema version {version}"
                 connection.execute(
                     """

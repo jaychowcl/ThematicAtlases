@@ -1,4 +1,4 @@
-"""Versioned domain model and deterministic JSON codec for Atlas v2."""
+"""Versioned domain model and deterministic JSON codec for Atlas v1."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "1.0"
 
 
 class _ValueEnum(str, Enum):

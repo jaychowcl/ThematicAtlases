@@ -11,7 +11,7 @@ def test_run_store_creates_normalized_versioned_schema(tmp_path):
     store.create_run(
         run_id="01JTEST",
         atlas_id="atlas-lung",
-        schema_version="2.0",
+        schema_version="1.0",
         config={"queries": ["lung"]},
     )
 
@@ -46,7 +46,7 @@ def test_run_store_creates_normalized_versioned_schema(tmp_path):
 
 def test_run_store_preserves_work_order_attempts_events_and_artifact_roles(tmp_path):
     store = AtlasRunStore(tmp_path / "atlas_run.sqlite3")
-    store.create_run("run-1", "atlas-1", "2.0", {})
+    store.create_run("run-1", "atlas-1", "1.0", {})
     later = store.add_work_item("run-1", "collection", "geo", "GSE2", 1)
     earlier = store.add_work_item("run-1", "collection", "geo", "GSE1", 0)
 
@@ -85,7 +85,7 @@ def test_run_store_preserves_work_order_attempts_events_and_artifact_roles(tmp_p
 
 def test_run_store_rejects_invalid_lifecycle_and_artifact_values(tmp_path):
     store = AtlasRunStore(tmp_path / "atlas_run.sqlite3")
-    store.create_run("run-1", "atlas-1", "2.0", {})
+    store.create_run("run-1", "atlas-1", "1.0", {})
 
     with pytest.raises(ValueError, match="unsupported run status"):
         store.set_run_status("run-1", "done")

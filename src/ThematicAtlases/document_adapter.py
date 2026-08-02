@@ -1,4 +1,4 @@
-"""Assemble the canonical Atlas v2 document at the application boundary."""
+"""Assemble the canonical Atlas v1 document at the application boundary."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ class AtlasDocumentAdapter:
         return document
 
     def to_legacy(self, document: AtlasDocument) -> dict[str, Any]:
-        """Project v2 into the minimal internal shape used by harmonization."""
+        """Project v1 into the minimal internal shape used by harmonization."""
         document.validate()
         publications = {
             item.publication_id: item for item in document.publications

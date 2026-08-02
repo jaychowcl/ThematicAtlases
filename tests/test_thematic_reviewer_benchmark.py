@@ -129,7 +129,7 @@ def test_benchmark_reports_discovery_and_judgement_recall() -> None:
         reviewed_output(),
     )
 
-    assert report["schema_version"] == "1.1"
+    assert report["schema_version"] == "1.0"
     assert report["benchmark"] == {
         "method": "reference_publication_recall",
         "reference_set": {

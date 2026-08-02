@@ -41,7 +41,7 @@ def _checkpoint_store(trace_dir):
         run_store.create_run(
             trace_dir.name,
             f"atlas-{trace_dir.name}",
-            "2.0",
+            "1.0",
             manifest,
         )
     return CheckpointStore(path)

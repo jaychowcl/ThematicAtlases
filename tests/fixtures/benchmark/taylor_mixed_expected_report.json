@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.0",
   "benchmark": {
     "method": "reference_publication_recall",
     "reference_set": {

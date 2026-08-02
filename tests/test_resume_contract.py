@@ -19,7 +19,7 @@ def _run_dir(tmp_path, manifest, *, run_id="run-1"):
         encoding="utf-8",
     )
     store = AtlasRunStore(run_dir / "atlas_run.sqlite3")
-    store.create_run(run_id, f"atlas-{run_id}", "2.0", manifest)
+    store.create_run(run_id, f"atlas-{run_id}", "1.0", manifest)
     store.set_run_status(run_id, "running")
     return run_dir
 

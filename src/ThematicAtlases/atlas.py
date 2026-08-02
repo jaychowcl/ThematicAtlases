@@ -723,7 +723,7 @@ class Atlas:
         unsupported_accessions_out: str | None = None,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
-        """Collect datasets and expose the result as an Atlas v2 document."""
+        """Collect datasets and expose the result as an Atlas v1 document."""
         effective_run_id = run_id or (
             _trace_writer.directory.name
             if _trace_writer is not None
@@ -1361,7 +1361,7 @@ class Atlas:
             options["theme"] = None
             options["review_filter"] = "none"
         result = self.collect_datasets(**options)
-        if isinstance(result, dict) and result.get("schema_version") == "2.0":
+        if isinstance(result, dict) and result.get("schema_version") == "1.0":
             document = AtlasDocument.from_mapping(result)
             if resolution is not None:
                 resolution["queries"] = list(document.run.config.queries)
@@ -1433,7 +1433,7 @@ class Atlas:
         manifest = self._read_checkpoint(
             trace.directory / "00_run_manifest.json"
         )
-        if result.get("schema_version") == "2.0":
+        if result.get("schema_version") == "1.0":
             document = AtlasDocument.from_mapping(result)
         else:
             details_path = trace.directory / "04_harmonization_details.json"

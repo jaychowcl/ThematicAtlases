@@ -131,7 +131,7 @@ class CheckpointStore:
 
     @staticmethod
     def _initialize_atlas_projection(connection: sqlite3.Connection) -> None:
-        """Project the compatibility checkpoint API into normalized v2 rows."""
+        """Project the compatibility checkpoint API into normalized v1 rows."""
         tables = {
             row["name"]
             for row in connection.execute(
