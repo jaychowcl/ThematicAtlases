@@ -26,6 +26,12 @@ For development and tests, include the development dependency group:
 .env/bin/python -m pytest -q
 ```
 
+Public provider contracts are owned by this repository and skipped normally:
+
+```bash
+RUN_LIVE_API_TESTS=1 .env/bin/python -m pytest tests/live_api -m live_api -vv
+```
+
 The editable install provides the `thematic-atlas` console command. The equivalent module entrypoint is `.env/bin/python -m ThematicAtlases.cli_atlas`.
 
 ### Requirements

@@ -1212,7 +1212,16 @@ are not part of the tracked source tree.
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard always blocks sockets and HTTP transports. Subprocess creation is blocked unless a test declares the registered `allow_subprocess` marker. The repository deliberately has no marker that can enable live network access.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`.
+
+<a id="live-api-provider-contracts"></a>
+### Live API provider contracts
+
+`tests/live_api/test_public_provider_contracts.py` owns Europe PMC
+search/datalinks/full text, bioRxiv details/JATS, and GEO E-utilities contracts.
+They use 10-second timeouts, no retries or delays, at most 12 sends per test,
+and a fixed EBI/NCBI/preprint host allowlist. Run them with
+`RUN_LIVE_API_TESTS=1 .env/bin/python -m pytest tests/live_api -m live_api -vv`.
 - The distribution uses a `src/` layout with setuptools package discovery for both `ThematicAtlases` and `benchmark_ThematicAtlases`.
 - The installed console command is `thematic-atlas`, pointing to `ThematicAtlases.cli_atlas:main`.
 

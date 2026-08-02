@@ -279,6 +279,12 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Preserved compatibility route for the package-root and Atlas import guidance.
   keywords: Atlas import, __version__, agentic-curator, archive_existing_runs
 
+- id: live-api-provider-contracts
+  title: [Live API Provider Contracts](codebase.md#live-api-provider-contracts)
+  anchor: live-api-provider-contracts
+  purpose: Owns opt-in Europe PMC, bioRxiv, and GEO provider checks.
+  keywords: live_api, Europe PMC, bioRxiv, GEO, host allowlist, no retries
+
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
