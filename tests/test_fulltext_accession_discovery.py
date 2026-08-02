@@ -261,6 +261,23 @@ def test_collect_accessions_scans_hidden_jats_link_targets(monkeypatch) -> None:
     assert result[0]["accession_repository"] == "zenodo"
 
 
+def test_jats_parser_retains_hidden_external_link_targets() -> None:
+    wrapper = EuropePMCWrapper(request_delay=0)
+    xml = """
+    <article xmlns:xlink="http://www.w3.org/1999/xlink">
+      <body><sec><title>Data availability</title><p>
+        Processed data are deposited <ext-link
+          xlink:href="https://zenodo.org/records/18432222">here</ext-link>.
+      </p></sec></body>
+    </article>
+    """
+
+    text, links = wrapper._text_and_links_from_xml(xml)
+
+    assert "Processed data are deposited here" in text
+    assert links == ["https://zenodo.org/records/18432222"]
+
+
 def test_collect_accessions_scrapes_abstract_fallbacks_with_precise_provenance(
     monkeypatch,
 ) -> None:

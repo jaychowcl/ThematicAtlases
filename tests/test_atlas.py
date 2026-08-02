@@ -616,10 +616,11 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
         "03_pre_harmonization_accession_metadata.json",
         "04_harmonization_details.json",
         "05_post_harmonization_accession_metadata.json",
-            "06_final_atlas.json",
-            "07_summary.json",
-                "atlas_run.sqlite3",
-        ]
+        "06_final_atlas.json",
+        "07_summary.json",
+        "atlas_run.sqlite3",
+        "unsupported_accessions.json",
+    ]
     document = AtlasDocument.load(run_dir / "06_final_atlas.json")
     assert [item.dataset_id for item in document.datasets] == ["GSE1"]
 

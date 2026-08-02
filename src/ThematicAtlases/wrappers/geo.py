@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class GEOWrapper:
+    metadata_handler_status = "supported"
+
     def __init__(
         self,
         api_key: str | None = None,

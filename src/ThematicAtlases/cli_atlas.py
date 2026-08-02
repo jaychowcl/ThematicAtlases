@@ -85,6 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--query", action="append", default=None)
     collect.add_argument("--file", default=None)
     collect.add_argument("--out", default=None)
+    collect.add_argument("--unsupported-accessions-out", default=None)
     collect.add_argument("--max-publications", type=_positive_int, default=None)
     collect.add_argument("--skip-metadata", action="store_true", default=False)
     collect.add_argument(
@@ -124,6 +125,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument("--query", action="append", default=None)
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
+    create.add_argument("--unsupported-accessions-out", default=None)
     create.add_argument("--max-publications", type=_positive_int, default=None)
     create.add_argument("--skip-metadata", action="store_true", default=False)
     create.add_argument(
@@ -270,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             max_generated_queries=args.max_generated_queries,
             review_before_metadata=args.review_before_metadata,
             scrape_fulltext_accessions=args.scrape_fulltext_accessions,
+            unsupported_accessions_out=args.unsupported_accessions_out,
         )
     elif args.command == "create-atlas":
         theme = _input_value(value=args.theme, file=args.theme_file)
@@ -290,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             max_generated_queries=args.max_generated_queries,
             review_before_metadata=args.review_before_metadata,
             scrape_fulltext_accessions=args.scrape_fulltext_accessions,
+            unsupported_accessions_out=args.unsupported_accessions_out,
         )
     elif args.command == "harmonize-datasets":
         with open(args.file, encoding="utf-8") as handle:

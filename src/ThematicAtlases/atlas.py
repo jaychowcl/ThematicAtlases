@@ -20,6 +20,10 @@ from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 from ThematicAtlases.summary import build_atlas_summary
 from ThematicAtlases.trace import DevTraceWriter
+from ThematicAtlases.unsupported_accessions import (
+    build_unsupported_accessions_report,
+    partition_unsupported_accessions,
+)
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
@@ -109,6 +113,7 @@ class Atlas:
         harmonization_options: dict | None = None,
         review_before_metadata: bool = False,
         scrape_fulltext_accessions: bool = True,
+        unsupported_accessions_out: str | None = None,
     ) -> dict:
         if self._cache_ontologies:
             self._preflight_credentials()
@@ -136,6 +141,7 @@ class Atlas:
                         "05_post_harmonization_accession_metadata.json",
                         "06_final_atlas.json",
                         "07_summary.json",
+                        "unsupported_accessions.json",
                     ],
                     "query": query,
                     "query_file": file,
@@ -152,6 +158,7 @@ class Atlas:
                     "harmonization_details_out": harmonization_details_out,
                     "review_before_metadata": review_before_metadata,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                    "unsupported_accessions_out": unsupported_accessions_out,
                 },
             )
             trace.run_store.set_run_status(run_id, "running")
@@ -249,17 +256,42 @@ class Atlas:
             harmonization_details=details,
         )
         result_mapping = document.to_mapping()
-        summary = self._documents.summary(document, atlas_path=out)
+        unsupported_report = build_unsupported_accessions_report(
+            list(result.get("unsupported_accessions", [])),
+            atlas_id=document.atlas.atlas_id,
+            run_id=document.run.run_id,
+        )
+        summary = self._documents.summary(
+            document,
+            atlas_path=out,
+            unsupported_accessions_report=unsupported_report,
+            unsupported_accessions_path=unsupported_accessions_out,
+        )
 
         if out is not None:
             logger.info("Atlas create_atlas progress stage=write-output output_path=%s", out)
-            self._documents.publish(document, out, include_summary=True)
+            self._documents.publish(
+                document,
+                out,
+                include_summary=True,
+                unsupported_accessions_report=unsupported_report,
+                unsupported_accessions_path=unsupported_accessions_out,
+            )
+        elif unsupported_accessions_out is not None:
+            self._documents.publish_unsupported_accessions(
+                unsupported_report,
+                unsupported_accessions_out,
+            )
 
         if trace is not None:
             trace.write("06_final_atlas.json", result_mapping)
             trace.write("07_summary.json", summary)
+            trace.write("unsupported_accessions.json", unsupported_report)
             trace.register_artifact("final_atlas", "06_final_atlas.json")
             trace.register_artifact("summary", "07_summary.json")
+            trace.register_artifact(
+                "unsupported_accessions", "unsupported_accessions.json"
+            )
             trace.run_store.set_stage_state(
                 run_id, "harmonization", "complete"
             )
@@ -660,6 +692,7 @@ class Atlas:
         review_before_metadata: bool = False,
         stop_before_review: bool = False,
         scrape_fulltext_accessions: bool = True,
+        unsupported_accessions_out: str | None = None,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
         """Collect datasets and expose the result as an Atlas v2 document."""
@@ -689,6 +722,7 @@ class Atlas:
             review_before_metadata=review_before_metadata,
             stop_before_review=stop_before_review,
             scrape_fulltext_accessions=scrape_fulltext_accessions,
+            unsupported_accessions_out=unsupported_accessions_out,
             _trace_writer=_trace_writer,
             _finalize_trace=False,
             _resolution=collection_resolution,
@@ -714,20 +748,45 @@ class Atlas:
             run_status=RunStatus.RUNNING,
         )
         result = document.to_mapping()
+        unsupported_report = build_unsupported_accessions_report(
+            list(legacy.get("unsupported_accessions", [])),
+            atlas_id=document.atlas.atlas_id,
+            run_id=document.run.run_id,
+        )
         if out is not None:
-            self._documents.publish(document, out, include_summary=False)
+            self._documents.publish(
+                document,
+                out,
+                include_summary=False,
+                unsupported_accessions_report=unsupported_report,
+                unsupported_accessions_path=unsupported_accessions_out,
+            )
+        elif unsupported_accessions_out is not None:
+            self._documents.publish_unsupported_accessions(
+                unsupported_report,
+                unsupported_accessions_out,
+            )
         if dev_trace and _trace_writer is None:
             trace = DevTraceWriter.existing(Path(dev_out_dir) / effective_run_id)
             trace.write("collection_snapshot.json", result)
             trace.write(
                 "collection_snapshot.summary.json",
-                self._documents.summary(document, out),
+                self._documents.summary(
+                    document,
+                    out,
+                    unsupported_accessions_report=unsupported_report,
+                    unsupported_accessions_path=unsupported_accessions_out,
+                ),
             )
+            trace.write("unsupported_accessions.json", unsupported_report)
             trace.register_artifact(
                 "collection_snapshot", "collection_snapshot.json"
             )
             trace.register_artifact(
                 "summary", "collection_snapshot.summary.json"
+            )
+            trace.register_artifact(
+                "unsupported_accessions", "unsupported_accessions.json"
             )
             trace.run_store.set_stage_state(
                 effective_run_id, "collection", "complete"
@@ -761,6 +820,7 @@ class Atlas:
         review_before_metadata: bool = False,
         stop_before_review: bool = False,
         scrape_fulltext_accessions: bool = True,
+        unsupported_accessions_out: str | None = None,
         _trace_writer: DevTraceWriter | None = None,
         _finalize_trace: bool = True,
         _resolution: dict[str, list[str]] | None = None,
@@ -792,6 +852,7 @@ class Atlas:
                         "resume_metadata_enriched_datasets.json",
                         "06_final_atlas.json",
                         "07_summary.json",
+                        "unsupported_accessions.json",
                     ],
                     "query": query,
                     "query_file": file,
@@ -807,6 +868,7 @@ class Atlas:
                     "review_before_metadata": review_before_metadata,
                     "stop_before_review": stop_before_review,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                    "unsupported_accessions_out": unsupported_accessions_out,
                 },
             )
             _trace_writer.run_store.set_run_status(effective_run_id, "running")
@@ -815,6 +877,9 @@ class Atlas:
             )
         checkpoint_store = (
             _trace_writer.checkpoint_store if _trace_writer is not None else None
+        )
+        trace_run_id = (
+            _trace_writer.directory.name if _trace_writer is not None else None
         )
         if generate_queries or (theme is not None and not stop_before_review):
             self._preflight_credentials()
@@ -935,8 +1000,25 @@ class Atlas:
             scrape_fulltext_accessions=scrape_fulltext_accessions,
             checkpoint_store=checkpoint_store,
         )
+        accessions, unsupported_accessions = partition_unsupported_accessions(
+            accessions
+        )
         if _trace_writer is not None:
             _trace_writer.write("01_collected_accessions.json", accessions)
+            unsupported_report = build_unsupported_accessions_report(
+                unsupported_accessions,
+                atlas_id=str(
+                    self.metadata.get("atlas_id")
+                    or f"atlas-{trace_run_id}"
+                ),
+                run_id=str(trace_run_id),
+            )
+            _trace_writer.write(
+                "unsupported_accessions.json", unsupported_report
+            )
+            _trace_writer.register_artifact(
+                "unsupported_accessions", "unsupported_accessions.json"
+            )
         logger.info(
             "Atlas collect_datasets progress stage=collect-accessions-complete accessions=%s",
             len(accessions),
@@ -962,6 +1044,10 @@ class Atlas:
             _review_progress_callback=review_progress_callback,
             _checkpoint_store=checkpoint_store,
         )
+        result = {
+            **result,
+            "unsupported_accessions": unsupported_accessions,
+        }
         if stop_before_review:
             if _trace_writer is not None:
                 _trace_writer.write("resume_publication_collection.json", result)
@@ -1290,12 +1376,12 @@ class Atlas:
         trace: DevTraceWriter,
         artifact_role: str = "final_atlas",
     ) -> dict:
+        manifest = self._read_checkpoint(
+            trace.directory / "00_run_manifest.json"
+        )
         if result.get("schema_version") == "2.0":
             document = AtlasDocument.from_mapping(result)
         else:
-            manifest = self._read_checkpoint(
-                trace.directory / "00_run_manifest.json"
-            )
             details_path = trace.directory / "04_harmonization_details.json"
             details = (
                 self._read_checkpoint(details_path)
@@ -1338,13 +1424,38 @@ class Atlas:
                 run_status=run_status,
                 harmonization_details=details,
             )
+        unsupported_report_path = trace.directory / "unsupported_accessions.json"
+        unsupported_report = (
+            self._read_checkpoint(unsupported_report_path)
+            if unsupported_report_path.exists()
+            else build_unsupported_accessions_report(
+                list(result.get("unsupported_accessions", [])),
+                atlas_id=document.atlas.atlas_id,
+                run_id=document.run.run_id,
+            )
+        )
+        unsupported_output_path = manifest.get("unsupported_accessions_out")
         published = document.to_mapping()
         if out is not None:
             summary = self._documents.publish(
-                document, out, include_summary=True
+                document,
+                out,
+                include_summary=True,
+                unsupported_accessions_report=unsupported_report,
+                unsupported_accessions_path=unsupported_output_path,
             )
         else:
-            summary = self._documents.summary(document, None)
+            summary = self._documents.summary(
+                document,
+                None,
+                unsupported_accessions_report=unsupported_report,
+                unsupported_accessions_path=unsupported_output_path,
+            )
+            if unsupported_output_path is not None:
+                self._documents.publish_unsupported_accessions(
+                    unsupported_report,
+                    unsupported_output_path,
+                )
         atlas_name = (
             "collection_snapshot.json"
             if artifact_role == "collection_snapshot"
@@ -1357,8 +1468,12 @@ class Atlas:
         )
         trace.write(atlas_name, published)
         trace.write(summary_name, summary)
+        trace.write("unsupported_accessions.json", unsupported_report)
         trace.register_artifact(artifact_role, atlas_name)
         trace.register_artifact("summary", summary_name)
+        trace.register_artifact(
+            "unsupported_accessions", "unsupported_accessions.json"
+        )
         if artifact_role == "collection_snapshot":
             trace.run_store.set_stage_state(
                 trace.directory.name, "collection", "complete"

@@ -9,6 +9,7 @@ import requests
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.accession_extraction import (
+    extract_accessions_from_links,
     extract_accessions_from_text,
 )
 
@@ -29,6 +30,8 @@ DATASET_DATALINK_CATEGORIES = {
 PREPRINT_API_URL = "https://api.biorxiv.org/details/{server}/{doi}/na/json"
 PREPRINT_DOI_PREFIXES = ("10.1101/", "10.64898/")
 PREPRINT_JATS_HOSTS = frozenset({"www.biorxiv.org", "www.medrxiv.org"})
+PUBLICATION_TEXT_CONTRACT_VERSION = 2
+FULLTEXT_ACCESSION_CONTRACT_VERSION = 2
 
 
 def _periodic_progress(position: int, total: int) -> bool:
@@ -131,12 +134,15 @@ class EuropePMCWrapper:
                 if checkpoint_store is not None
                 else None
             )
-            if checkpoint and checkpoint["status"] in {
+            checkpoint_payload = (checkpoint or {}).get("payload") or {}
+            if checkpoint and checkpoint_payload.get(
+                "contract_version"
+            ) == FULLTEXT_ACCESSION_CONTRACT_VERSION and checkpoint["status"] in {
                 "available",
                 "no_data",
                 "terminal_error",
             }:
-                records.extend((checkpoint.get("payload") or {}).get("records", []))
+                records.extend(checkpoint_payload.get("records", []))
                 continue
 
             matches = []
@@ -153,11 +159,20 @@ class EuropePMCWrapper:
                 matches = extract_accessions_from_text(
                     str(publication.get("text", ""))
                 )
+                link_matches = extract_accessions_from_links(
+                    publication.get("full_text_links", []) or []
+                )
+                seen_matches = {match["accession"].upper() for match in matches}
+                matches.extend(
+                    match
+                    for match in link_matches
+                    if match["accession"].upper() not in seen_matches
+                )
             publication_records = [
                 {
                     "datalink_id": match["accession"],
                     "datalink_id_scheme": match["datalink_id_scheme"],
-                    "datalink_url": "",
+                    "datalink_url": match.get("datalink_url", ""),
                     "datalink_category": match["datalink_category"],
                     "accession_repository": match["repository"],
                     "accession_object_type": match["object_type"],
@@ -183,7 +198,10 @@ class EuropePMCWrapper:
                     checkpoint_key,
                     index,
                     "available" if publication_records else "no_data",
-                    payload={"records": publication_records},
+                    payload={
+                        "contract_version": FULLTEXT_ACCESSION_CONTRACT_VERSION,
+                        "records": publication_records,
+                    },
                 )
         logger.info(
             "EuropePMC fulltext accession stats publications_checked=%s "
@@ -726,12 +744,15 @@ class EuropePMCWrapper:
                 if checkpoint_store is not None
                 else None
             )
-            if checkpoint and checkpoint["status"] in {
+            checkpoint_payload = (checkpoint or {}).get("payload") or {}
+            if checkpoint and checkpoint_payload.get(
+                "contract_version"
+            ) == PUBLICATION_TEXT_CONTRACT_VERSION and checkpoint["status"] in {
                 "available",
                 "no_data",
                 "terminal_error",
             }:
-                enriched_publication = (checkpoint.get("payload") or {}).get(
+                enriched_publication = checkpoint_payload.get(
                     "publication", publication
                 )
                 enriched_publications.append(enriched_publication)
@@ -754,9 +775,11 @@ class EuropePMCWrapper:
                         full_text_id,
                     )
                     full_text_xml = self._full_text_xml(epmc_id=full_text_id)
+                    text, links = self._text_and_links_from_xml(full_text_xml)
                     enriched_publication = {
                         **publication,
-                        "text": self._plain_text_from_xml(full_text_xml),
+                        "text": text,
+                        "full_text_links": links,
                         "text_source": "fullTextXML",
                         "full_text_status": "available",
                     }
@@ -814,7 +837,10 @@ class EuropePMCWrapper:
                     checkpoint_key,
                     index,
                     checkpoint_status,
-                    payload={"publication": enriched_publication},
+                    payload={
+                        "contract_version": PUBLICATION_TEXT_CONTRACT_VERSION,
+                        "publication": enriched_publication,
+                    },
                     error=checkpoint_error,
                 )
             time.sleep(self._request_settings["request_delay"])
@@ -1245,9 +1271,11 @@ class EuropePMCWrapper:
                 latest.get("version"),
             )
             full_text_xml = self._request_policy.get(jats_url).text
+            text, links = self._text_and_links_from_xml(full_text_xml)
             return {
                 **publication,
-                "text": self._plain_text_from_xml(full_text_xml),
+                "text": text,
+                "full_text_links": links,
                 "text_source": "preprintJATSXML",
                 "full_text_status": "available",
             }
@@ -1268,6 +1296,9 @@ class EuropePMCWrapper:
             raise ValueError("untrusted preprint JATS URL")
 
     def _plain_text_from_xml(self, full_text_xml: str) -> str:
+        return self._text_and_links_from_xml(full_text_xml)[0]
+
+    def _text_and_links_from_xml(self, full_text_xml: str) -> tuple[str, list[str]]:
         root = ET.fromstring(full_text_xml)
         sections = []
         front = root.find(".//front")
@@ -1307,12 +1338,21 @@ class EuropePMCWrapper:
             fallback_text = self._text_from_xml_element(element=root)
             sections = [{"title": "Text", "text": fallback_text}] if fallback_text else []
 
-        return "\n\n".join(
+        text = "\n\n".join(
             [
                 f"{SECTION_DELIMITER_TEMPLATE.format(title=section['title'])}\n{section['text']}"
                 for section in sections
             ]
         )
+        links = []
+        for element in root.iter():
+            for name, value in element.attrib.items():
+                if name.rsplit("}", 1)[-1].lower() != "href":
+                    continue
+                link = str(value or "").strip()
+                if link.startswith(("https://", "http://")) and link not in links:
+                    links.append(link)
+        return text, links
 
     def _publication_with_fallback_text(
         self,

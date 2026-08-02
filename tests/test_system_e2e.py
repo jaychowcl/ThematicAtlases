@@ -147,6 +147,7 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
         "atlas_run.sqlite3",
         "atlas_run.sqlite3.locks",
         "resume_review_progress.json",
+        "unsupported_accessions.json",
     }
     store = CheckpointStore(run_dir / "atlas_run.sqlite3")
     assert [item["status"] for item in store.items("thematic_review")] == ["available"]

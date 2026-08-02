@@ -314,6 +314,7 @@ def test_traced_create_records_normalized_lifecycle_and_final_artifact_roles(tmp
         "final_atlas",
         "harmonization_details",
         "summary",
+        "unsupported_accessions",
     }
     assert store.artifact(run_dir.name, "final_atlas")["relative_path"] == (
         "06_final_atlas.json"

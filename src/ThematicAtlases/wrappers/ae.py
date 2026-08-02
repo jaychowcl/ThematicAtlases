@@ -1,4 +1,6 @@
 class ArrayExpressWrapper:
+    metadata_handler_status = "unsupported"
+
     def collect_accession_metadata(
         self,
         jsons: list[dict],

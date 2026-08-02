@@ -209,13 +209,13 @@ Use `--query <keyword>` when the id is unknown.
   title: [Collection workflow](codebase.md#workflow-collection)
   anchor: workflow-collection
   purpose: Query validation and resolution through discovery, metadata routing, text mapping, review, provenance, and atlas output.
-  keywords: collection, query, resolved_queries, provenance, datalink, metadata, review, empty result
+  keywords: collection, query, resolved_queries, provenance, datalink, full text, unsupported accessions, metadata handler status, review, empty result
 
 - id: workflow-atlas-creation
   title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)
   anchor: workflow-atlas-creation
   purpose: End-to-end collection, harmonization, Atlas v2 assembly, rollback-safe bundle publication, normalized tracing, and outputs.
-  keywords: create_atlas, AtlasDocumentAdapter, JsonArtifactBundlePublisher, atlas_run.sqlite3, summary, rollback, trace
+  keywords: create_atlas, AtlasDocumentAdapter, JsonArtifactBundlePublisher, unsupported inventory, atlas_run.sqlite3, summary, rollback, trace
 
 - id: workflow-harmonization
   title: [Harmonization workflow](codebase.md#workflow-harmonization)

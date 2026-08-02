@@ -386,9 +386,10 @@ def test_filter_accessions_keeps_arrayexpress_when_selected() -> None:
         {"datalink_id": "ERR1", "datalink_id_scheme": "ENA"},
     ]
 
-    assert AtlasCollector(metadata_repositories=["arrayexpress"]).filter_accessions(
-        records
-    ) == [
+    assert AtlasCollector(
+        metadata_repositories=["arrayexpress"],
+        metadata_handlers={"arrayexpress": FakeArrayExpressWrapper},
+    ).filter_accessions(records) == [
         {"datalink_id": "E-MTAB-1", "datalink_id_scheme": "ArrayExpress"},
         {"datalink_id": "E-GEOD-1", "datalink_id_scheme": ""},
         {"datalink_id": "E-MEXP-1", "datalink_id_scheme": ""},
@@ -438,7 +439,10 @@ def test_metadata_repository_returns_none_for_unhandled_records() -> None:
 
 
 def test_metadata_repository_detects_arrayexpress_records() -> None:
-    collector = AtlasCollector(metadata_repositories=["arrayexpress"])
+    collector = AtlasCollector(
+        metadata_repositories=["arrayexpress"],
+        metadata_handlers={"arrayexpress": FakeArrayExpressWrapper},
+    )
 
     assert (
         collector.metadata_repository(

@@ -146,14 +146,17 @@ class AtlasCollector:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
         )
-        filtered_accessions = [
-            record
-            for record in accessions
+        filtered_accessions = []
+        for record in accessions:
             if self.is_handled_accession(
                 record=record,
                 metadata_repositories=selected_repositories,
-            )
-        ]
+            ):
+                filtered_accessions.append(record)
+                continue
+            repository = self.unsupported_metadata_repository(record)
+            if repository is not None:
+                filtered_accessions.append(self._unsupported_record(record, repository))
         logger.info(
             "Atlas accession filter stats input_accessions=%s output_accessions=%s dropped_accessions=%s",
             len(accessions),
@@ -190,6 +193,9 @@ class AtlasCollector:
         skipped_records = 0
 
         for record in jsons:
+            if str(record.get("metadata_status") or "").lower() == "unsupported":
+                records.append(record)
+                continue
             repository = self.metadata_repository(
                 record=record,
                 metadata_repositories=selected_repositories,
@@ -239,6 +245,9 @@ class AtlasCollector:
         records = []
         grouped = {}
         for record in jsons:
+            if str(record.get("metadata_status") or "").lower() == "unsupported":
+                records.append(record)
+                continue
             repository = self.metadata_repository(record, selected)
             if repository is not None:
                 grouped.setdefault(repository, []).append(record)
@@ -263,15 +272,44 @@ class AtlasCollector:
             metadata_repositories=metadata_repositories
         )
 
-        if "geo" in selected_repositories and self._is_geo_accession(record=record):
+        if (
+            "geo" in selected_repositories
+            and self._handler_status("geo") == "supported"
+            and self._is_geo_accession(record=record)
+        ):
             return "geo"
 
-        if "arrayexpress" in selected_repositories and self._is_arrayexpress_accession(
-            record=record
+        if (
+            "arrayexpress" in selected_repositories
+            and self._handler_status("arrayexpress") == "supported"
+            and self._is_arrayexpress_accession(record=record)
         ):
             return "arrayexpress"
 
         return None
+
+    def unsupported_metadata_repository(self, record: dict) -> str | None:
+        repository = str(record.get("accession_repository") or "").strip().lower()
+        if not repository or self._handler_status(repository) == "supported":
+            return None
+        return repository
+
+    @staticmethod
+    def _unsupported_record(record: dict, repository: str) -> dict:
+        return {
+            **record,
+            "metadata_repository": repository,
+            "metadata_status": "unsupported",
+            "accession_metadata": None,
+        }
+
+    def _handler_status(self, repository: str) -> str:
+        handler_factory = self._metadata_handlers.get(repository)
+        if handler_factory is None:
+            return "unsupported"
+        return str(
+            getattr(handler_factory, "metadata_handler_status", "supported")
+        ).lower()
 
     def _is_geo_accession(self, record: dict) -> bool:
         datalink_id_scheme = str(record.get("datalink_id_scheme", "")).upper()

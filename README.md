@@ -120,6 +120,8 @@ artifacts. Publication text is normalized into `publications` and referenced by
 Depending on the workflow, additional outputs include:
 
 - `atlas.summary.json`, written beside a successful `create-atlas --out atlas.json` result.
+- Aggregate unsupported-accession counts in Atlas summaries, plus an explicit
+  detailed inventory when `--unsupported-accessions-out` is supplied.
 - A harmonization-details JSON sidecar when requested.
 - Timestamped trace artifacts and one `atlas_run.sqlite3` when tracing is
   enabled. Lifecycle, artifact roles, item results, retry history, and run
@@ -158,6 +160,7 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--query TEXT` | Europe PMC query; repeat to preserve multiple queries in order. |
 | `--file PATH` | UTF-8 query file. Blank lines and lines beginning with `#` are ignored. |
 | `--out PATH` | Write the atlas JSON. If omitted, the method still runs but CLI result data is not printed. |
+| `--unsupported-accessions-out PATH` | Write the separate detailed inventory of detected accessions whose repository has no supported metadata handler. If omitted, only aggregate counts are retained in a create-atlas summary or development trace. |
 | `--max-publications N` | Positive global cap on raw searched publications before datalink fetching. |
 | `--skip-metadata` | Keep repository-filtered accessions without calling metadata handlers. |
 | `--review-before-metadata` | Review repository-filtered publications first and enrich only survivors; requires a theme. |
@@ -171,17 +174,20 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--review-strategy {direct,evidence_then_judgement}` | Review contract. Default `direct`; the other choice is the legacy two-stage strategy. |
 
 Publication-text discovery recognizes GEO, ArrayExpress/BioStudies, BioProject,
-INSDC/SRA/ENA/DRA, and BioSample object-level accessions. It records
+INSDC/SRA/ENA/DRA, BioSample, EGA, dbGaP, Broad Single Cell Portal, Synapse,
+PRIDE, MetaboLights, ImmPort, and NGDC object-level accessions. It also scans
+JATS link targets for curated CELLxGENE, Zenodo, Figshare, Dryad, Mendeley Data,
+and Dataverse identifiers while ignoring generic cloud/file-sharing URLs. It records
 `discovery_sources` and per-publication `accession_discovery_sources`, merges
-case-insensitive duplicates with Europe PMC Datalinks, and then applies the
-existing repository selection. Unsupported identifier families are
-checkpointed/logged but remain absent from the final atlas until a metadata
-handler is added.
+case-insensitive duplicates with Europe PMC Datalinks, and then applies metadata
+handler routing. Unsupported identifier families are retained in a terminal
+inventory, excluded before review and harmonization, and remain absent from the
+Atlas v2 datasets until a supported metadata handler is added.
 
-Selecting `arrayexpress` with metadata collection enabled requires an injected
-Python metadata handler. The installed CLI uses the default wrapper and raises
-an actionable `NotImplementedError`; use `--skip-metadata` for discovery-only
-retention or select `geo` for supported enrichment.
+The default ArrayExpress wrapper explicitly reports an unsupported metadata
+handler status. Discovered ArrayExpress records therefore follow the same
+terminal inventory path without invoking its placeholder metadata method.
+Applications can inject a supported handler to enable normal routing.
 
 `create-atlas` accepts every collection option above, then harmonizes the result:
 
@@ -290,6 +296,7 @@ Atlas.collect_datasets(
     dev_out_dir=".dev", run_id=None,
     review_before_metadata=False, stop_before_review=False,
     scrape_fulltext_accessions=True,
+    unsupported_accessions_out=None,
 )
 ```
 
@@ -299,6 +306,7 @@ Atlas.collect_datasets(
 - `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
 - `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.
 - `scrape_fulltext_accessions=True` supplements Europe PMC Datalinks with registry accessions discovered in available full text; set it to `False` for Datalinks-only discovery.
+- `unsupported_accessions_out` optionally writes the terminal unsupported inventory; omitting it keeps normal collection output limited to Atlas v2 while traced runs retain the inventory internally.
 - `out` transactionally writes the same Atlas v2 mapping returned in memory.
 
 `Atlas.create_atlas(...)` runs collection and then harmonization:
@@ -314,10 +322,11 @@ Atlas.create_atlas(
     generate_queries=False, max_generated_queries=3,
     harmonization_options=None, review_before_metadata=False,
     scrape_fulltext_accessions=True,
+    unsupported_accessions_out=None,
 )
 ```
 
-Collection parameters behave as above. `harmonization_options` is forwarded to the ontology workflow, and `harmonization_details_out` writes its sidecar. When `out` is provided, the Atlas v2 document and derived summary are staged, validated, and published as one rollback-safe bundle. See the [harmonizer internals](docs/codebase.md#harmonizer).
+Collection parameters behave as above. `harmonization_options` is forwarded to the ontology workflow, and `harmonization_details_out` writes its sidecar. When `out` is provided, the Atlas v2 document and derived summary are staged, validated, and published as one rollback-safe bundle. The summary always reports unsupported counts; the detailed report is published only for `unsupported_accessions_out` or retained in a development trace. See the [harmonizer internals](docs/codebase.md#harmonizer).
 
 `Atlas.harmonize_datasets(...)` accepts an Atlas v2 mapping and returns a
 validated Atlas v2 copy with supported metadata harmonized. Legacy v1 stage

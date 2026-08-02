@@ -278,7 +278,12 @@ class AtlasFilterer:
         publication = {
             key: value
             for key, value in publication.items()
-            if key not in {"text", "text_source", "full_text_status"}
+            if key not in {
+                "text",
+                "text_source",
+                "full_text_status",
+                "full_text_links",
+            }
         }
 
         if publication_ref in publication_texts:

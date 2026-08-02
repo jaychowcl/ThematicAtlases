@@ -52,7 +52,16 @@ class AtlasDocumentService:
         return self._adapter.to_legacy(document)
 
     @staticmethod
-    def summary(document: AtlasDocument, atlas_path: str | Path | None) -> dict:
+    def summary(
+        document: AtlasDocument,
+        atlas_path: str | Path | None,
+        *,
+        unsupported_accessions_report: Mapping[str, Any] | None = None,
+        unsupported_accessions_path: str | Path | None = None,
+    ) -> dict:
+        unsupported_summary = dict(
+            (unsupported_accessions_report or {}).get("summary") or {}
+        )
         return {
             "schema_version": document.schema_version,
             "atlas_id": document.atlas.atlas_id,
@@ -62,6 +71,15 @@ class AtlasDocumentService:
             "publication_count": document.summary.publication_count,
             "completed_dataset_count": document.summary.completed_dataset_count,
             "failed_dataset_count": document.summary.failed_dataset_count,
+            "unsupported_accession_count": int(
+                unsupported_summary.get("accession_count", 0)
+            ),
+            "unsupported_accession_repository_counts": dict(
+                unsupported_summary.get("repository_counts") or {}
+            ),
+            "unsupported_accessions_path": None
+            if unsupported_accessions_path is None
+            else str(unsupported_accessions_path),
         }
 
     def publish(
@@ -70,14 +88,32 @@ class AtlasDocumentService:
         out: str | Path,
         *,
         include_summary: bool,
+        unsupported_accessions_report: Mapping[str, Any] | None = None,
+        unsupported_accessions_path: str | Path | None = None,
     ) -> dict:
         destination = Path(out)
-        summary = self.summary(document, destination)
+        summary = self.summary(
+            document,
+            destination,
+            unsupported_accessions_report=unsupported_accessions_report,
+            unsupported_accessions_path=unsupported_accessions_path,
+        )
         artifacts: dict[Path, Any] = {destination: document.to_mapping()}
         if include_summary:
             artifacts[summary_path(destination)] = summary
+        if unsupported_accessions_path is not None:
+            artifacts[Path(unsupported_accessions_path)] = dict(
+                unsupported_accessions_report or {}
+            )
         self._publisher.publish(artifacts)
         return summary
+
+    def publish_unsupported_accessions(
+        self,
+        report: Mapping[str, Any],
+        out: str | Path,
+    ) -> None:
+        self._publisher.publish({Path(out): dict(report)})
 
 
 __all__ = ["AtlasDocumentService"]

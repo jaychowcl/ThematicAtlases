@@ -186,3 +186,48 @@ def test_resume_reuses_final_without_calling_collaborators(tmp_path) -> None:
     summary = json.loads((run_dir / "07_summary.json").read_text(encoding="utf-8"))
     assert summary["dataset_count"] == 1
     assert summary["publication_count"] == 0
+
+
+def test_resume_reuses_traced_unsupported_inventory_in_summary_and_output(tmp_path) -> None:
+    unsupported_out = tmp_path / "unsupported.json"
+    run_dir = _run_dir(
+        tmp_path,
+        {
+            "atlas_out": None,
+            "theme": None,
+            "unsupported_accessions_out": str(unsupported_out),
+        },
+    )
+    final = {"accessions": [{"datalink_id": "GSE1"}], "publication_texts": {}}
+    report = {
+        "schema_version": "1.0",
+        "atlas_id": "atlas-run-1",
+        "run_id": "run-1",
+        "accessions": [
+            {
+                "datalink_id": "SCP259",
+                "metadata_repository": "single_cell_portal",
+                "metadata_status": "unsupported",
+            }
+        ],
+        "summary": {
+            "accession_count": 1,
+            "repository_counts": {"single_cell_portal": 1},
+        },
+    }
+    (run_dir / "06_final_atlas.json").write_text(json.dumps(final), encoding="utf-8")
+    (run_dir / "unsupported_accessions.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+
+    Atlas(metadata={}).resume(
+        dev_out_dir=str(tmp_path / "trace"), run_id="run-1"
+    )
+
+    summary = json.loads((run_dir / "07_summary.json").read_text(encoding="utf-8"))
+    assert summary["unsupported_accession_count"] == 1
+    assert summary["unsupported_accession_repository_counts"] == {
+        "single_cell_portal": 1
+    }
+    assert summary["unsupported_accessions_path"] == str(unsupported_out)
+    assert json.loads(unsupported_out.read_text(encoding="utf-8")) == report
