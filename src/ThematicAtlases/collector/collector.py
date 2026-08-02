@@ -13,7 +13,7 @@ from ThematicAtlases.collector.resume import (
 )
 
 ARRAYEXPRESS_ACCESSION_PREFIXES = ("E-MTAB", "E-GEOD", "E-MEXP")
-DEFAULT_METADATA_REPOSITORIES = ("geo",)
+DEFAULT_METADATA_REPOSITORIES = ("geo", "arrayexpress")
 GEO_ACCESSION_PREFIXES = ("GSE", "GSM", "GPL", "GDS")
 SUPPORTED_METADATA_REPOSITORIES = {"arrayexpress", "geo"}
 logger = logging.getLogger(__name__)
@@ -197,7 +197,8 @@ class AtlasCollector:
         repository_records = {}
         skipped_records = 0
 
-        for record in jsons:
+        for ordinal, original_record in enumerate(jsons):
+            record = {**original_record, "_atlas_discovery_ordinal": ordinal}
             if str(record.get("metadata_status") or "").lower() == "unsupported":
                 records.append(record)
                 continue
@@ -237,7 +238,7 @@ class AtlasCollector:
             len(records),
             skipped_records,
         )
-        return records
+        return self._deduplicate_repository_aliases(records)
 
     def available_accession_metadata(
         self,
@@ -249,7 +250,8 @@ class AtlasCollector:
         selected = self._selected_metadata_repositories(metadata_repositories)
         records = []
         grouped = {}
-        for record in jsons:
+        for ordinal, original_record in enumerate(jsons):
+            record = {**original_record, "_atlas_discovery_ordinal": ordinal}
             if str(record.get("metadata_status") or "").lower() == "unsupported":
                 records.append(record)
                 continue
@@ -262,11 +264,79 @@ class AtlasCollector:
                 records.extend(
                     handler.available_accession_metadata(repository_records, checkpoint_store)
                 )
-            elif repository == "arrayexpress":
-                records.extend(handler.collect_accession_metadata(repository_records))
             else:
                 records.extend(repository_records)
-        return records
+        return self._deduplicate_repository_aliases(records)
+
+    def _deduplicate_repository_aliases(self, records: list[dict]) -> list[dict]:
+        """Keep the first discovered record for linked GEO/ArrayExpress aliases."""
+        ordered = sorted(
+            records,
+            key=lambda record: int(record.get("_atlas_discovery_ordinal", len(records))),
+        )
+        result: list[dict] = []
+        alias_owners: dict[str, int] = {}
+        for record in ordered:
+            aliases = self._metadata_aliases(record)
+            owner_indexes = {
+                alias_owners[alias] for alias in aliases if alias in alias_owners
+            }
+            if owner_indexes:
+                owner_index = min(owner_indexes)
+                result[owner_index] = self._merge_alias_record(result[owner_index], record)
+                for alias in aliases | self._metadata_aliases(result[owner_index]):
+                    alias_owners[alias] = owner_index
+                continue
+            owner_index = len(result)
+            result.append(record)
+            for alias in aliases:
+                alias_owners[alias] = owner_index
+        return [
+            {key: value for key, value in record.items() if key != "_atlas_discovery_ordinal"}
+            for record in result
+        ]
+
+    @staticmethod
+    def _metadata_aliases(record: dict) -> set[str]:
+        aliases = {str(record.get("datalink_id") or "").strip().upper()}
+        package = record.get("accession_metadata")
+        series = package.get("series") if isinstance(package, dict) else None
+        accessions = series.get("accession") if isinstance(series, dict) else None
+        for accession in accessions if isinstance(accessions, list) else [accessions]:
+            value = accession.get("value") if isinstance(accession, dict) else accession
+            if value not in (None, ""):
+                aliases.add(str(value).strip().upper())
+        aliases.discard("")
+        return aliases
+
+    @staticmethod
+    def _merge_alias_record(first: dict, later: dict) -> dict:
+        merged = dict(first)
+        publications = []
+        for publication in [
+            *(first.get("publications") or []),
+            *(later.get("publications") or []),
+        ]:
+            if publication not in publications:
+                publications.append(publication)
+        if publications:
+            merged["publications"] = publications
+        datalinks = []
+        for record in (first, later):
+            candidates = [
+                *(record.get("original_datalinks") or []),
+                {
+                    "datalink_id": record.get("datalink_id", ""),
+                    "datalink_id_scheme": record.get("datalink_id_scheme", ""),
+                    "datalink_url": record.get("datalink_url", ""),
+                    "datalink_category": record.get("datalink_category", ""),
+                },
+            ]
+            for candidate in candidates:
+                if candidate not in datalinks:
+                    datalinks.append(candidate)
+        merged["original_datalinks"] = datalinks
+        return merged
 
     def metadata_repository(
         self,

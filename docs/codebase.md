@@ -1527,10 +1527,9 @@ Current responsibilities:
 - Call `EuropePMCWrapper.collect_accessions(queries=..., max_publications=..., max_publications_per_query=...)`.
 - Keep records handled by selected supported metadata repositories and retain
   scanner-identified unsupported repositories as terminal records.
-  `metadata_repositories=None` means GEO-only for supported metadata work.
+  `metadata_repositories=None` selects GEO and ArrayExpress.
 - Route only handlers declaring `metadata_handler_status="supported"` to
-  metadata collection. The default registry routes GEO normally; ArrayExpress
-  declares `unsupported` and is never called by the collector.
+  metadata collection. The default registry supports GEO and ArrayExpress.
 - Optionally write the intermediate collected accession list to `out`.
 - Validate repository selections against `geo` and `arrayexpress`.
 
@@ -1555,6 +1554,9 @@ Repository filtering behavior:
 - GSE normalization happens inside `GEOWrapper.collect_accession_metadata()`: GSE records remain GSE, GSM/GDS records resolve to their parent GSE, and GPL or unresolved records are removed.
 - Metadata repository handlers append repository metadata under each returned accession/project record. GEO stores parsed MINiML JSON in `accession_metadata`.
 - Multiple filtered records resolving to the same GSE collapse into one result. The merged result keeps first-seen GSE-level top-level values, deduplicates publications, records original datalink evidence in `original_datalinks`, and keeps the first available metadata package.
+- Linked E-GEOD/GSE identities collapse after repository parsing. Discovery
+  order selects the canonical record and later aliases contribute only unique
+  publications and original-datalink provenance.
 - GEO resolution and metadata downloads use per-item cross-process locks. New
   metadata checkpoints store provenance-independent packages; reuse rebuilds
   records from the latest accession snapshot so later publication links are not
@@ -1932,13 +1934,18 @@ sequential, with no parallel requests.
 <a id="arrayexpress-wrapper"></a>
 ### ArrayExpress Wrapper
 
-`ThematicAtlases.wrappers.ae.ArrayExpressWrapper` is an explicit unsupported
-boundary, not a placeholder data producer. Its
-`metadata_handler_status="unsupported"` prevents normal collector invocation;
-the guarded `collect_accession_metadata(jsons, checkpoint_store=None)` still
-raises `NotImplementedError` if called directly. Repository detection is
-retained in the terminal unsupported inventory; applications must inject a
-handler marked `supported` to enable ArrayExpress metadata collection.
+`ThematicAtlases.wrappers.ae.ArrayExpressWrapper` is a supported MSC adapter.
+For each normalized E-MTAB, E-GEOD, or E-MEXP accession it calls
+`ae2json().convert(source=accession, out=None, sdrf_sources=None)`, so BioStudies
+IDF/SDRF content remains in memory. It returns the common MINiML-compatible
+package plus validated `mage_tab.model` and round-trip evidence with
+`metadata_source="ae2json"`.
+
+`arrayexpress_metadata` checkpoints store provenance-independent packages and
+use item locks plus available/no-data/retryable/terminal states. Offline
+availability overlays completed checkpoints without constructing a converter
+or issuing network calls; current publications are rebuilt from the latest
+record snapshot.
 
 <a id="geo-wrapper"></a>
 ### GEO Wrapper

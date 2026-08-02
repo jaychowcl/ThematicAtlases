@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress identifiers can be routed to an injected handler, but the default wrapper rejects live metadata collection explicitly because no supported fetcher exists.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same core plus the enriched `mage_tab.model` contract.
 
 The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
 
@@ -173,7 +173,7 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--skip-metadata` | Keep repository-filtered accessions without calling metadata handlers. |
 | `--review-before-metadata` | Review repository-filtered publications first and enrich only survivors; requires a theme. |
 | `--scrape-fulltext-accessions`, `--no-scrape-fulltext-accessions` | Enable or disable deterministic accession discovery from Europe PMC XML, supported bioRxiv/medRxiv JATS, or abstract fallback. Enabled by default. |
-| `--metadata-repository {geo,arrayexpress}` | Select a repository; repeat to select both. Default: GEO only. |
+| `--metadata-repository {geo,arrayexpress}` | Select a repository; repeat as needed. Default: GEO and ArrayExpress. |
 | `--theme TEXT` | Inline thematic-review theme. |
 | `--theme-file PATH` | Read the theme from UTF-8 text; takes precedence over `--theme`. |
 | `--query-generator` | Generate additional queries from the theme; requires a theme and model credentials. |
@@ -192,10 +192,10 @@ handler routing. Unsupported identifier families are retained in a terminal
 inventory, excluded before review and harmonization, and remain absent from the
 Atlas v1 datasets until a supported metadata handler is added.
 
-The default ArrayExpress wrapper explicitly reports an unsupported metadata
-handler status. Discovered ArrayExpress records therefore follow the same
-terminal inventory path without invoking its placeholder metadata method.
-Applications can inject a supported handler to enable normal routing.
+The default ArrayExpress wrapper downloads BioStudies MAGE-TAB content into
+memory through MSC `ae2json`, checkpoints the parsed package, and passes the
+common and enriched metadata into harmonization. It creates no temporary IDF,
+SDRF, or JSON files.
 
 `create-atlas` requires a non-empty theme, defaults theme-derived query
 generation and thematic review on, then harmonizes the result. Explicit
@@ -455,8 +455,8 @@ logging options.
 
 Important defaults and configuration sources:
 
-- Omitting `metadata_repositories` or `--metadata-repository` selects the
-  GEO-only path. Repeat the option or pass a list to include `arrayexpress`.
+- Omitting `metadata_repositories` or `--metadata-repository` selects both GEO
+  and ArrayExpress. Pass an explicit list to restrict collection.
 - Publication review defaults to strategy `direct` and filter `none`. A
   non-`none` filter and `review_before_metadata` require a theme.
 - Query generation is opt-in and defaults to at most three generated queries.

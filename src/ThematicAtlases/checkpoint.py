@@ -26,6 +26,7 @@ STAGE_POLICIES = {
     "publication_text": "review",
     "geo_resolution": "metadata",
     "geo_metadata": "metadata",
+    "arrayexpress_metadata": "metadata",
     "pubmed_enrichment": "metadata",
     "sra_xml": "metadata",
     "ena_fastq": "metadata",

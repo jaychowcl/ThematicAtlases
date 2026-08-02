@@ -94,7 +94,7 @@ def test_configuration_documents_real_sources_and_credentials() -> None:
         "gcloud auth application-default login",
         "config/fibrosis_discovery_queries.json",
         "docs/theme_fibrosis.txt",
-        "GEO-only",
+        "GEO and ArrayExpress",
         "not a dotenv file",
         "There is no central application configuration file",
         "There is no Docker interface",

@@ -366,8 +366,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)
   anchor: arrayexpress-wrapper
-  purpose: Explicit fail-fast default boundary and injected-handler extension contract for ArrayExpress accessions.
-  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, NotImplementedError, metadata_handlers, injection
+  purpose: In-memory BioStudies MAGE-TAB collection through MSC, checkpoint states, and offline availability overlay.
+  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, E-MEXP, BioStudies, ae2json, mage_tab.model, arrayexpress_metadata
 
 - id: geo-wrapper
   title: [GEO Wrapper](codebase.md#geo-wrapper)

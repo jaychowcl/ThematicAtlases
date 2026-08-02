@@ -75,9 +75,10 @@ class TraceMetadataResumer:
             repositories,
         )
         logger.info(
-            "Metadata checkpoint stats before resolution=%s metadata=%s",
+            "Metadata checkpoint stats before resolution=%s geo_metadata=%s arrayexpress_metadata=%s",
             self._stage_counts(store, "geo_resolution"),
             self._stage_counts(store, "geo_metadata"),
+            self._stage_counts(store, "arrayexpress_metadata"),
         )
         collection_options = dict(
             jsons=accessions,
@@ -90,9 +91,10 @@ class TraceMetadataResumer:
         result = {"accessions": accessions, "publication_texts": {}}
         DevTraceWriter.existing(directory).write("resume_metadata_progress.json", result)
         logger.info(
-            "Metadata checkpoint stats after resolution=%s metadata=%s",
+            "Metadata checkpoint stats after resolution=%s geo_metadata=%s arrayexpress_metadata=%s",
             self._stage_counts(store, "geo_resolution"),
             self._stage_counts(store, "geo_metadata"),
+            self._stage_counts(store, "arrayexpress_metadata"),
         )
         logger.info(
             "Metadata snapshot complete accessions=%s progress_artifact=%s",

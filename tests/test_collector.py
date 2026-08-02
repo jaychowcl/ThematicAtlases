@@ -93,7 +93,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
     FakeGEOWrapper.accessions = []
     FakeGEOWrapper.jsons = None
 
-    assert AtlasCollector().collect_jsons(query=["a", "b"]) == [
+    assert AtlasCollector(metadata_repositories=["geo"]).collect_jsons(query=["a", "b"]) == [
         {
             "datalink_id": "GSE1",
             "datalink_id_scheme": "GEO",
@@ -121,6 +121,7 @@ def test_collect_jsons_passes_queries_to_epmc_wrapper(monkeypatch) -> None:
             "datalink_url": "https://example.org/GSE1",
             "datalink_category": "GEO",
             "publications": [{"source": "MED", "epmc_id": "1"}],
+            "_atlas_discovery_ordinal": 0,
         }
     ]
 
@@ -130,7 +131,9 @@ def test_collect_jsons_passes_max_publications_to_epmc_wrapper(monkeypatch) -> N
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
     FakeEuropePMCWrapper.max_publications = None
 
-    AtlasCollector().collect_jsons(query=["a"], max_publications=25)
+    AtlasCollector(metadata_repositories=["geo"]).collect_jsons(
+        query=["a"], max_publications=25
+    )
 
     assert FakeEuropePMCWrapper.queries == ["a"]
     assert FakeEuropePMCWrapper.max_publications == 25
@@ -140,7 +143,7 @@ def test_collect_jsons_can_disable_fulltext_accession_scraping(monkeypatch) -> N
     monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
 
-    AtlasCollector().collect_jsons(
+    AtlasCollector(metadata_repositories=["geo"]).collect_jsons(
         query=["a"],
         scrape_fulltext_accessions=False,
     )
@@ -148,7 +151,7 @@ def test_collect_jsons_can_disable_fulltext_accession_scraping(monkeypatch) -> N
     assert FakeEuropePMCWrapper.scrape_fulltext_accessions is False
 
 
-def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:
+def test_collect_jsons_defaults_to_geo_and_arrayexpress(monkeypatch) -> None:
     monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
     monkeypatch.setattr(
@@ -160,9 +163,7 @@ def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:
     FakeGEOWrapper.jsons = None
     FakeArrayExpressWrapper.jsons = None
 
-    result = AtlasCollector(metadata_repositories=["geo", "arrayexpress"]).collect_jsons(
-        query=["a"]
-    )
+    result = AtlasCollector().collect_jsons(query=["a"])
 
     assert [record["datalink_id"] for record in result] == ["GSE1", "E-MTAB-1"]
     assert result[1]["metadata_repository"] == "arrayexpress"
@@ -173,6 +174,7 @@ def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:
             "datalink_url": "https://example.org/GSE1",
             "datalink_category": "GEO",
             "publications": [{"source": "MED", "epmc_id": "1"}],
+            "_atlas_discovery_ordinal": 0,
         }
     ]
     assert FakeArrayExpressWrapper.jsons == [
@@ -182,6 +184,7 @@ def test_collect_jsons_can_keep_geo_and_arrayexpress(monkeypatch) -> None:
             "datalink_url": "https://example.org/E-MTAB-1",
             "datalink_category": "Functional Genomics Experiments",
             "publications": [{"source": "MED", "epmc_id": "2"}],
+            "_atlas_discovery_ordinal": 1,
         }
     ]
 
@@ -220,7 +223,9 @@ def test_collect_jsons_combines_query_and_file_lines(monkeypatch, tmp_path) -> N
     monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
 
-    AtlasCollector().collect_jsons(query=["a", "b"], file=str(query_file))
+    AtlasCollector(metadata_repositories=["geo"]).collect_jsons(
+        query=["a", "b"], file=str(query_file)
+    )
 
     assert FakeEuropePMCWrapper.queries == ["a", "b", "c", "d"]
 
@@ -229,7 +234,7 @@ def test_collect_jsons_passes_empty_queries_without_inputs(monkeypatch) -> None:
     monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
 
-    AtlasCollector().collect_jsons()
+    AtlasCollector(metadata_repositories=["geo"]).collect_jsons()
 
     assert FakeEuropePMCWrapper.queries == []
 
@@ -239,7 +244,9 @@ def test_collect_jsons_writes_result_to_outfile(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(collector_module, "EuropePMCWrapper", FakeEuropePMCWrapper)
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
 
-    AtlasCollector().collect_jsons(query=["a"], out=str(outfile))
+    AtlasCollector(metadata_repositories=["geo"]).collect_jsons(
+        query=["a"], out=str(outfile)
+    )
 
     assert '"datalink_id": "GSE1"' in outfile.read_text(encoding="utf-8")
 
@@ -250,7 +257,7 @@ def test_collect_jsons_can_skip_metadata_collection(monkeypatch) -> None:
     FakeGEOWrapper.accessions = []
     FakeGEOWrapper.jsons = None
 
-    assert AtlasCollector().collect_jsons(
+    assert AtlasCollector(metadata_repositories=["geo"]).collect_jsons(
         query=["a"],
         collect_metadata=False,
     ) == [
@@ -297,7 +304,7 @@ def test_filter_accessions_drops_unhandled_records() -> None:
         {"datalink_id": "ABC1", "datalink_id_scheme": ""},
     ]
 
-    assert AtlasCollector().filter_accessions(records) == []
+    assert AtlasCollector(metadata_repositories=["geo"]).filter_accessions(records) == []
 
 
 def test_filter_accessions_preserves_recognized_unsupported_repositories() -> None:
@@ -357,7 +364,7 @@ def test_collect_accession_metadata_never_calls_unsupported_handler() -> None:
     assert collector.collect_accession_metadata([record]) == [record]
 
 
-def test_default_arrayexpress_handler_is_preserved_as_unsupported() -> None:
+def test_default_arrayexpress_handler_is_supported() -> None:
     record = {
         "datalink_id": "E-MTAB-1",
         "datalink_id_scheme": "ArrayExpress",
@@ -367,14 +374,7 @@ def test_default_arrayexpress_handler_is_preserved_as_unsupported() -> None:
 
     assert AtlasCollector(metadata_repositories=["arrayexpress"]).filter_accessions(
         [record]
-    ) == [
-        {
-            **record,
-            "metadata_repository": "arrayexpress",
-            "metadata_status": "unsupported",
-            "accession_metadata": None,
-        }
-    ]
+    ) == [record]
 
 
 def test_filter_accessions_keeps_arrayexpress_when_selected() -> None:
@@ -489,7 +489,54 @@ def test_collect_accession_metadata_routes_geo_records(monkeypatch) -> None:
         }
     ]
     assert FakeGEOWrapper.accessions == ["GSE1"]
-    assert FakeGEOWrapper.jsons == records
+    assert FakeGEOWrapper.jsons == [{**records[0], "_atlas_discovery_ordinal": 0}]
+
+
+def test_linked_egeod_and_gse_keep_first_discovered_metadata() -> None:
+    class LinkedHandler:
+        metadata_handler_status = "supported"
+
+        def collect_accession_metadata(self, jsons, **_kwargs):
+            return [{
+                **record,
+                "metadata_repository": (
+                    "arrayexpress"
+                    if str(record["datalink_id"]).startswith("E-")
+                    else "geo"
+                ),
+                "metadata_status": "available",
+                "accession_metadata": {
+                    "series": {"accession": [
+                        {"value": "E-GEOD-1"}, {"value": "GSE1"}
+                    ]}
+                },
+            } for record in jsons]
+
+    collector = AtlasCollector(
+        metadata_handlers={"geo": LinkedHandler, "arrayexpress": LinkedHandler}
+    )
+    records = [
+        {
+            "datalink_id": "E-GEOD-1",
+            "datalink_id_scheme": "ArrayExpress",
+            "publications": [{"pmid": "1"}],
+        },
+        {
+            "datalink_id": "GSE1",
+            "datalink_id_scheme": "GEO",
+            "publications": [{"pmid": "2"}],
+        },
+    ]
+
+    result = collector.collect_accession_metadata(records)
+
+    assert len(result) == 1
+    assert result[0]["datalink_id"] == "E-GEOD-1"
+    assert result[0]["metadata_repository"] == "arrayexpress"
+    assert result[0]["publications"] == [{"pmid": "1"}, {"pmid": "2"}]
+    assert [item["datalink_id"] for item in result[0]["original_datalinks"]] == [
+        "E-GEOD-1", "GSE1"
+    ]
 
 
 def test_collect_jsons_logs_progress_and_stats(monkeypatch, caplog) -> None:
@@ -497,7 +544,7 @@ def test_collect_jsons_logs_progress_and_stats(monkeypatch, caplog) -> None:
     monkeypatch.setattr(collector_module, "GEOWrapper", FakeGEOWrapper)
     caplog.set_level(logging.INFO, logger=collector_module.__name__)
 
-    AtlasCollector().collect_jsons(query=["a", "b"])
+    AtlasCollector(metadata_repositories=["geo"]).collect_jsons(query=["a", "b"])
 
     assert "stage=query-loading" in caplog.text
     assert "stage=collect-accessions" in caplog.text
