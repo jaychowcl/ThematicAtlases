@@ -47,9 +47,25 @@ def test_readme_uses_the_required_user_facing_structure() -> None:
         "### Workflow scripts",
         "### Configuration",
         "### Code flow",
+        "## Testing",
         "## Docs",
         "## Authors",
     ]
+
+
+def test_readme_and_handoff_record_current_v1_and_test_evidence() -> None:
+    readme = README.read_text(encoding="utf-8")
+    codebase = CODEBASE.read_text(encoding="utf-8")
+    index = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+
+    for document in (readme, codebase):
+        assert "Atlas document schema 1.0" in document
+        assert "H5AD metadata schema 1.0" in document
+        assert "2026-08-02" in document
+        assert "464 passed, 3 skipped" in document
+    for stale in ("meta-standards-converter 4", "H5AD metadata schema 3.0"):
+        assert stale not in index
+        assert stale not in codebase
 
 
 def test_readme_preserves_historical_branding_and_attribution() -> None:

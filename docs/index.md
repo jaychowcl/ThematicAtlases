@@ -21,7 +21,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [System Context And Boundaries](codebase.md#system-context-and-boundaries)
   anchor: system-context-and-boundaries
   purpose: External actors, delegated packages, persistence, network, trust, privacy, and failure ownership.
-  keywords: Europe PMC, NCBI, ENA, Google ADC, agentic-curator, meta-standards-converter 4, H5AD metadata schema 3.0, SQLite, privacy
+  keywords: Europe PMC, NCBI, ENA, Google ADC, agentic-curator 1.x, meta-standards-converter 1.x, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy
 
 - id: architectural-decisions
   title: [Architectural Decisions](codebase.md#architectural-decisions)
@@ -270,8 +270,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: runtime-and-packaging
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
-  purpose: Python, setuptools, independent v1 dependencies, editable-install, canonical offline test, and console-command contract.
-  keywords: pyproject, Python 3.10, version 1.0.0, requirements, independent dependencies, pytest, fail-closed network, allow_subprocess, thematic-atlas
+  purpose: Python, setuptools, independent v1 dependencies, editable-install, dated deterministic test evidence, and console-command contract.
+  keywords: pyproject, Python 3.10, version 1.0.0, 2026-08-02, 464 passed, pytest, fail-closed network, allow_subprocess, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)
