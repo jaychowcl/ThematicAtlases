@@ -1,6 +1,7 @@
 from pathlib import Path
 import ast
 import importlib
+import inspect
 import tomllib
 
 
@@ -66,3 +67,9 @@ def test_resume_wiring_has_no_method_local_or_mutual_component_imports() -> None
     assert offenders == []
     assert "ThematicAtlases.collector" not in paths[1].read_text(encoding="utf-8")
     assert "ThematicAtlases.filterer" not in paths[3].read_text(encoding="utf-8")
+
+
+def test_public_collector_handler_boundary_has_explicit_return_type() -> None:
+    from ThematicAtlases.collector import AtlasCollector
+
+    assert inspect.signature(AtlasCollector.metadata_handler).return_annotation == "Any"

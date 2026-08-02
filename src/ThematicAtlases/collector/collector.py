@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import json
 import logging
+from typing import Any
 
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
@@ -329,7 +332,8 @@ class AtlasCollector:
             ARRAYEXPRESS_ACCESSION_PREFIXES
         )
 
-    def metadata_handler(self, repository: str):
+    def metadata_handler(self, repository: str) -> Any:
+        """Instantiate the selected repository metadata handler or fail closed."""
         handler_factory = self._metadata_handlers.get(repository)
 
         if handler_factory is not None:
