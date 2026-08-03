@@ -94,6 +94,35 @@ class RecordingCollectionAtlas:
         return {"accessions": [], "publication_texts": {}}
 
 
+def test_accession_pruning_cli_defaults_on_for_collection(monkeypatch) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    assert main([
+        "collect-datasets",
+        "--query",
+        "fibrosis",
+        "--theme",
+        "fibrosis theme",
+    ]) == 0
+
+    assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is True
+
+
+def test_accession_pruning_cli_can_be_disabled_for_creation(monkeypatch) -> None:
+    RecordingCollectionAtlas.calls = []
+    monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
+
+    assert main([
+        "create-atlas",
+        "--theme",
+        "fibrosis theme",
+        "--no-prune-accessions",
+    ]) == 0
+
+    assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is False
+
+
 def test_query_generator_flag_is_forwarded_to_collect_method(
     tmp_path,
     monkeypatch,

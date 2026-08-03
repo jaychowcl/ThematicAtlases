@@ -565,7 +565,7 @@ def test_publication_context_aggregates_every_gse_for_shared_publication() -> No
     assert contexts["1"]["accessions"] == ["GSE1", "GSE2"]
 
 
-def test_direct_review_traces_accession_removals_without_filtering_them(
+def test_direct_review_traces_and_applies_accession_removals(
     tmp_path,
 ) -> None:
     store = CheckpointStore(tmp_path / "resume.sqlite")
@@ -609,7 +609,76 @@ def test_direct_review_traces_accession_removals_without_filtering_them(
         publication_texts=texts,
         review_filter="not_relevant",
     )
+    assert [record["datalink_id"] for record in filtered] == ["GSE1"]
+
+
+def test_accession_pruning_can_be_disabled() -> None:
+    accessions = [
+        {
+            "datalink_id": accession,
+            "publications": [{"publication_text_ref": "1"}],
+        }
+        for accession in ("GSE1", "GSE2")
+    ]
+    publication_texts = {
+        "1": {
+            "agentic_curator": {
+                "judgement": "relevant",
+                "accessions_to_remove": [{"accession": "GSE2"}],
+            }
+        }
+    }
+
+    filtered, _ = PublicationTextReviewer().filtered_result(
+        accessions=accessions,
+        publication_texts=publication_texts,
+        review_filter="none",
+        prune_accessions=False,
+    )
+
     assert [record["datalink_id"] for record in filtered] == ["GSE1", "GSE2"]
+
+
+def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
+    accessions = [
+        {
+            "datalink_id": "gse2",
+            "publications": [
+                {"publication_text_ref": "rejecting"},
+                {"publication_text_ref": "retaining"},
+            ],
+        }
+    ]
+    publication_texts = {
+        "rejecting": {
+            "agentic_curator": {
+                "judgement": "relevant",
+                "accessions_to_remove": [
+                    {"accession": " GSE2 ", "reason": "Mouse-only dataset."}
+                ],
+            }
+        },
+        "retaining": {
+            "agentic_curator": {
+                "judgement": "relevant",
+                "accessions_to_remove": [],
+            }
+        },
+    }
+
+    filtered, texts = PublicationTextReviewer().filtered_result(
+        accessions=accessions,
+        publication_texts=publication_texts,
+        review_filter="none",
+    )
+
+    assert filtered == [
+        {
+            "datalink_id": "gse2",
+            "publications": [{"publication_text_ref": "retaining"}],
+        }
+    ]
+    assert set(texts) == {"retaining"}
 
 
 def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
