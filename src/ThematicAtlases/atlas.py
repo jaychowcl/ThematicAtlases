@@ -20,6 +20,7 @@ from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 from ThematicAtlases.summary import build_atlas_summary
 from ThematicAtlases.trace import DevTraceWriter
+from ThematicAtlases.trace_fork import fork_metadata_trace
 from ThematicAtlases.unsupported_accessions import (
     build_unsupported_accessions_report,
     partition_unsupported_accessions,
@@ -116,6 +117,7 @@ class Atlas:
         unsupported_accessions_out: str | None = None,
         thematic_review: bool = True,
         prune_accessions: bool = True,
+        stop_after: str | None = None,
     ) -> dict:
         if theme is None or not theme.strip():
             raise ValueError("create_atlas requires a non-empty theme")
@@ -132,6 +134,16 @@ class Atlas:
             raise ValueError(
                 "review_before_metadata requires thematic_review to be enabled"
             )
+        if stop_after not in {None, "metadata"}:
+            raise ValueError("stop_after must be None or 'metadata'")
+        if stop_after == "metadata" and not collect_metadata:
+            raise ValueError("stop_after='metadata' requires collect_metadata=True")
+        if stop_after == "metadata" and review_before_metadata:
+            raise ValueError(
+                "stop_after='metadata' requires review_before_metadata=False"
+            )
+        if stop_after == "metadata" and not dev_trace:
+            raise ValueError("stop_after='metadata' requires dev_trace=True")
         if self._cache_ontologies:
             self._preflight_credentials()
         self._prepare_ontology_cache()
@@ -178,6 +190,7 @@ class Atlas:
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
                     "unsupported_accessions_out": unsupported_accessions_out,
                     "thematic_review": thematic_review,
+                    "stop_after": stop_after,
                 },
             )
             trace.run_store.set_run_status(run_id, "running")
@@ -203,6 +216,8 @@ class Atlas:
             _resolution=collection_resolution,
             _thematic_review=thematic_review,
         )
+        if stop_after == "metadata":
+            collect_kwargs["stop_before_review"] = True
         if max_publications_per_query is not None:
             collect_kwargs["max_publications_per_query"] = (
                 max_publications_per_query
@@ -212,6 +227,25 @@ class Atlas:
         datasets = self._collect_for_internal(collect_kwargs)
         if trace is not None:
             trace.run_store.set_stage_state(run_id, "collection", "complete")
+        if stop_after == "metadata":
+            published = self._write_resumed_outputs(
+                result=datasets,
+                out=None,
+                trace=trace,
+                artifact_role="collection_snapshot",
+            )
+            trace.run_store.record_event(
+                run_id,
+                "run_paused",
+                stage="collection",
+                detail={"stop_after": "metadata"},
+            )
+            logger.info(
+                "Atlas create_atlas paused stop_after=metadata accessions=%s",
+                len(datasets.get("accessions", [])),
+            )
+            return published
+        if trace is not None:
             trace.run_store.set_stage_state(run_id, "harmonization", "running")
         logger.info(
             "Atlas create_atlas progress stage=collect-datasets-complete accessions=%s publication_texts=%s",
@@ -332,6 +366,23 @@ class Atlas:
             out,
         )
         return result_mapping
+
+    def fork_run(
+        self,
+        *,
+        dev_out_dir: str,
+        run_id: str,
+        new_run_id: str,
+        overrides: dict | None = None,
+    ) -> Path:
+        """Fork a completed metadata checkpoint for alternate downstream work."""
+
+        return fork_metadata_trace(
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
+            new_run_id=new_run_id,
+            overrides=overrides,
+        )
 
     def resume(
         self,
@@ -1461,7 +1512,7 @@ class Atlas:
             )
             run_status = (
                 RunStatus.RUNNING
-                if manifest.get("command") == "collect-datasets"
+                if artifact_role == "collection_snapshot"
                 else self._final_run_status(result)
             )
             document = self._documents.assemble(
@@ -1541,7 +1592,10 @@ class Atlas:
         trace.write(summary_name, summary)
         trace.write("unsupported_accessions.json", unsupported_report)
         trace.register_artifact(artifact_role, atlas_name)
-        trace.register_artifact("summary", summary_name)
+        trace.register_artifact(
+            "collection_summary" if artifact_role == "collection_snapshot" else "summary",
+            summary_name,
+        )
         trace.register_artifact(
             "unsupported_accessions", "unsupported_accessions.json"
         )

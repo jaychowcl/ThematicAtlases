@@ -399,15 +399,17 @@ combined with Atlas-managed ontology-store/cache options.
 
 | Member | Exact signature | Return, failure, and side effects |
 | --- | --- | --- |
-| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=True, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, thematic_review=True, prune_accessions=True) -> dict` | Requires a nonblank theme and returns a validated Atlas v1 mapping after collection and harmonization. Generation, thematic review, and accession-level pruning default on independently; pruning can be disabled for audit runs. Unsupported discoveries are terminal before review/harmonization; summaries include their aggregate counts and the detailed inventory is written only to an explicit path or trace. When `out` is set, related JSON publishes as one rollback-safe bundle. Invalid options/contracts, credentials, cache preparation, files, publication, or uncaught provider failures raise. |
+| [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=True, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, thematic_review=True, prune_accessions=True, stop_after=None) -> dict` | Requires a nonblank theme and normally returns a validated Atlas v1 mapping after collection and harmonization. `stop_after="metadata"` requires a metadata-first trace, publishes only a running collection snapshot, and leaves review/harmonization for resume. Generation, thematic review, and accession-level pruning default on independently. Unsupported discoveries are terminal before review/harmonization. Complete output bundles remain rollback-safe. Invalid options/contracts, credentials, cache preparation, files, publication, or uncaught provider failures raise. |
 | [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, prune_accessions=True, _trace_writer=None) -> dict` | Returns a validated Atlas v1 mapping with run status `running`; `out` atomically receives the same mapping. Accession exclusions are enforced by default independently from the publication-level review filter. An explicit unsupported path writes the separate inventory; a traced collection retains it and registers `collection_snapshot`, never `final_atlas`. Validates aligned positive limits, review/theme combinations, query generation, and trace fingerprints before eligible network/model work. `_trace_writer` is internal. |
 | [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Requires Atlas v1 input, projects it to the internal stage contract, and returns validated v1 with harmonized status/details. Legacy/unknown wire fields fail validation. Unsupported/null metadata is `not_run`; caught item failures retain original metadata as `error`. |
 | [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects a v1 trace, requires authoritative `atlas_run.sqlite3`, optionally archives/requeues selected item-cache rows, reuses completed boundaries, and returns/publishes Atlas v1. Missing/ambiguous/incompatible runs, fingerprint mismatches, or invalid retry requests raise. |
+| [`Atlas.fork_run`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, new_run_id, overrides=None) -> Path` | Atomically clones a metadata-paused create trace with a new ledger identity. It preserves discovery/text/metadata checkpoints, records source provenance, accepts downstream-only overrides, and rejects discovery changes, existing destinations, incomplete sources, and traces containing downstream work. |
 | [`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | Archives the prior fingerprint and installs aligned normalized queries atomically. Empty/misaligned limits, active work, or unsafe state raise. |
 | [`Atlas.archive_existing_runs`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | Returns published archive paths after verification; active runs, symlinks, unsafe names, nested roots, and collisions raise without deleting sources. |
 
 [`ThematicAtlases.cli_atlas.main(argv=None) -> int`](../src/ThematicAtlases/cli_atlas.py)
-parses `collect-datasets`, `create-atlas`, `harmonize-datasets`, and `resume`;
+parses `collect-datasets`, `create-atlas`, `harmonize-datasets`, `resume`, and
+`fork-run`;
 success returns `0`, parser errors terminate with argparse status `2`, and
 workflow exceptions propagate. Complete flags are in the
 [README CLI guide](../README.md#cli-guide). Each
@@ -667,7 +669,8 @@ Definitions and decisive calls:
 ### Workflow 2: Atlas creation
 
 Atlas creation composes collection and harmonization and writes the requested
-atlas, summary, details, and optional trace.
+atlas, summary, details, and optional trace. A metadata stop is an explicit
+resumable boundary before thematic review and harmonization.
 
 ```text
 create_atlas -> preflight/cache -> collect -> harmonize
@@ -691,15 +694,18 @@ create_atlas -> preflight/cache -> collect -> harmonize
    preparation raises before collection.
 3. It invokes the mature collection stage behind the public adapter; an empty
    collection remains a valid empty Atlas v1 document.
-4. It invokes the mature harmonization stage; caught item failures retain
+4. With `stop_after="metadata"`, it registers a collection snapshot and returns
+   with run status `running`; no review, harmonization, or final marker exists.
+   A normal resume reuses collection and continues downstream.
+5. It otherwise invokes the mature harmonization stage; caught item failures retain
    original metadata and become v1 diagnostics/status.
-5. `AtlasDocumentAdapter` assembles and validates the final aggregate; the
+6. `AtlasDocumentAdapter` assembles and validates the final aggregate; the
    unsupported inventory is deliberately outside Atlas v1 datasets.
-6. The summary includes aggregate unsupported counts. When `out` is set,
+7. The summary includes aggregate unsupported counts. When `out` is set,
    `JsonArtifactBundlePublisher` stages and parses the Atlas plus derived summary
    and any explicitly requested detailed inventory, backs up prior files, then replaces them. A failed
    replacement restores the full prior pair or leaves no first-run artifacts.
-7. A trace writes readable stage files, including
+8. A trace writes readable stage files, including
    `unsupported_accessions.json`, and registers `final_atlas`, `summary`,
    `unsupported_accessions`, and details roles in `atlas_run.sqlite3`; filesystem errors propagate.
 
@@ -820,6 +826,10 @@ select trace -> validate fingerprint -> retry request?
    immediately. Collection-only publication registers `collection_snapshot`;
    complete publication registers `final_atlas`. Retryable item failures remain
    resumable; terminal outcomes are reused unless explicitly selected.
+6. `fork_run` may branch a trace paused after metadata. It creates a new ledger
+   identity and copies only upstream checkpoints; downstream overrides are
+   fingerprinted and source provenance is retained. Manual directory copying is
+   incompatible because the embedded SQLite run ID would not match the new path.
 
 #### Pseudocode
 
@@ -1897,7 +1907,8 @@ change.
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--stop-after metadata] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
+- `fork-run --dev-out-dir DIR --run-id SOURCE --new-run-id DEST --config JSON`
 - `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 - `resume [--verbose] [--log-file LOG_FILE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`

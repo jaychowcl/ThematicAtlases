@@ -122,6 +122,7 @@ def test_cli_guide_lists_every_registered_command_and_option() -> None:
         "create-atlas",
         "harmonize-datasets",
         "resume",
+        "fork-run",
     }
     assert "placeholder" not in subparsers.choices[
         "harmonize-datasets"
@@ -154,11 +155,12 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "scrape_fulltext_accessions", "unsupported_accessions_out",
         "prune_accessions", "_trace_writer",
     ]
-    assert list(inspect.signature(Atlas.create_atlas).parameters)[-4:] == [
+    assert list(inspect.signature(Atlas.create_atlas).parameters)[-5:] == [
         "scrape_fulltext_accessions",
         "unsupported_accessions_out",
         "thematic_review",
         "prune_accessions",
+        "stop_after",
     ]
     assert list(inspect.signature(Atlas.harmonize_datasets).parameters) == [
         "self", "datasets", "harmonization_details_out", "harmonization_options"
@@ -175,6 +177,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "`Atlas.collect_datasets(...)`",
         "`Atlas.harmonize_datasets(...)`",
         "`Atlas.resume(...)`",
+        "`Atlas.fork_run(...)`",
         "`Atlas.amend_queries(...)`",
         "`Atlas.archive_existing_runs(...)`",
         "`PublicationTextReviewer.resume(...)`",

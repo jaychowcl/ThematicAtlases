@@ -3,6 +3,7 @@ import json
 import pytest
 
 from ThematicAtlases.atlas import Atlas
+from ThematicAtlases import cli_atlas
 from ThematicAtlases.trace import DevTraceWriter
 
 
@@ -67,6 +68,75 @@ def test_create_atlas_can_pause_after_metadata_as_resumable_collection(tmp_path)
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["command"] == "create-atlas"
     assert manifest["stop_after"] == "metadata"
+
+
+def test_resume_continues_paused_create_run_without_recollecting_metadata(tmp_path):
+    events = []
+
+    class Collector:
+        def collect_jsons(self, **kwargs):
+            events.append(("collect", kwargs["collect_metadata"]))
+            return [
+                {
+                    "datalink_id": "GSE1",
+                    "accession_metadata": {"title": "downloaded metadata"},
+                    "publications": [{"pmid": "1"}],
+                }
+            ]
+
+    class Filterer:
+        def filter_jsons(self, jsons=None, theme=None, review_filter=None, **kwargs):
+            events.append(("filter", theme, review_filter))
+            return {
+                "accessions": [
+                    {
+                        **jsons[0],
+                        "publications": [
+                            {**jsons[0]["publications"][0], "publication_text_ref": "1"}
+                        ],
+                    }
+                ],
+                "publication_texts": {"1": {"text": "publication body"}},
+            }
+
+        def accessions_with_publication_text_refs(self, accessions, publication_texts):
+            return accessions
+
+    class Harmonizer:
+        def harmonize_datasets(self, datasets=None, **kwargs):
+            events.append(("harmonize", len(datasets["accessions"])))
+            return datasets, []
+
+    class Credentials:
+        def check(self):
+            events.append(("credentials",))
+
+    atlas = Atlas(
+        metadata={"atlas_id": "fibrosis"},
+        collector=Collector(),
+        filterer=Filterer(),
+        harmonizer=Harmonizer(),
+        credential_checker=Credentials(),
+    )
+    atlas.create_atlas(
+        query=["fibrosis"],
+        theme="human fibrosis",
+        review_filter="not_relevant",
+        generate_queries=False,
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+        stop_after="metadata",
+    )
+    run_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
+
+    result = atlas.resume(dev_out_dir=str(tmp_path), run_id=run_dir.name)
+
+    assert events.count(("collect", True)) == 1
+    assert ("filter", None, "none") in events
+    assert ("filter", "human fibrosis", "not_relevant") in events
+    assert ("harmonize", 1) in events
+    assert result["run"]["status"] == "complete"
+    assert (run_dir / "06_final_atlas.json").is_file()
 
 
 @pytest.mark.parametrize(
@@ -204,3 +274,58 @@ def test_fork_run_rejects_discovery_overrides(tmp_path, override):
             new_run_id="invalid-fork",
             overrides=override,
         )
+
+
+def test_cli_forwards_metadata_pause_and_safe_fork(monkeypatch, tmp_path):
+    calls = []
+
+    class RecordingAtlas:
+        def __init__(self, metadata):
+            pass
+
+        def create_atlas(self, **kwargs):
+            calls.append(("create", kwargs))
+
+        def fork_run(self, **kwargs):
+            calls.append(("fork", kwargs))
+
+    monkeypatch.setattr(cli_atlas, "Atlas", RecordingAtlas)
+    assert cli_atlas.main(
+        [
+            "create-atlas",
+            "--query",
+            "fibrosis",
+            "--theme",
+            "human fibrosis",
+            "--no-query-generator",
+            "--dev-trace",
+            "--stop-after",
+            "metadata",
+        ]
+    ) == 0
+    assert calls[0][1]["stop_after"] == "metadata"
+
+    config = tmp_path / "fork.json"
+    config.write_text(json.dumps({"theme": "alternate"}), encoding="utf-8")
+    assert cli_atlas.main(
+        [
+            "fork-run",
+            "--dev-out-dir",
+            str(tmp_path),
+            "--run-id",
+            "source",
+            "--new-run-id",
+            "alternate",
+            "--config",
+            str(config),
+        ]
+    ) == 0
+    assert calls[1] == (
+        "fork",
+        {
+            "dev_out_dir": str(tmp_path),
+            "run_id": "source",
+            "new_run_id": "alternate",
+            "overrides": {"theme": "alternate"},
+        },
+    )

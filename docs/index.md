@@ -77,7 +77,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)
   anchor: interface-thematic-atlas-cli
   purpose: Installed command registration, subcommands, theme-first creation defaults, option forwarding, outputs, and failures.
-  keywords: thematic-atlas, collect-datasets, create-atlas, theme, query generation, thematic review, harmonize-datasets, resume, argparse
+  keywords: thematic-atlas, collect-datasets, create-atlas, theme, query generation, thematic review, harmonize-datasets, resume, fork-run, stop-after, metadata, argparse
 
 - id: interface-python-atlas
   title: [Python Atlas interface](codebase.md#interface-python-atlas)
@@ -227,7 +227,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Resume and retry workflow](codebase.md#workflow-resume-and-retry)
   anchor: workflow-resume-and-retry
   purpose: Trace selection, fingerprint validation, selective requeue, reuse, and continuation.
-  keywords: resume, retry-stage, retry-item, degraded, CheckpointStore
+  keywords: resume, retry-stage, retry-item, degraded, metadata pause, fork-run, CheckpointStore
 
 - id: workflow-query-amendment-and-archive
   title: [Query amendment and archive workflow](codebase.md#workflow-query-amendment-and-archive)

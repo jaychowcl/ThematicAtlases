@@ -215,6 +215,7 @@ It additionally supports:
 | `--dev-trace` | Write a timestamped manifest, SQLite checkpoints, readable stage artifacts, final atlas, and summary. |
 | `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
 | `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, paths, and errors. |
+| `--stop-after metadata` | Require a metadata-first development trace, publish a collection snapshot, and return before thematic review or harmonization. |
 
 `harmonize-datasets` transforms an existing Atlas v1 file without discovery or review:
 
@@ -247,6 +248,24 @@ thematic-atlas resume --dev-out-dir .dev --run-id RUN_ID [OPTIONS]
 | `--retry-stage STAGE` | Requeue all retryable items at a registered stage; repeat for multiple stages. |
 | `--retry-item STAGE:ITEM_ID` | Requeue one checkpoint item; repeat for multiple items. |
 | `--retry-degraded-stage STAGE` | Requeue harmonization items degraded at the named internal stage; repeat as needed. |
+
+`fork-run` safely clones a trace paused after metadata for different downstream
+review or harmonization configuration:
+
+```bash
+thematic-atlas fork-run \
+  --dev-out-dir .dev \
+  --run-id SOURCE \
+  --new-run-id ALTERNATE \
+  --config fork.json
+```
+
+| Option | Behavior |
+| --- | --- |
+| `--dev-out-dir PATH` | Trace root containing the source and destination runs. |
+| `--run-id ID` | Required metadata-paused source run. |
+| `--new-run-id ID` | Required unused destination identity. |
+| `--config PATH` | Required JSON object containing downstream-only overrides. |
 
 <a id="python-api-guide"></a>
 ### Python API guide
@@ -339,6 +358,7 @@ Atlas.create_atlas(
     scrape_fulltext_accessions=True,
     unsupported_accessions_out=None,
     thematic_review=True,
+    stop_after=None,
 )
 ```
 
@@ -355,6 +375,12 @@ remain compatibility views and are restored on failed publication. The summary
 always reports unsupported counts; the detailed report is published only for
 `unsupported_accessions_out` or retained in a development trace. See the
 [harmonizer internals](docs/codebase.md#harmonizer).
+
+Set `stop_after="metadata"` with `dev_trace=True`, `collect_metadata=True`, and
+`review_before_metadata=False` to search, collect publication text, download
+repository metadata, and return before thematic review or harmonization. The
+trace registers `collection_snapshot.json`; a normal `resume()` continues the
+same `create-atlas` run without repeating completed collection work.
 
 `Atlas.harmonize_datasets(...)` accepts an Atlas v1 mapping and returns a
 validated Atlas v1 copy with supported metadata harmonized. Legacy unversioned stage
@@ -393,6 +419,22 @@ and must be handled explicitly rather than silently migrated.
 `retry_stages` requeues complete registered boundaries, `retry_items` maps
 stage names to item IDs, and `retry_degraded_stages` requeues harmonization
 items whose recorded quality status names the selected internal stage.
+
+`Atlas.fork_run(...)` safely branches a metadata-paused trace for alternate
+downstream processing:
+
+```python
+Atlas.fork_run(
+    dev_out_dir=".dev", run_id="source", new_run_id="alternate",
+    overrides={"theme": "alternate theme", "harmonization_options": {}},
+)
+```
+
+Only theme/review controls, harmonization controls, and output paths may change.
+Queries, limits, repositories, and collection settings remain immutable. Use
+`thematic-atlas fork-run --run-id SOURCE --new-run-id DEST --config fork.json`
+for the equivalent CLI workflow; manual trace copying is unsupported because
+the SQLite ledger embeds the run identity and fingerprint.
 
 `Atlas.amend_queries(...)` replaces one trace's query fingerprint without discarding completed item checkpoints:
 

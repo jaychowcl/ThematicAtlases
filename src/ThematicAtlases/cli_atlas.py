@@ -161,6 +161,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--max-generated-queries", type=_positive_int, default=3)
     create.add_argument("--harmonization-details-out", default=None)
+    create.add_argument("--stop-after", choices=("metadata",), default=None)
     create.add_argument(
         "--review-filter",
         choices=REVIEW_FILTER_CHOICES,
@@ -210,6 +211,20 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--retry-stage", action="append", default=[])
     resume.add_argument("--retry-item", action="append", default=[])
     resume.add_argument("--retry-degraded-stage", action="append", default=[])
+
+    fork = subparsers.add_parser(
+        "fork-run",
+        help="Fork a paused metadata trace for independent downstream work.",
+    )
+    _add_logging_options(
+        fork,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
+    )
+    fork.add_argument("--dev-out-dir", default=".dev")
+    fork.add_argument("--run-id", required=True)
+    fork.add_argument("--new-run-id", required=True)
+    fork.add_argument("--config", required=True)
 
     return parser
 
@@ -324,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
             scrape_fulltext_accessions=args.scrape_fulltext_accessions,
             unsupported_accessions_out=args.unsupported_accessions_out,
             thematic_review=args.thematic_review,
+            **({"stop_after": args.stop_after} if args.stop_after else {}),
         )
     elif args.command == "harmonize-datasets":
         with open(args.file, encoding="utf-8") as handle:
@@ -342,6 +358,17 @@ def main(argv: list[str] | None = None) -> int:
             retry_stages=args.retry_stage,
             retry_items=_retry_items(args.retry_item),
             retry_degraded_stages=args.retry_degraded_stage,
+        )
+    elif args.command == "fork-run":
+        with open(args.config, encoding="utf-8") as handle:
+            overrides = json.load(handle)
+        if not isinstance(overrides, dict):
+            parser.error("fork-run --config must contain a JSON object")
+        atlas.fork_run(
+            dev_out_dir=args.dev_out_dir,
+            run_id=args.run_id,
+            new_run_id=args.new_run_id,
+            overrides=overrides,
         )
     else:
         parser.error(f"unknown command: {args.command}")
