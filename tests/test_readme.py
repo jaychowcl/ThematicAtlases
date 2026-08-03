@@ -61,8 +61,8 @@ def test_readme_and_handoff_record_current_v1_and_test_evidence() -> None:
     for document in (readme, codebase):
         assert "Atlas document schema 1.0" in document
         assert "H5AD metadata schema 1.0" in document
-        assert "2026-08-02" in document
-        assert "464 passed, 3 skipped" in document
+        assert "2026-08-03" in document
+        assert "441 passed, 4 skipped" in document
     for stale in ("meta-standards-converter 4", "H5AD metadata schema 3.0"):
         assert stale not in index
         assert stale not in codebase
@@ -219,50 +219,29 @@ def test_readme_codebase_anchor_links_resolve() -> None:
         assert f'<a id="{anchor}"></a>' in codebase_text
 
 
-def test_readme_documents_every_supported_focused_runner() -> None:
+def test_readme_redirects_archived_focused_runners() -> None:
     text = README.read_text(encoding="utf-8")
     scripts = sorted(path.name for path in ROOT.glob("run_*.py"))
 
-    assert scripts == [
-        "run_accession_metadata_collector.py",
-        "run_fibrosis_atlas.py",
-        "run_fibrosis_discovery.py",
-        "run_publication_reviewer.py",
-        "run_reference_publication_recall.py",
-        "run_reference_set_review.py",
-    ]
-    for script in scripts:
-        assert f"`{script}`" in text
+    assert scripts == []
+    assert "Non-canonical fibrosis runners are archived locally" in text
+    assert "gsk_ThematicAtlases_adapter/scripts/create_fibrosis_atlas.py" in text
 
 
-def test_readme_documents_runner_retry_controls_and_discovery_limits() -> None:
+def test_readme_documents_retained_discovery_catalog_limits() -> None:
     text = README.read_text(encoding="utf-8")
-    workflow_scripts = text.split("### Workflow scripts", 1)[1].split(
-        "### Configuration", 1
-    )[0]
-
-    for script in ("run_fibrosis_atlas.py", "run_fibrosis_discovery.py"):
-        entry = next(
-            line for line in workflow_scripts.splitlines() if f"`{script}`" in line
-        )
-        for option in (
-            "--retry-stage",
-            "--retry-item",
-            "--retry-degraded-stage",
-        ):
-            assert option in entry
 
     assert "40,000 raw hits" in text
     assert "before cross-query deduplication" in text
     assert "Generated-query mode does not use those four static caps" in text
 
 
-def test_readme_documents_metadata_worker_modes_accurately() -> None:
+def test_readme_documents_supported_interfaces_after_archival() -> None:
     text = README.read_text(encoding="utf-8")
     workflow_scripts = text.split("### Workflow scripts", 1)[1].split(
         "### Configuration", 1
     )[0]
 
-    assert "with no mode flag, resumes normal GEO metadata collection" in workflow_scripts
-    assert "--audit-enrichment-only" in workflow_scripts
-    assert "--retry-tags PATH" in workflow_scripts
+    assert "installed `thematic-atlas` CLI" in workflow_scripts
+    assert "importable Python APIs" in workflow_scripts
+    assert "supported repository-root entry points" in workflow_scripts

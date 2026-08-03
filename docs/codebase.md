@@ -2,21 +2,21 @@
 
 This is the canonical architecture, interface, and workflow handoff for the
 implemented package. It is evidence-backed by the production modules, package
-metadata, focused runners, and tests in this repository.
+metadata, supported interfaces, and tests in this repository.
 
 <a id="architecture"></a>
 ## Architecture
 
 ThematicAtlases builds biomedical dataset atlases from publication queries. Its
 primary users enter through the `thematic-atlas` CLI, the `Atlas` Python
-orchestrator, or focused root scripts. The package owns orchestration,
+orchestrator, or component APIs. The package owns orchestration,
 checkpointing, repository routing, review filtering, and output assembly; it
 delegates model review to `agentic-curator`, metadata conversion to
 `meta-standards-converter`, and remote records to Europe PMC, NCBI, ENA, and
 model/ontology providers.
 
 ```text
-CLI / Python / focused runners
+CLI / Python APIs
               |
               v
          Atlas facade
@@ -157,10 +157,9 @@ and [project layout](#project-purpose-and-layout).
 - **Consequences:** Existing runs survive interrupted or conflicting archival,
   while active workflows, symlinks, unsafe names, and destination collisions
   stop a new run instead of being overwritten.
-- **Affected components:** fixed runners, `Atlas.archive_existing_runs`,
+- **Affected components:** `Atlas.archive_existing_runs`,
   `workflow_activity_lock`, trace manifests, SQLite stores, and fixed artifacts.
-- **Evidence:** [`run_archive.py`](../src/ThematicAtlases/run_archive.py),
-  [`run_fibrosis_atlas.py`](../run_fibrosis_atlas.py), and
+- **Evidence:** [`run_archive.py`](../src/ThematicAtlases/run_archive.py) and
   [`test_run_archive.py`](../tests/test_run_archive.py).
 
 <a id="decision-central-atlas-document"></a>
@@ -258,11 +257,10 @@ validation when they modify a trace.
 - **Python workflow API:** import `Atlas` from `ThematicAtlases.atlas`.
   Component packages export collector, filterer/reviewer, harmonizer, wrapper,
   and benchmark types listed in the [public API reference](#public-api-reference).
-- **Focused runners:** `run_fibrosis_atlas.py`,
-  `run_fibrosis_discovery.py`, `run_publication_reviewer.py`,
-  `run_accession_metadata_collector.py`,
-  `run_reference_publication_recall.py`, and `run_reference_set_review.py`.
-  These are supported scripts, not additional installed console commands.
+- **Archived focused runners:** no repository-root `run_*.py` interface remains
+  active. The canonical production fibrosis workflow is
+  `gsk_ThematicAtlases_adapter/scripts/create_fibrosis_atlas.py` in the parent
+  adapter repository; reusable APIs and reference assets remain here.
 - **Files:** queries/theme text and Atlas v1/reference JSON are inputs. Atlas v1
   JSON, summaries, details, benchmark reports, logs, readable trace JSON, and
   the single authoritative `atlas_run.sqlite3` are outputs.
@@ -283,12 +281,14 @@ exports no names. Its supported workflow methods and specialist package exports
 are inventoried in the [public API reference](#public-api-reference).
 
 <a id="interface-focused-runners"></a>
-### Focused runner interfaces
+### Archived focused runner interfaces
 
-The six repository-root `run_*.py` scripts are directly executable interfaces,
-not installed console commands. Their exact parsers and fixed behavior are
-documented in the [README workflow-script guide](../README.md#workflow-scripts)
-and [fixed-runner workflow](#workflow-fixed-runners).
+Archived non-canonical fibrosis runners are not supported interfaces. Ignored
+local recovery copies are kept under
+`.dev/archive/fibrosis-workflows-2026-08-03/`; because that directory is
+untracked, it is not a distributable source of record. Use the installed CLI,
+the Python API, or the canonical parent-adapter workflow documented in the
+[archived-runner record](#workflow-fixed-runners).
 
 <a id="orchestrators-and-core-types"></a>
 ## Orchestrators and core types
@@ -903,7 +903,8 @@ trace -> manifest/fingerprint validation -> publication snapshot
 
 #### Numbered stages
 
-1. `run_publication_reviewer.py` validates the project environment and options.
+1. A Python caller supplies a trace and review options to
+   `PublicationTextReviewer.resume`.
 2. `PublicationTextReviewer.resume` uses `TracePublicationReviewResumer`, which
    validates the manifest/theme and rebuilds a stable current datalink snapshot.
 3. The filterer fetches/reuses text and constructs accession/metadata context.
@@ -916,19 +917,17 @@ trace -> manifest/fingerprint validation -> publication snapshot
 #### Pseudocode
 
 ```text
-run_publication_reviewer.main                   # interface
-  -> PublicationTextReviewer.resume             # internal call
-     -> TracePublicationReviewResumer.resume    # internal orchestrator
-     -> PublicationTextReviewer dispatch
-        -> reviewer.review_relevancy             # external package/model API
-     -> CheckpointStore.put                     # persistence call
-  <- reviewed datasets/progress
+PublicationTextReviewer.resume                  # Python interface
+  -> TracePublicationReviewResumer.resume       # internal orchestrator
+  -> PublicationTextReviewer dispatch
+     -> reviewer.review_relevancy                # external package/model API
+  -> CheckpointStore.put                        # persistence call
+<- reviewed datasets/progress
 ```
 
 #### Evidence
 
 Definitions/calls:
-[`run_publication_reviewer.main`](../run_publication_reviewer.py),
 [`TracePublicationReviewResumer.resume`](../src/ThematicAtlases/filterer/resume.py),
 and
 [`PublicationTextReviewer.review_publication_texts`](../src/ThematicAtlases/filterer/review.py).
@@ -949,9 +948,8 @@ trace -> mode?
 
 #### Numbered stages
 
-1. `run_accession_metadata_collector.py` parses a required trace.
-   No mode flag selects normal metadata resume; the mutually exclusive flags select offline
-   audit or explicit tagged repair.
+1. A Python caller supplies a trace and selects normal resume, offline audit,
+   or explicit tagged repair.
 2. `AtlasCollector.resume_metadata` delegates to `TraceMetadataResumer`.
 3. Audit reads cached legacy packages, writes candidate/template artifacts, and
    makes no network calls.
@@ -964,8 +962,7 @@ trace -> mode?
 #### Pseudocode
 
 ```text
-metadata collector script                      # interface
-  -> AtlasCollector.resume_metadata             # internal call
+AtlasCollector.resume_metadata                  # Python interface
      -> TraceMetadataResumer.resume             # internal orchestrator
      -> GEOWrapper.collect_accession_metadata   # external/system boundary
      -> EnrichmentAuditor.audit                 # internal/checkpoint reads
@@ -975,78 +972,62 @@ metadata collector script                      # interface
 #### Evidence
 
 Definitions/calls:
-[`run_accession_metadata_collector.main`](../run_accession_metadata_collector.py),
 [`TraceMetadataResumer.resume`](../src/ThematicAtlases/collector/resume.py),
 [`GEOWrapper.collect_accession_metadata`](../src/ThematicAtlases/wrappers/geo.py),
 and [`EnrichmentAuditor.audit`](../src/ThematicAtlases/wrappers/enrichment.py).
 
 <a id="workflow-fixed-runners"></a>
-### Workflow 8: Fixed fibrosis runners
+### Archived non-canonical fibrosis runners
 
-The fixed full-atlas and discovery-only runners resolve repository-controlled
-themes/queries and output paths, print the resolved configuration, archive
-prior inactive runs, and invoke `Atlas`.
+The former repository-root fibrosis workflows were archived on 2026-08-03.
+They are absent from version control and are not production entry points. Local
+recovery copies live in the ignored
+`.dev/archive/fibrosis-workflows-2026-08-03/` directory. The canonical workflow
+is `gsk_ThematicAtlases_adapter/scripts/create_fibrosis_atlas.py` in the parent
+adapter repository.
 
 ```text
-runner -> resolve fixed config -> resume?
-            |                       +-> select existing trace
-            |                              | invalid retry/amend -> error
-            +-> new -> archive old -> execute full atlas or discovery-only
-                       | active/error       | full: model/cache/atlas
-                       v                    | discovery: static/generated
-                    keep old                v
-                                      |
-                                 .out artifacts
+historical root runners -> ignored local archive
+                              |
+                              +-> recovery reference only
+canonical execution -------> parent adapter fibrosis workflow
+supported reuse -----------> CLI / Python APIs / retained data
 ```
 
 #### Numbered stages
 
-1. `run_fibrosis_atlas.py` builds the ontology store and executes/resumes a full
-   traced atlas; resume can request stage/item/degraded-stage retries.
-2. `run_fibrosis_discovery.py` uses the query catalog or generated-query mode
-   and stops before review; amendment requires an explicit resume ID and retry
-   controls only act during resume.
-3. Static discovery permits 10,000 per query, or 40,000 raw hits before
-   cross-query deduplication. Generated mode instead creates at most
-   three queries and has no static per-query limits or global cap.
-4. A new run obtains an exclusive lock and archives prior inactive traces;
-   resume uses the existing trace without archival. Both keep the shared
-   ontology cache outside archives.
-5. Full-atlas credential/cache/provider failures terminate the runner.
-   Discovery static mode requires no model call; generated mode preflights
-   credentials. Successful runs write their fixed `.out` artifacts.
+1. Six non-canonical runner files and their runner-specific tests moved to the
+   ignored local archive.
+2. `docs/theme_fibrosis.txt`, `config/fibrosis_discovery_queries.json`, the
+   benchmark package, and both packaged reference sets remain tracked.
+3. The installed CLI and reusable Python workflow APIs remain supported.
+4. Production fibrosis atlas creation routes to the parent adapter script.
 
 #### Pseudocode
 
 ```text
-fixed runner main                              # interface
-  -> resolved_configuration/query catalog       # internal/file read
-  -> Atlas.archive_existing_runs or resume      # system/internal call
-  -> Atlas.create_atlas or collect_datasets     # internal workflow
-  <- fixed JSON/summary/details/log/trace outputs
+canonical adapter script                        # external repository interface
+  -> ThematicAtlases Python API                  # supported internal boundary
+  -> retained theme/reference inputs             # tracked files
+  <- atlas artifacts
 ```
 
 #### Evidence
 
 Definitions/calls:
-[`run_fibrosis_atlas.main`](../run_fibrosis_atlas.py),
-[`run_fibrosis_discovery.main`](../run_fibrosis_discovery.py),
-[`load_query_catalog`](../src/ThematicAtlases/query_catalog.py), and
-[`workflow_activity_lock`](../src/ThematicAtlases/run_archive.py).
+[`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py),
+[`load_query_catalog`](../src/ThematicAtlases/query_catalog.py), and the
+[retained fibrosis theme](theme_fibrosis.txt).
 
 <a id="workflow-benchmarking"></a>
-### Workflow 9: Benchmarking and reference review
+### Workflow 8: Benchmarking
 
-Offline recall compares saved outputs with packaged/custom references. The
-diagnostic reference-review runner separately resolves exact Europe PMC records,
-collects GEO links/text, reviews them, and then benchmarks.
+Offline recall compares saved outputs with packaged or custom references
+through the importable benchmark API.
 
 ```text
 saved atlas/trace -> normalize identities -> exact DOI/PMID match -> report
       | malformed/ambiguous -------------------------------> error
-reference set -> exact Europe PMC resolution -> GEO links -> review -> benchmark
-                    \-> miss/conflict/no GEO -------------------> report
-                                      model failure -> failed review -> report
 ```
 
 #### Numbered stages
@@ -1054,35 +1035,26 @@ reference set -> exact Europe PMC resolution -> GEO links -> review -> benchmark
 1. `ThematicReviewerBenchmark` validates one reference source and saved output.
 2. Exact normalized DOI/PMID identities produce matched, missed, or conflict
    rows; malformed or ambiguous reference data raises.
-3. `run_reference_publication_recall.py` runs the pure offline comparison for
-   all packaged and optional custom sets and writes reports.
-4. `run_reference_set_review.py` resolves exact DOI queries, records
-   unresolved/mismatched/no-GEO outcomes, fetches text, preflights credentials
-   only when there is text to review, and enters review through
-   `AtlasFilterer.filter_jsons`.
-5. `PublicationTextReviewer` dispatches to the upstream reviewer's
-   `review_relevancy`; failed items remain in the reviewed output.
-   The final benchmark and audit artifacts are written under the reference run.
+3. `benchmark_reference_publication_recall` performs the pure offline
+   comparison and returns a schema `1.0` report.
+4. Callers may iterate `available_reference_sets()` or provide one validated
+   custom reference-set file.
 
 #### Pseudocode
 
 ```text
-benchmark/reference runner                     # interface
+ThematicReviewerBenchmark                       # Python interface
   -> load_reference_set/output                  # package/file reads
-  -> EuropePMCWrapper (diagnostic only)         # external HTTP calls
-  -> AtlasFilterer.filter_jsons                 # internal review entry
-     -> PublicationTextReviewer dispatch
-        -> reviewer.review_relevancy             # external model call
   -> benchmark_reference_publication_recall     # internal pure comparison
-  <- JSON report and summary
+  <- schema 1.0 report
 ```
 
 #### Evidence
 
 Definitions/calls:
-[`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py),
-[`run_reference_publication_recall.main`](../run_reference_publication_recall.py),
-and [`run_reference_review`](../run_reference_set_review.py).
+[`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py)
+and
+[`load_reference_set`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py).
 
 <a id="extension-and-change-guidance"></a>
 ## Extension and change guidance
@@ -1177,12 +1149,6 @@ Root interfaces and configuration:
 config/fibrosis_discovery_queries.json
 pyproject.toml
 requirements.txt
-run_accession_metadata_collector.py
-run_fibrosis_atlas.py
-run_fibrosis_discovery.py
-run_publication_reviewer.py
-run_reference_publication_recall.py
-run_reference_set_review.py
 README.md
 LICENSE
 .gitignore
@@ -1220,7 +1186,7 @@ are not part of the tracked source tree.
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-02 this deterministic gate reported `464 passed, 3 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-03 this deterministic gate reported `441 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1288,148 +1254,48 @@ The method accepts an atlas-shaped mapping, an explicit JSON path, or a developm
 
 Schema `1.0` reports contain the benchmark method and reference-set provenance, thematic-output provenance, unique-reference and duplicate counts, matched/missed/conflict counts, discovery recall, review completion/failure counts, normalized judgement counts, relevant recall, relevant-or-unsure candidate recall, and one detailed row per unique reference. The benchmark makes no network calls and has no DOI/PMID resolution service or additional dependency.
 
-The root runner scores an existing atlas JSON or development trace against every packaged set, optionally adds repeated custom files, and writes one aggregate report without running discovery or review:
+Callers that need an aggregate report can iterate
+`ThematicReviewerBenchmark.available_reference_sets()`, call the benchmark
+method for each set, and persist the returned mappings in their own application
+boundary. The benchmark package itself remains deliberately offline and does
+not own a live reference-resolution workflow.
 
-```bash
-.env/bin/python run_reference_publication_recall.py \
-  .out/dev_trace_discovery/<run-id> \
-  --reference-set-file custom_fibrosis.json \
-  --out .out/reference_publication_recall.json
-```
-
-Without `--out`, the path defaults to `.out/reference_publication_recall.json`. Aggregate schema `1.0` records the thematic input and an ordered `reports` object keyed by collection ID; each value is an unchanged schema `1.0` benchmark report. Packaged sets run first, followed by custom files in argument order. Duplicate IDs fail without writing a partial output. The runner prints its resolved configuration and per-set summaries.
-
-`run_reference_set_review.py` is the isolated production-path diagnostic for a
-named packaged set. It resolves each reference with an exact Europe PMC `DOI:`
-query, rejects non-exact responses, collects datalinks only for resolved
-references, retains GEO/GSE accessions, and directly reviews the linked
-publication text without downloading MINiML metadata. It uses an independent
-SQLite checkpoint and writes a resolution/datalink audit, accession list,
-reviewer input and progress, reviewed output, benchmark, and run summary under
-`.out/reference_reviews/<reference-set>/`. Rerunning the same command resumes
-that isolated workflow:
-
-```bash
-.env/bin/python run_reference_set_review.py \
-  --reference-set leonie_2026_fibrosis
-```
-
-`tests/fixtures/benchmark/` contains complete mixed input/output examples for both sets. The Leonie fixture records a complete 21-row report with 6 matches and 15 misses; the Taylor fixture records a complete 15-row report with 6 matches and 9 misses. Both cover relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession behavior. End-to-end method tests substitute only the machine-specific artifact path, independently verify summaries, then compare entire reports exactly. A real runner integration test also verifies both packaged reports are produced together.
+`tests/fixtures/benchmark/` contains complete mixed input/output examples for both sets. The Leonie fixture records a complete 21-row report with 6 matches and 15 misses; the Taylor fixture records a complete 15-row report with 6 matches and 9 misses. Both cover relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession behavior. End-to-end method tests substitute only the machine-specific artifact path, independently verify summaries, then compare entire reports exactly.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
 
-`docs/theme_fibrosis.txt` is the canonical inclusion policy for the current fibrosis atlas. It targets human bulk, single-cell, single-nucleus, and spatial transcriptomic datasets containing at least one profiled sample with established or explicitly documented fibrosis. A qualifying dataset retains its non-fibrotic controls and comparator samples.
+`docs/theme_fibrosis.txt` is a retained inclusion-policy reference. It targets human bulk, single-cell, single-nucleus, and spatial transcriptomic datasets containing at least one profiled sample with established or explicitly documented fibrosis. A qualifying dataset retains its non-fibrotic controls and comparator samples. The parent adapter owns the canonical production workflow and its effective configuration.
 
 Confirmed sample-level fibrosis supports `relevant`. Induced fibrosis without confirmation, profibrotic stimulation, fibroblast activation, extracellular-matrix remodelling, wound healing, or a fibrosis-associated disease without sample-level confirmation supports `unsure`, not direct inclusion. Animal-only, non-transcriptomic, background-only, and otherwise unlinked studies are `not relevant`.
 
 Use `--review-filter not-relevant` with this theme so unsure candidates remain available for manual review. The same theme may be passed to `--query-generator`; its domain-neutral prompt defaults to one comprehensive query with independent mandatory concepts joined by AND and extensive within-concept synonyms joined by OR. Additional queries require an explained unbridgeable logical, semantic, syntax, or length gap. The thematic reviewer then applies the sample- and assay-level inclusion policy.
 
 <a id="fibrosis-run-script"></a>
-### Fibrosis Run Script
+### Archived Fibrosis Run Scripts
 
-`run_fibrosis_atlas.py` is the fixed, repository-root entry point for the complete fibrosis workflow. Run it only with `.env/bin/python`; it prints all resolved settings before network or model work and writes every generated artifact under the ignored `.out/` directory.
+Archived non-canonical fibrosis runners were removed from the repository root
+on 2026-08-03. Their ignored local recovery location is
+`.dev/archive/fibrosis-workflows-2026-08-03/`; it is intentionally excluded from
+Git and package distributions. The canonical production workflow is
+`gsk_ThematicAtlases_adapter/scripts/create_fibrosis_atlas.py` in the parent
+adapter repository.
 
-The script configures the root logger at DEBUG with simultaneous stdout and
-file handlers. Safe diagnostics include per-request identifiers/status/duration,
-first/every-tenth/final progress for long loops, and stage summaries from all
-three packages. Prompt and response bodies, publication/metadata payloads,
-credentials, authorization headers, and request parameters are not logged.
+The archive contains the former full-atlas, discovery, publication-review,
+metadata-repair, recall, and reference-review runner implementations together
+with their runner-specific tests. It is historical recovery material, not a
+supported interface. The supported surfaces in this repository are the
+installed `thematic-atlas` CLI and the importable Python APIs.
 
-The fixed configuration loads `docs/theme_fibrosis.txt`, generates up to three Europe PMC queries, searches at most 50 publications, collects GEO metadata only, retains `unsure` while filtering `not_relevant`, enables target checking plus every direct/RAG/OLS/field stage control with one worker, writes the atlas/summary/details/log outputs, and enables the complete development trace. It creates `OntoStore(storage_dir=".out/ontology_store")`, calls `configure_framework("snomed", remove=True)`, and passes that store to `Atlas(cache_ontologies=True)`. `Atlas.create_atlas()` validates model credentials before calling `cache_all()`, aborts on any aggregate cache failure, and passes the same fully indexed store to its default ontology harmonizer. `cache_all()` builds semantic indexes for the selected lexical frameworks by default. Current `agentic_curator` caching streams RDF/XML through a bounded temporary SQLite triple store into the shared index, so this run creates no new intermediate ontology JSON files; pre-existing JSON caches remain compatible.
+Reusable assets were deliberately not archived:
 
-Prepare and run it with:
-
-```bash
-python3 -m venv .env
-.env/bin/python -m pip install -e ".[dev]"
-gcloud auth application-default login
-.env/bin/python run_fibrosis_atlas.py
-```
-
-The script requires working Google Application Default Credentials and quota. Tests replace every workflow collaborator and never launch the live Europe PMC, GEO, OLS, or LLM calls.
-
-`run_fibrosis_discovery.py` is the collection-only companion entry point. Its
-ordered, versioned defaults live in
-`config/fibrosis_discovery_queries.json`; the runner validates and loads the
-catalog while preserving its existing exported query constants. The four
-queries are: the original
-human/fibrosis/transcriptomics query, an expanded core query, a high-specificity
-fibrotic-disease query, and a complementary human organ/disease query. Each
-query is capped at 10,000 raw results, so the four static caps permit at most
-40,000 raw hits before cross-query deduplication. The queries exclude reviews
-but do not require Europe PMC `HAS_DATA` or `HAS_LABSLINKS` flags. Publications
-are deduplicated across query sets
-before datalink calls while ordered query provenance is retained. The runner
-stops after incrementally collecting full text or abstracts for GEO-linked
-publications. It performs GEO repository routing and text mapping but does not
-invoke thematic review or review filtering, download GEO MINiML metadata, or
-harmonize. The separate `run_publication_reviewer.py`
-command reviews a stable snapshot from the same trace and may run concurrently
-with discovery. The query removes
-generic sclerosis and remodelling-only terms, excludes reviews, and deliberately
-does not exclude mouse/rat mentions because mixed-species publications can still
-contain qualifying human datasets. `--generate-query` replaces the four static
-queries with the existing LLM theme-to-query workflow, generates at most three
-queries, and supplies neither the static per-query caps nor a global cap.
-Europe PMC synonym expansion remains enabled in both modes. The script calls
-`Atlas.collect_datasets(stop_before_review=True)`. It never constructs `OntoStore`,
-caches ontologies, calls `create_atlas()`, or invokes harmonization. It prints
-the resolved query mode and configuration and writes
-`.out/fibrosis_discovery.json`, `.out/fibrosis_discovery.summary.json`, and
-`.out/fibrosis_discovery.log`.
-
-Query amendment compares normalized whitespace as well as ordered limits. This
-lets formatting-only changes in the stored catalog reuse an existing trace
-without changing its fingerprint or archiving a duplicate query generation.
-
-The discovery runner retains the fibrosis theme and direct-review configuration
-in its trace for the standalone reviewer, but collection-only execution does
-not preflight LLM credentials or make a judgement call. `--generate-query`
-still requires credentials because query construction itself uses the LLM.
-`--resume RUN_ID --amend-queries` transactionally archives the trace's previous
-query fingerprint and readable manifest, installs the four-query configuration,
-and resumes without deleting search, datalink, text, or review checkpoints.
-
-Run it with:
-
-```bash
-.env/bin/python run_fibrosis_discovery.py
-.env/bin/python run_fibrosis_discovery.py --generate-query
-.env/bin/python run_fibrosis_discovery.py --resume
-.env/bin/python run_fibrosis_discovery.py --resume RUN_ID
-.env/bin/python run_fibrosis_discovery.py --resume RUN_ID --amend-queries
-.env/bin/python run_fibrosis_discovery.py --resume RUN_ID --retry-stage datalinks
-.env/bin/python run_fibrosis_atlas.py --resume RUN_ID --retry-item STAGE:ITEM_ID
-```
-
-Both fibrosis scripts enable incremental SQLite checkpoints automatically.
-On resume, both accept repeatable `--retry-stage STAGE`,
-`--retry-item STAGE:ITEM_ID`, and `--retry-degraded-stage STAGE`; discovery
-also accepts `--amend-queries` only with an explicit `--resume RUN_ID`.
-Library callers opt in by enabling `dev_trace`; untraced calls retain the
-existing in-memory behavior.
-
-Before either fibrosis script starts a new non-resume run, it calls
-`Atlas.archive_existing_runs()` before opening the new log. All valid trace
-directories for that workflow and any existing fixed output, summary, details,
-and log artifacts move under
-`.out/previous_runs/<workflow>/<run-id>/`; fixed artifacts belong to the newest
-trace and live in its `artifacts/` subdirectory. A run with artifacts but no
-trace is retained as `orphan-<timestamp>`. Resume invocations never archive.
-The shared `.out/ontology_store/` cache is deliberately excluded.
-
-Collectors, resumes, and standalone reviewers hold a shared workflow activity
-lock. Archiving requires the exclusive form, checkpoints and validates SQLite,
-requires a non-busy checkpoint with no non-empty WAL, hashes durable files
-before and after copying to hidden staging, verifies the staged SHA-256
-checksums, atomically publishes the archive, and only then deletes the sources.
-Trace-root SQLite WAL/SHM sidecars are excluded because they are transient and
-the checkpointed database is the durable resumable state. Consequently a new
-run refuses to archive while a cooperating collector or reviewer is active or
-when any durable file changes during copying. The archived
-`00_run_manifest.json` points at relocated artifacts, and the trace remains
-directly resumable by using its workflow archive directory as `dev_out_dir`.
+- `docs/theme_fibrosis.txt` remains a tracked policy reference.
+- `config/fibrosis_discovery_queries.json` remains a tracked, versioned query
+  catalog; its four historical per-query caps permit 40,000 raw hits before cross-query deduplication.
+- `benchmark_ThematicAtlases` remains importable, with the Leonie and Taylor
+  packaged reference sets and their fixtures/tests.
+- `PublicationTextReviewer.resume`, `AtlasCollector.resume_metadata`, and
+  `ThematicReviewerBenchmark` remain available to Python callers.
 
 <a id="atlas-workflow"></a>
 ### Atlas Workflow
@@ -1509,10 +1375,8 @@ retry_tags=None)` delegates to `TraceMetadataResumer`
 and processes one stable snapshot of the currently available datalink checkpoint
 rows. It applies the trace manifest's repository selection, downloads metadata,
 atomically writes the atlas-shaped `resume_metadata_progress.json`, and exits.
-The root `run_accession_metadata_collector.py TRACE_DIR [-v|-vv]` command exposes
-the same operation and appends progress, snapshot sizes, checkpoint status
-counts, repository counts, and completion statistics to
-`resume_metadata.log`. Repeated calls discover later datalinks, rebuild the
+Python callers can invoke the same operation repeatedly to discover later
+datalinks, rebuild the
 deduplicated GSE list, and reuse completed `geo_resolution` and `geo_metadata`
 items without repeating their network calls or requiring LLM credentials.
 `audit_enrichment_only=True` reads legacy GSE packages without network calls,
@@ -1610,7 +1474,10 @@ skipped, failed, full-text, fallback, and missing counts.
   metadata arriving after an early review triggers a replacement review on the
   next reviewer or full-resume invocation. The raw MINiML object is not sent.
 - Each thematic review is checkpointed atomically under `thematic_review/<strategy>:<publication_ref>`. Direct and legacy strategies resume independently. Per-item locks prevent duplicate calls. Invalid structured output gets one immediate correction attempt and then becomes terminal; transient provider/network failures become `retryable_error` and participate in full Atlas resume gates.
-- Root `run_publication_reviewer.py TRACE_DIR [--theme-file PATH] [--allow-theme-override] [--strategy direct|evidence_then_judgement] [-v|-vv]` checks project ADC, reviews one stable datalink snapshot, prints counts, and exits so it can be invoked again as collection advances. The override flag is required when intentionally reviewing a historical collector snapshot with a newer explicit theme.
+- `PublicationTextReviewer.resume` reviews one stable datalink snapshot and can
+  be invoked again as collection advances. A caller must explicitly allow a
+  theme override when reviewing a historical collector snapshot with a newer
+  theme.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
 - `review_filter != "none"` without a `theme` raises `ValueError`.

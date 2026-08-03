@@ -125,7 +125,7 @@ def test_public_api_reference_covers_exports_and_supported_methods() -> None:
         assert symbol in section
 
 
-def test_principal_workflows_cover_the_nine_supported_paths() -> None:
+def test_principal_workflows_cover_supported_paths_and_archived_tombstone() -> None:
     text = CODEBASE.read_text(encoding="utf-8")
     section = text.split('<a id="principal-workflows"></a>', 1)[1].split(
         '<a id="extension-and-change-guidance"></a>', 1
@@ -258,7 +258,7 @@ def test_docs_correct_known_runtime_claims_and_layout() -> None:
     assert "reviewer.review(" not in text
     assert "PublicationTextReviewer.review(" not in text
     assert "PublicationTextReviewer.review_relevancy" not in text
-    assert "No mode flag selects normal metadata resume" in text
+    assert "selects normal resume, offline audit" in text
     assert "oldd/` contains" not in text
     for path in (
         "collector/resume.py",

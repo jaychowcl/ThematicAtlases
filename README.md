@@ -433,23 +433,23 @@ Library modules define loggers without configuring global logging. Applications 
 
 ### Workflow scripts
 
-The repository includes focused scripts built on the same Python API. They require `.env/bin/python` unless noted:
+Non-canonical fibrosis runners are archived locally under the ignored
+`.dev/archive/fibrosis-workflows-2026-08-03/` directory. They are no longer
+supported repository-root entry points and are intentionally absent from
+version control. The canonical production workflow is
+`gsk_ThematicAtlases_adapter/scripts/create_fibrosis_atlas.py` in the parent
+adapter repository.
 
-- `run_fibrosis_atlas.py`: `[--resume [RUN_ID]] [--retry-stage STAGE] [--retry-item STAGE:ITEM_ID] [--retry-degraded-stage STAGE]` runs or resumes the fixed full fibrosis atlas, including ontology caching, review, harmonization, summaries, and trace archival; each retry option is repeatable and applies during resume.
-- `run_fibrosis_discovery.py`: `[--generate-query | --resume [RUN_ID]] [--amend-queries] [--retry-stage STAGE] [--retry-item STAGE:ITEM_ID] [--retry-degraded-stage STAGE]` runs collection-only discovery; each retry option is repeatable and query amendment requires an explicit resume ID.
-- `run_publication_reviewer.py`: `TRACE_DIR [--theme-file PATH] [--strategy {direct,evidence_then_judgement}] [--allow-theme-override] [-v|-vv]` reviews a stable growing-trace snapshot.
-- `run_accession_metadata_collector.py`: `TRACE_DIR [-v|-vv] [--audit-enrichment-only | --retry-tags PATH]`; with no mode flag, resumes normal GEO metadata collection, `--audit-enrichment-only` reports cached enrichment gaps without network calls, and `--retry-tags PATH` repairs the explicitly tagged PubMed/SRA/ENA identifiers.
-- `run_reference_publication_recall.py`: `THEMATIC_OUTPUT [--reference-set-file JSON ...] [--out PATH]` runs offline recall against all packaged sets plus optional custom sets.
-- `run_reference_set_review.py`: `[--reference-set NAME]` resolves and reviews one packaged reference set through a checkpointed diagnostic workflow.
-
-Use `.env/bin/python SCRIPT --help` for the parser-generated command reference. Fixed fibrosis behavior and output locations are documented under [fibrosis run scripts](docs/codebase.md#fibrosis-run-script).
+This repository continues to support the installed `thematic-atlas` CLI and
+the importable Python APIs. The retained fibrosis theme, discovery-query
+catalog, benchmark implementation, and reference sets remain available as
+reusable inputs. See the [archived fibrosis runner record](docs/codebase.md#fibrosis-run-script).
 
 ### Configuration
 
 There is no central application configuration file. Generic workflows are
-configured with CLI flags or Python arguments; purpose-built fibrosis runners
-use repository files and constants. Explicit CLI/Python values take precedence
-over library defaults. On the CLI, `--theme-file` takes precedence over
+configured with CLI flags or Python arguments. Explicit CLI/Python values take
+precedence over library defaults. On the CLI, `--theme-file` takes precedence over
 `--theme`, and subcommand-local logging options take precedence over global
 logging options.
 
@@ -462,17 +462,17 @@ Important defaults and configuration sources:
 - Query generation is opt-in and defaults to at most three generated queries.
   Explicit queries come first, query-file entries follow, and generated queries
   are appended.
-- `docs/theme_fibrosis.txt` is the fixed fibrosis theme.
+- `docs/theme_fibrosis.txt` is a retained fibrosis reference theme.
   `config/fibrosis_discovery_queries.json` is the ordered, versioned static
-  query catalog used by the discovery runner. All four per-query caps are
+  query catalog retained from the archived discovery workflow. All four per-query caps are
   10,000: at most 40,000 raw hits before cross-query deduplication. The static
   queries do not require Europe PMC data- or lablink flags.
   Generated-query mode does not use those four static caps; it
   generates at most three queries and leaves the global publication cap unset.
 - CLI data is written with `--out`; logging goes to stdout unless `--log-file`
-  is supplied. Traces default to `.dev/`; fixed runners use `.out/`.
-- `.env/` is the Python virtual environment required by the focused runners; it
-  is not a dotenv file and is not loaded as environment configuration.
+  is supplied. Traces default to `.dev/`.
+- `.env/`, when present, is a Python virtual environment, not a dotenv file,
+  and is not loaded as environment configuration.
 
 Model-backed query generation, thematic review, ontology caching, semantic
 lookup, and judge/assignment stages require Google Application Default
@@ -511,14 +511,14 @@ The [Atlas orchestrator](docs/codebase.md#orchestrators-and-core-types) owns
 ordering, dependency injection, output, and resume policy. External requests
 are checkpointed at item boundaries during traced runs, so successful/no-data
 and terminal outcomes are reused while transient errors can be retried. See all
-[nine principal workflows](docs/codebase.md#principal-workflows).
+[eight supported workflows and the archived-runner record](docs/codebase.md#principal-workflows).
 
 Implementation details: [collector](docs/codebase.md#collector), [filterer](docs/codebase.md#filterer), [Europe PMC](docs/codebase.md#epmc-wrapper), [GEO](docs/codebase.md#geo-wrapper), [ArrayExpress](docs/codebase.md#arrayexpress-wrapper), and [harmonizer](docs/codebase.md#harmonizer).
 
 ## Testing
 
-The deterministic, network-blocked suite was last verified on 2026-08-02:
-`464 passed, 3 skipped`. The skipped tests are the explicitly opt-in live API
+The deterministic, network-blocked suite was last verified on 2026-08-03:
+`441 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 

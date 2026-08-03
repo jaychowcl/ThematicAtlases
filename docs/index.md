@@ -62,8 +62,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: principal-workflows
   title: [Principal Workflows](codebase.md#principal-workflows)
   anchor: principal-workflows
-  purpose: Branch-complete diagrams, stages, pseudocode, and call labels for all nine production workflows.
-  keywords: collection, creation, harmonization, resume, retry, amendment, archive, review, metadata repair, runners, benchmark
+  purpose: Branch-complete diagrams, stages, pseudocode, and call labels for the eight supported workflows plus the archived-runner tombstone.
+  keywords: collection, creation, harmonization, resume, retry, amendment, archive, review, metadata repair, benchmark
 
 - id: extension-and-change-guidance
   title: [Extension And Change Guidance](codebase.md#extension-and-change-guidance)
@@ -86,10 +86,10 @@ Use `--query <keyword>` when the id is unknown.
   keywords: Python, Atlas, import, workflow API, public symbols
 
 - id: interface-focused-runners
-  title: [Focused runner interfaces](codebase.md#interface-focused-runners)
+  title: [Archived focused runner interfaces](codebase.md#interface-focused-runners)
   anchor: interface-focused-runners
-  purpose: Directly executable repository scripts and their fixed workflow contracts.
-  keywords: run_fibrosis_atlas, run_fibrosis_discovery, reviewer, metadata collector, benchmark
+  purpose: Tombstone for removed repository-root runners and route to the canonical GSK adapter workflow.
+  keywords: archived, fibrosis, canonical GSK, adapter, local recovery
 
 - id: decision-checkpointed-traces
   title: [Checkpointed trace decision](codebase.md#decision-checkpointed-traces)
@@ -248,30 +248,30 @@ Use `--query <keyword>` when the id is unknown.
   keywords: metadata worker, audit-enrichment-only, retry-tags, GEO
 
 - id: workflow-fixed-runners
-  title: [Fixed fibrosis runner workflow](codebase.md#workflow-fixed-runners)
+  title: [Archived fixed fibrosis runners](codebase.md#workflow-fixed-runners)
   anchor: workflow-fixed-runners
-  purpose: Full-atlas and discovery-only configuration, limits, resume, retries, and artifacts.
-  keywords: fibrosis, 50000, static queries, generated queries, .out
+  purpose: Historical workflow boundary, retained assets, and canonical adapter replacement.
+  keywords: archived, fibrosis, canonical GSK, retained theme, query catalog
 
 - id: workflow-benchmarking
-  title: [Benchmarking and reference-review workflow](codebase.md#workflow-benchmarking)
+  title: [Benchmarking workflow](codebase.md#workflow-benchmarking)
   anchor: workflow-benchmarking
-  purpose: Offline exact recall and checkpointed live reference-review diagnostics.
-  keywords: benchmark, reference review, DOI, PMID, exact match
+  purpose: Offline exact recall through the importable benchmark API and packaged reference sets.
+  keywords: benchmark, offline, DOI, PMID, exact match, Python API
 
 ## Detailed and legacy-stable routes
 
 - id: project-purpose-and-layout
   title: [Project Purpose And Layout](codebase.md#project-purpose-and-layout)
   anchor: project-purpose-and-layout
-  purpose: Detailed package, runner, documentation, and test layout.
+  purpose: Detailed package, interface, documentation, and test layout.
   keywords: purpose, layout, src, docs, tests, collector, filterer, harmonizer, wrappers
 
 - id: runtime-and-packaging
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, independent v1 dependencies, editable-install, dated deterministic test evidence, and console-command contract.
-  keywords: pyproject, Python 3.10, version 1.0.0, 2026-08-02, 464 passed, pytest, fail-closed network, allow_subprocess, thematic-atlas
+  keywords: pyproject, Python 3.10, version 1.0.0, 2026-08-03, 441 passed, pytest, fail-closed network, allow_subprocess, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)
@@ -298,10 +298,10 @@ Use `--query <keyword>` when the id is unknown.
   keywords: fibrosis, theme_fibrosis, transcriptomics, human, review-filter
 
 - id: fibrosis-run-script
-  title: [Fibrosis Run Scripts](codebase.md#fibrosis-run-script)
+  title: [Archived Fibrosis Run Scripts](codebase.md#fibrosis-run-script)
   anchor: fibrosis-run-script
-  purpose: Full-atlas and discovery-only fixed configuration, resume, amendment, archival, and artifacts.
-  keywords: run_fibrosis_atlas.py, run_fibrosis_discovery.py, query catalog, 10000, no HAS_DATA gate, OntoStore, .out
+  purpose: Archive record and redirect to the canonical GSK workflow, with retained theme and query references.
+  keywords: archived, canonical GSK, fibrosis, query catalog, theme
 
 - id: cli-atlas
   title: [CLI Atlas](codebase.md#cli-atlas)
