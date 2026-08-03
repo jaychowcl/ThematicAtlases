@@ -63,6 +63,7 @@ class RecordingFilterer:
         theme=None,
         review_filter="none",
         review_strategy="direct",
+        prune_accessions=True,
         reviewer=None,
         _review_progress_callback=None,
     ):
@@ -72,6 +73,7 @@ class RecordingFilterer:
                 "file": file,
                 "theme": theme,
                 "review_filter": review_filter,
+                "prune_accessions": prune_accessions,
                 "reviewer": reviewer,
             }
         )
@@ -469,6 +471,7 @@ def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> No
             "file": None,
             "theme": "fibrosis",
             "review_filter": "not_relevant",
+            "prune_accessions": True,
             "reviewer": reviewer,
         }
     ]
@@ -617,6 +620,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "theme": "fibrosis",
                     "review_filter": "none",
                     "review_strategy": "direct",
+                    "prune_accessions": True,
                     "metadata_repositories": ["arrayexpress"],
                 "max_publications": 25,
                 "reviewer": None,

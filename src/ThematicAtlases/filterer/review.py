@@ -80,6 +80,7 @@ class PublicationTextReviewer:
         review_filter: str,
         reviewer=None,
         strategy: str = "direct",
+        prune_accessions: bool = True,
     ) -> tuple[list[dict], dict]:
         if theme is None:
             return accessions, publication_texts
@@ -95,6 +96,7 @@ class PublicationTextReviewer:
             accessions=accessions,
             publication_texts=publication_texts,
             review_filter=review_filter,
+            prune_accessions=prune_accessions,
         )
 
     def publication_review_contexts(self, accessions: list[dict]) -> dict:
@@ -423,13 +425,18 @@ class PublicationTextReviewer:
         accessions: list[dict],
         publication_texts: dict,
         review_filter: str,
+        prune_accessions: bool = True,
     ) -> tuple[list[dict], dict]:
         removed_judgements = self.removed_review_judgements(review_filter=review_filter)
         filtered_accessions = []
         used_refs = set()
+        pruned_associations = 0
 
         for record in accessions:
             publications = []
+            record_accession = self.normalized_accession(
+                record.get("datalink_id", "")
+            )
 
             for publication in record.get(PUBLICATIONS, []):
                 publication_ref = publication.get(PUBLICATION_TEXT_REF, "")
@@ -449,6 +456,12 @@ class PublicationTextReviewer:
                 if judgement in removed_judgements:
                     continue
 
+                if prune_accessions and record_accession in self.removed_accessions(
+                    publication_text=publication_text
+                ):
+                    pruned_associations += 1
+                    continue
+
                 publications.append(publication)
                 used_refs.add(publication_ref)
 
@@ -461,14 +474,36 @@ class PublicationTextReviewer:
             if publication_ref in used_refs
         }
         logger.info(
-            "Atlas thematic filter stats review_filter=%s input_accessions=%s output_accessions=%s input_publication_texts=%s output_publication_texts=%s",
+            "Atlas thematic filter stats review_filter=%s prune_accessions=%s pruned_associations=%s input_accessions=%s output_accessions=%s input_publication_texts=%s output_publication_texts=%s",
             review_filter,
+            prune_accessions,
+            pruned_associations,
             len(accessions),
             len(filtered_accessions),
             len(publication_texts),
             len(filtered_publication_texts),
         )
         return filtered_accessions, filtered_publication_texts
+
+    def removed_accessions(self, publication_text: dict) -> set[str]:
+        agentic_curator = publication_text.get(AGENTIC_CURATOR, {})
+        if not isinstance(agentic_curator, dict):
+            return set()
+        if agentic_curator.get("review_status") == "failed":
+            return set()
+        removals = agentic_curator.get("accessions_to_remove", [])
+        if not isinstance(removals, list):
+            return set()
+        return {
+            accession
+            for item in removals
+            if isinstance(item, dict)
+            and (accession := self.normalized_accession(item.get("accession", "")))
+        }
+
+    @staticmethod
+    def normalized_accession(value) -> str:
+        return str(value or "").strip().upper()
 
     @staticmethod
     def _review_checkpoint_key(strategy: str, publication_ref: str) -> str:

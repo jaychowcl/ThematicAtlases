@@ -112,6 +112,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=REVIEW_STRATEGY_CHOICES,
         default="direct",
     )
+    collect.add_argument(
+        "--prune-accessions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="apply accession exclusions from thematic review (enabled by default)",
+    )
 
     create = subparsers.add_parser(
         "create-atlas",
@@ -164,6 +170,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--review-strategy",
         choices=REVIEW_STRATEGY_CHOICES,
         default="direct",
+    )
+    create.add_argument(
+        "--prune-accessions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="apply accession exclusions from thematic review (enabled by default)",
     )
 
     harmonize = subparsers.add_parser(
@@ -276,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
             theme=theme,
             review_filter=_review_filter(args.review_filter),
             review_strategy=args.review_strategy,
+            prune_accessions=args.prune_accessions,
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,
@@ -298,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             theme=theme,
             review_filter=_review_filter(args.review_filter),
             review_strategy=args.review_strategy,
+            prune_accessions=args.prune_accessions,
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
             collect_metadata=not args.skip_metadata,

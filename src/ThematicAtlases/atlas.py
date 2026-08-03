@@ -115,6 +115,7 @@ class Atlas:
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
         thematic_review: bool = True,
+        prune_accessions: bool = True,
     ) -> dict:
         if theme is None or not theme.strip():
             raise ValueError("create_atlas requires a non-empty theme")
@@ -164,6 +165,7 @@ class Atlas:
                     "theme": theme,
                     "review_filter": review_filter,
                     "review_strategy": review_strategy,
+                    "prune_accessions": prune_accessions,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
                     "max_publications_per_query": max_publications_per_query,
@@ -189,6 +191,7 @@ class Atlas:
             theme=theme,
             review_filter=review_filter,
             review_strategy=review_strategy,
+            prune_accessions=prune_accessions,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
             reviewer=reviewer,
@@ -264,6 +267,7 @@ class Atlas:
                 "query_file": file,
                 "review_filter": review_filter,
                 "review_strategy": review_strategy,
+                "prune_accessions": prune_accessions,
                 "collect_metadata": collect_metadata,
                 "generate_queries": generate_queries,
                 "review_before_metadata": review_before_metadata,
@@ -376,6 +380,7 @@ class Atlas:
                 theme=manifest.get("theme"),
                 review_filter=manifest.get("review_filter", "none"),
                 review_strategy=manifest.get("review_strategy", "direct"),
+                prune_accessions=manifest.get("prune_accessions", False),
                 metadata_repositories=manifest.get("metadata_repositories"),
                 max_publications=manifest.get("max_publications"),
                 max_publications_per_query=manifest.get(
@@ -515,6 +520,7 @@ class Atlas:
                             else "none"
                         ),
                         review_strategy=manifest.get("review_strategy", "direct"),
+                        prune_accessions=manifest.get("prune_accessions", False),
                         _review_progress_callback=lambda texts: trace.write(
                             "resume_review_progress.json",
                             {"accessions": self._filterer.accessions_with_publication_text_refs(accessions, texts), "publication_texts": texts},
@@ -530,6 +536,7 @@ class Atlas:
                         theme=manifest.get("theme"),
                         review_filter=manifest.get("review_filter", "none"),
                         review_strategy=manifest.get("review_strategy", "direct"),
+                        prune_accessions=manifest.get("prune_accessions", False),
                         metadata_repositories=manifest.get("metadata_repositories"),
                         max_publications=manifest.get("max_publications"),
                         max_publications_per_query=manifest.get(
@@ -721,6 +728,7 @@ class Atlas:
         stop_before_review: bool = False,
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
+        prune_accessions: bool = True,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
         """Collect datasets and expose the result as an Atlas v1 document."""
@@ -737,6 +745,7 @@ class Atlas:
             theme=theme,
             review_filter=review_filter,
             review_strategy=review_strategy,
+            prune_accessions=prune_accessions,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
             max_publications_per_query=max_publications_per_query,
@@ -767,6 +776,7 @@ class Atlas:
                 "query_file": file,
                 "review_filter": review_filter,
                 "review_strategy": review_strategy,
+                "prune_accessions": prune_accessions,
                 "collect_metadata": collect_metadata,
                 "generate_queries": generate_queries,
                 "review_before_metadata": review_before_metadata,
@@ -849,6 +859,7 @@ class Atlas:
         stop_before_review: bool = False,
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
+        prune_accessions: bool = True,
         _trace_writer: DevTraceWriter | None = None,
         _finalize_trace: bool = True,
         _resolution: dict[str, list[str]] | None = None,
@@ -888,6 +899,7 @@ class Atlas:
                     "theme": theme,
                     "review_filter": review_filter,
                     "review_strategy": review_strategy,
+                    "prune_accessions": prune_accessions,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
                     "max_publications_per_query": max_publications_per_query,
@@ -1006,6 +1018,8 @@ class Atlas:
                 "max_publications": max_publications,
                 "collect_metadata": collect_metadata,
             }
+            if prune_accessions:
+                fingerprint_configuration["prune_accessions"] = True
             if max_publications_per_query is not None:
                 fingerprint_configuration["max_publications_per_query"] = (
                     max_publications_per_query
@@ -1081,6 +1095,7 @@ class Atlas:
                 else "none"
             ),
             review_strategy=review_strategy,
+            prune_accessions=prune_accessions,
             reviewer=reviewer,
             _review_progress_callback=review_progress_callback,
             _checkpoint_store=checkpoint_store,
@@ -1263,6 +1278,7 @@ class Atlas:
         review_filter: str = "none",
         review_strategy: str = "direct",
         reviewer=None,
+        prune_accessions: bool = True,
         _review_progress_callback=None,
         _checkpoint_store=None,
     ) -> dict:
@@ -1272,6 +1288,7 @@ class Atlas:
             theme=theme,
             review_filter=review_filter,
             review_strategy=review_strategy,
+            prune_accessions=prune_accessions,
             reviewer=reviewer,
         )
         if _review_progress_callback is not None:

@@ -32,6 +32,7 @@ class AtlasFilterer:
         review_filter: str = "none",
         review_strategy: str = "direct",
         reviewer=None,
+        prune_accessions: bool = True,
         _review_progress_callback=None,
         _checkpoint_store=None,
     ) -> dict:
@@ -63,6 +64,7 @@ class AtlasFilterer:
                 theme=theme,
                 review_filter=review_filter,
                 review_strategy=review_strategy,
+                prune_accessions=prune_accessions,
                 reviewer=reviewer,
                 progress_callback=_review_progress_callback,
                 checkpoint_store=_checkpoint_store,
@@ -301,6 +303,7 @@ class AtlasFilterer:
         reviewer=None,
         progress_callback=None,
         checkpoint_store=None,
+        prune_accessions: bool = True,
     ) -> tuple[list[dict], dict]:
         logger.info("Atlas filter_jsons progress stage=review-publication-texts")
         review_options = dict(
@@ -323,6 +326,7 @@ class AtlasFilterer:
             accessions=accessions,
             publication_texts=publication_texts,
             review_filter=review_filter,
+            prune_accessions=prune_accessions,
         )
 
     def atlas_object(self, accessions: list[dict], publication_texts: dict) -> dict:

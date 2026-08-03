@@ -151,13 +151,14 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "max_publications_per_query", "reviewer", "collect_metadata",
         "generate_queries", "max_generated_queries", "dev_trace", "dev_out_dir",
         "run_id", "review_before_metadata", "stop_before_review",
-        "scrape_fulltext_accessions", "unsupported_accessions_out", "_trace_writer",
+        "scrape_fulltext_accessions", "unsupported_accessions_out",
+        "prune_accessions", "_trace_writer",
     ]
     assert list(inspect.signature(Atlas.create_atlas).parameters)[-4:] == [
-        "review_before_metadata",
         "scrape_fulltext_accessions",
         "unsupported_accessions_out",
         "thematic_review",
+        "prune_accessions",
     ]
     assert list(inspect.signature(Atlas.harmonize_datasets).parameters) == [
         "self", "datasets", "harmonization_details_out", "harmonization_options"
@@ -166,6 +167,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "scrape_fulltext_accessions"
     )
     assert python_guide.count("scrape_fulltext_accessions=True") >= 2
+    assert python_guide.count("prune_accessions=True") >= 2
 
     required_symbols = [
         "`Atlas(...)`",
