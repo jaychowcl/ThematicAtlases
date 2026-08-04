@@ -633,6 +633,34 @@ def test_collect_publication_texts_uses_abstract_when_full_text_unavailable(
     assert result[0]["full_text_status"] == "unavailable"
 
 
+def test_known_pmcid_404_keeps_abstract_but_marks_checkpoint_retryable(
+    monkeypatch, tmp_path
+) -> None:
+    def fake_get(url, timeout):
+        return FakeResponse({}, status_code=404)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+
+    result = EuropePMCWrapper(max_retries=0).collect_publication_texts(
+        publications=[
+            {
+                "source": "MED",
+                "epmc_id": "123",
+                "pmcid": "PMC123",
+                "abstractText": "Abstract fallback",
+            }
+        ],
+        checkpoint_store=store,
+    )
+
+    assert result[0]["text"] == "Abstract fallback"
+    checkpoint = store.get("publication_text", "MED:123")
+    assert checkpoint["status"] == "retryable_error"
+    assert checkpoint["failure_category"] == "public_full_text_unavailable"
+
+
 def test_collect_publication_texts_missing_pmcid_skips_request(monkeypatch) -> None:
     calls = []
 
@@ -675,10 +703,13 @@ def test_collect_publication_texts_empty_abstract_has_no_text(monkeypatch) -> No
     assert result[0]["full_text_status"] == "missing_pmcid"
 
 
-def test_collect_publication_texts_retries_transient_failures(monkeypatch) -> None:
+@pytest.mark.parametrize("status_code", [403, 503])
+def test_collect_publication_texts_retries_transient_failures(
+    monkeypatch, status_code
+) -> None:
     calls = []
     responses = [
-        FakeResponse({}, status_code=503),
+        FakeResponse({}, status_code=status_code),
         FakeResponse({}, text="<article><body><p>Recovered text.</p></body></article>"),
     ]
 
@@ -1342,6 +1373,29 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
     ]
     assert "EuropePMC datalinks skipped publication source='MED' epmc_id='failed'" in caplog.text
     assert "failed_publications=1" in caplog.text
+
+
+def test_collect_datalinks_checkpoints_non_network_processing_failure(
+    monkeypatch, tmp_path
+) -> None:
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    monkeypatch.setattr(
+        EuropePMCWrapper,
+        "_datalinks",
+        lambda self, source, epmc_id: (_ for _ in ()).throw(
+            ValueError("malformed provider payload")
+        ),
+    )
+
+    result = EuropePMCWrapper().collect_datalinks(
+        [{"source": "MED", "epmc_id": "123"}],
+        checkpoint_store=store,
+    )
+
+    assert result == []
+    item = store.get("datalinks", "MED:123")
+    assert item["status"] == "terminal_error"
+    assert item["error_type"] == "ValueError"
 
 
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:

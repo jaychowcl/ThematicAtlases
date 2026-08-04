@@ -489,12 +489,93 @@ class CheckpointStore:
         with self._lock, self._connection() as connection:
             return connection.execute(query, params).fetchone() is not None
 
+    def _has_statuses(
+        self,
+        statuses: set[str],
+        stage: str | None = None,
+    ) -> bool:
+        placeholders = ", ".join("?" for _ in statuses)
+        query = f"SELECT 1 FROM checkpoint_items WHERE status IN ({placeholders})"
+        params: tuple = tuple(sorted(statuses))
+        if stage is not None:
+            query += " AND stage = ?"
+            params += (stage,)
+        query += " LIMIT 1"
+        with self._lock, self._connection() as connection:
+            return connection.execute(query, params).fetchone() is not None
+
+    def has_actionable(self, stage: str | None = None) -> bool:
+        """Return whether resume can automatically attempt pending or transient work."""
+        return self._has_statuses({"pending", "retryable_error"}, stage)
+
+    def has_incomplete(self, stage: str | None = None) -> bool:
+        """Return whether any automatic or explicitly retried work remains."""
+        return self._has_statuses(
+            {"pending", "retryable_error", "terminal_error"}, stage
+        )
+
     def has_retryable_boundary(self, boundary: str) -> bool:
         stages = [
             stage for stage, stage_boundary in STAGE_POLICIES.items()
             if stage_boundary == boundary
         ]
         return any(self.has_retryable(stage) for stage in stages)
+
+    def has_actionable_boundary(self, boundary: str) -> bool:
+        stages = [
+            stage for stage, stage_boundary in STAGE_POLICIES.items()
+            if stage_boundary == boundary
+        ]
+        return any(self.has_actionable(stage) for stage in stages)
+
+    def has_incomplete_boundary(self, boundary: str) -> bool:
+        stages = [
+            stage for stage, stage_boundary in STAGE_POLICIES.items()
+            if stage_boundary == boundary
+        ]
+        return any(self.has_incomplete(stage) for stage in stages)
+
+    def retry_report(self) -> dict:
+        """Summarize automatic resume work and terminal items needing selection."""
+        automatic_statuses = {"pending", "retryable_error"}
+        report = {
+            "requires_retry": False,
+            "automatic_retry_count": 0,
+            "manual_retry_count": 0,
+            "stages": {},
+        }
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM checkpoint_items
+                WHERE status IN ('pending', 'retryable_error', 'terminal_error')
+                ORDER BY stage, ordinal, item_key
+                """
+            ).fetchall()
+        for row in rows:
+            item = self._item(row)
+            stage_report = report["stages"].setdefault(
+                item["stage"], {"counts": {}, "automatic": [], "manual": []}
+            )
+            status = item["status"]
+            stage_report["counts"][status] = stage_report["counts"].get(status, 0) + 1
+            detail = {
+                key: item[key]
+                for key in (
+                    "key", "status", "attempt_count", "error",
+                    "error_type", "failure_category",
+                )
+            }
+            if status in automatic_statuses:
+                stage_report["automatic"].append(detail)
+                report["automatic_retry_count"] += 1
+            else:
+                stage_report["manual"].append(detail)
+                report["manual_retry_count"] += 1
+        report["requires_retry"] = bool(
+            report["automatic_retry_count"] or report["manual_retry_count"]
+        )
+        return report
 
     def history(self, stage: str, key: str) -> list[dict]:
         with self._lock, self._connection() as connection:
@@ -814,7 +895,7 @@ class CheckpointStore:
 def is_retryable_error(error: Exception) -> bool:
     response = getattr(error, "response", None)
     status = getattr(response, "status_code", None)
-    if status == 429 or (isinstance(status, int) and status >= 500):
+    if status in {403, 429} or (isinstance(status, int) and status >= 500):
         return True
     trace = getattr(error, "request_trace", None)
     message = str(error).lower()
@@ -823,6 +904,7 @@ def is_retryable_error(error: Exception) -> bool:
         "temporar",
         "connection",
         "429",
+        "403",
         "500",
         "502",
         "503",

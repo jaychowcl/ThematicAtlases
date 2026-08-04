@@ -7,6 +7,7 @@ from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.document_adapter import AtlasDocumentAdapter
 from ThematicAtlases.domain import AtlasDocument, RunStatus
+from ThematicAtlases.filterer.review import REVIEW_CONTRACT_VERSION
 from ThematicAtlases.run_store import AtlasRunStore
 
 
@@ -107,6 +108,12 @@ def test_create_atlas_requires_nonblank_theme_before_external_work() -> None:
         ).create_atlas(theme=" ", generate_queries=False, query=["manual"])
 
     assert RecordingCollector.calls == []
+
+
+def test_atlas_preserves_explicit_empty_metadata_handlers() -> None:
+    atlas = Atlas(metadata={}, metadata_handlers={})
+
+    assert atlas._collector._metadata_handlers == {}
 
 
 def test_create_atlas_defaults_to_generated_queries_and_thematic_review() -> None:
@@ -719,9 +726,10 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
         "03_pre_harmonization_accession_metadata.json",
         "04_harmonization_details.json",
         "05_post_harmonization_accession_metadata.json",
-        "06_final_atlas.json",
-        "07_summary.json",
-        "atlas_run.sqlite3",
+            "06_final_atlas.json",
+            "07_summary.json",
+            "08_retry_report.json",
+            "atlas_run.sqlite3",
         "unsupported_accessions.json",
     ]
     document = AtlasDocument.load(run_dir / "06_final_atlas.json")
@@ -1109,6 +1117,56 @@ def test_resume_ignores_final_output_when_collection_has_retryable_item(
 
     assert len(calls) == 1
     assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
+
+
+def test_final_status_and_latest_resume_include_terminal_checkpoint_failure(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    run_dir = tmp_path / "trace" / "terminal-review"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps({"run_id": "terminal-review", "query": ["fibrosis"]}),
+        encoding="utf-8",
+    )
+    initialize_run_store(run_dir)
+    (run_dir / "06_final_atlas.json").write_text(
+        json.dumps({"accessions": [], "publication_texts": {}}),
+        encoding="utf-8",
+    )
+    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
+    store.put(
+        "thematic_review",
+        "direct:1",
+        1,
+        "terminal_error",
+        payload={"review_contract_version": REVIEW_CONTRACT_VERSION},
+        error="invalid model output",
+    )
+
+    atlas = Atlas(metadata={})
+    assert atlas._resume_run_directory(str(tmp_path / "trace"), None) == run_dir
+    assert atlas._final_run_status({"accessions": []}, store) == RunStatus.PARTIAL
+
+
+def test_resume_requeues_stale_review_contract(tmp_path) -> None:
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    store.put(
+        "thematic_review",
+        "direct:1",
+        1,
+        "available",
+        payload={"review_contract_version": REVIEW_CONTRACT_VERSION - 1},
+    )
+
+    Atlas._reconcile_checkpoint_contracts(store)
+
+    item = store.get("thematic_review", "direct:1")
+    assert item["status"] == "retryable_error"
+    assert item["failure_category"] == "contract_upgrade"
 
 
 @pytest.mark.parametrize("stage", ["pubmed_enrichment", "sra_xml", "ena_fastq"])

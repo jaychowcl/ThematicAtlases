@@ -4,13 +4,27 @@ import json
 import hashlib
 import os
 from pathlib import Path
+import re
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.run_store import AtlasRunStore, IncompatibleRunStoreError
 
 
+_PATH_COMPONENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _safe_path_component(value: str, name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a filesystem-safe non-empty identifier")
+    normalized = value
+    if not _PATH_COMPONENT_PATTERN.fullmatch(normalized) or normalized in {".", ".."}:
+        raise ValueError(f"{name} must be a filesystem-safe non-empty identifier")
+    return normalized
+
+
 class DevTraceWriter:
     def __init__(self, root: str, run_id: str, manifest: dict, write_manifest: bool = True):
+        run_id = _safe_path_component(run_id, "run_id")
         self.directory = Path(root) / run_id
         self.directory.mkdir(parents=True, exist_ok=True)
         self._checkpoint_store = None
@@ -70,6 +84,7 @@ class DevTraceWriter:
         )
 
     def write(self, name: str, value) -> None:
+        name = _safe_path_component(name, "artifact name")
         destination = self.directory / name
         temporary = destination.with_name(f".{destination.name}.tmp")
         with open(temporary, "w", encoding="utf-8") as handle:
@@ -84,6 +99,7 @@ class DevTraceWriter:
         name: str,
         media_type: str = "application/json",
     ) -> int:
+        name = _safe_path_component(name, "artifact name")
         path = self.directory / name
         content = path.read_bytes()
         return self.run_store.register_artifact(

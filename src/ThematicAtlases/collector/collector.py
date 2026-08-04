@@ -28,10 +28,14 @@ class AtlasCollector:
         metadata_resume_orchestrator_factory=None,
     ):
         self._epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
-        self._metadata_handlers = metadata_handlers or {
-            "arrayexpress": ArrayExpressWrapper,
-            "geo": GEOWrapper,
-        }
+        self._metadata_handlers = (
+            {
+                "arrayexpress": ArrayExpressWrapper,
+                "geo": GEOWrapper,
+            }
+            if metadata_handlers is None
+            else metadata_handlers
+        )
         self._metadata_repositories = self._normalized_metadata_repositories(
             metadata_repositories
         )

@@ -17,6 +17,7 @@ from ThematicAtlases.document_adapter import AtlasDocumentAdapter
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
+from ThematicAtlases.filterer.review import REVIEW_CONTRACT_VERSION
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 from ThematicAtlases.summary import build_atlas_summary
 from ThematicAtlases.trace import DevTraceWriter
@@ -26,7 +27,10 @@ from ThematicAtlases.unsupported_accessions import (
     partition_unsupported_accessions,
 )
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
-from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
+from ThematicAtlases.wrappers.epmc import (
+    EuropePMCWrapper,
+    PUBLICATION_TEXT_CONTRACT_VERSION,
+)
 from ThematicAtlases.wrappers.geo import GEOWrapper
 from ThematicAtlases.run_archive import archive_existing_runs
 
@@ -53,10 +57,11 @@ class Atlas:
     ):
         self.metadata = metadata
         epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
-        metadata_handlers = metadata_handlers or {
-            "arrayexpress": ArrayExpressWrapper,
-            "geo": GEOWrapper,
-        }
+        if metadata_handlers is None:
+            metadata_handlers = {
+                "arrayexpress": ArrayExpressWrapper,
+                "geo": GEOWrapper,
+            }
         publication_text_reviewer = (
             publication_text_reviewer or PublicationTextReviewer()
         )
@@ -309,7 +314,10 @@ class Atlas:
                 "thematic_review": thematic_review,
                 "harmonization_options": dict(harmonization_options or {}),
             },
-            run_status=self._final_run_status(result),
+            run_status=self._final_run_status(
+                result,
+                trace.checkpoint_store if trace is not None else None,
+            ),
             harmonization_details=details,
         )
         result_mapping = document.to_mapping()
@@ -343,14 +351,18 @@ class Atlas:
         if trace is not None:
             trace.write("06_final_atlas.json", result_mapping)
             trace.write("07_summary.json", summary)
+            trace.write("08_retry_report.json", trace.checkpoint_store.retry_report())
             trace.write("unsupported_accessions.json", unsupported_report)
             trace.register_artifact("final_atlas", "06_final_atlas.json")
             trace.register_artifact("summary", "07_summary.json")
+            trace.register_artifact("retry_report", "08_retry_report.json")
             trace.register_artifact(
                 "unsupported_accessions", "unsupported_accessions.json"
             )
             trace.run_store.set_stage_state(
-                run_id, "harmonization", "complete"
+                run_id,
+                "harmonization",
+                "partial" if trace.checkpoint_store.has_incomplete() else "complete",
             )
             trace.run_store.set_run_status(run_id, document.run.status.value)
             trace.run_store.record_event(
@@ -469,6 +481,7 @@ class Atlas:
                 len(result.get("publication_texts", {})),
             )
             return published
+        self._reconcile_checkpoint_contracts(checkpoint_store)
         if self._cache_ontologies:
             self._preflight_credentials()
         self._prepare_ontology_cache()
@@ -476,13 +489,13 @@ class Atlas:
             self._preflight_credentials()
         logger.info("Atlas resume selected run_id=%s run_dir=%s", run_dir.name, run_dir)
 
-        discovery_retryable = checkpoint_store.has_retryable_boundary("discovery")
-        review_retryable = checkpoint_store.has_retryable_boundary("review")
-        metadata_retryable = checkpoint_store.has_retryable_boundary("metadata")
+        discovery_retryable = checkpoint_store.has_actionable_boundary("discovery")
+        review_retryable = checkpoint_store.has_actionable_boundary("review")
+        metadata_retryable = checkpoint_store.has_actionable_boundary("metadata")
         collection_retryable = any(
             (discovery_retryable, review_retryable, metadata_retryable)
         )
-        harmonization_retryable = checkpoint_store.has_retryable_boundary(
+        harmonization_retryable = checkpoint_store.has_actionable_boundary(
             "harmonization"
         )
         review_before_metadata = manifest.get("review_before_metadata", False)
@@ -1464,7 +1477,7 @@ class Atlas:
         return result, []
 
     @staticmethod
-    def _final_run_status(result: dict) -> RunStatus:
+    def _final_run_status(result: dict, checkpoint_store=None) -> RunStatus:
         failed = any(
             record.get("ontology_harmonization_run_status") == "error"
             or str(record.get("metadata_status") or "").lower()
@@ -1472,7 +1485,10 @@ class Atlas:
             for record in result.get("accessions", [])
             if isinstance(record, dict)
         )
-        return RunStatus.PARTIAL if failed else RunStatus.COMPLETE
+        incomplete = bool(
+            checkpoint_store is not None and checkpoint_store.has_incomplete()
+        )
+        return RunStatus.PARTIAL if failed or incomplete else RunStatus.COMPLETE
 
     def _write_json(self, result: dict | list[dict], out: str) -> None:
         Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -1513,7 +1529,7 @@ class Atlas:
             run_status = (
                 RunStatus.RUNNING
                 if artifact_role == "collection_snapshot"
-                else self._final_run_status(result)
+                else self._final_run_status(result, trace.checkpoint_store)
             )
             document = self._documents.assemble(
                 result,
@@ -1590,12 +1606,14 @@ class Atlas:
         )
         trace.write(atlas_name, published)
         trace.write(summary_name, summary)
+        trace.write("08_retry_report.json", trace.checkpoint_store.retry_report())
         trace.write("unsupported_accessions.json", unsupported_report)
         trace.register_artifact(artifact_role, atlas_name)
         trace.register_artifact(
             "collection_summary" if artifact_role == "collection_snapshot" else "summary",
             summary_name,
         )
+        trace.register_artifact("retry_report", "08_retry_report.json")
         trace.register_artifact(
             "unsupported_accessions", "unsupported_accessions.json"
         )
@@ -1606,7 +1624,9 @@ class Atlas:
             trace.run_store.set_run_status(trace.directory.name, "running")
         else:
             trace.run_store.set_stage_state(
-                trace.directory.name, "harmonization", "complete"
+                trace.directory.name,
+                "harmonization",
+                "partial" if trace.checkpoint_store.has_incomplete() else "complete",
             )
             trace.run_store.set_run_status(
                 trace.directory.name, document.run.status.value
@@ -1639,7 +1659,7 @@ class Atlas:
                     ).checkpoint_store
                 except (OSError, ValueError):
                     continue
-                if not checkpoint_store.has_retryable():
+                if not checkpoint_store.has_incomplete():
                     continue
             try:
                 self._read_checkpoint(manifest_path)
@@ -1649,6 +1669,44 @@ class Atlas:
         if not candidates:
             raise FileNotFoundError(f"No incomplete valid trace found under {root}")
         return max(candidates, key=lambda path: path.name)
+
+    @staticmethod
+    def _reconcile_checkpoint_contracts(checkpoint_store) -> None:
+        """Requeue cached work whose decision/fetch contract has changed."""
+        for item in checkpoint_store.items("thematic_review"):
+            payload = item.get("payload") or {}
+            if payload.get("review_contract_version") == REVIEW_CONTRACT_VERSION:
+                continue
+            checkpoint_store.put(
+                "thematic_review",
+                item["key"],
+                item["ordinal"],
+                "retryable_error",
+                payload=payload,
+                error=(
+                    f"stale review contract; expected {REVIEW_CONTRACT_VERSION}"
+                ),
+                error_type="StaleCheckpointContract",
+                failure_category="contract_upgrade",
+            )
+        for item in checkpoint_store.items("publication_text"):
+            payload = item.get("payload") or {}
+            publication = payload.get("publication") or {}
+            if (
+                payload.get("contract_version") == PUBLICATION_TEXT_CONTRACT_VERSION
+                or publication.get("full_text_status") != "unavailable"
+            ):
+                continue
+            checkpoint_store.put(
+                "publication_text",
+                item["key"],
+                item["ordinal"],
+                "retryable_error",
+                payload=payload,
+                error="stale publication-text contract; retry known PMCID fetch",
+                error_type="StaleCheckpointContract",
+                failure_category="contract_upgrade",
+            )
 
     def _read_checkpoint(self, path: Path):
         with open(path, encoding="utf-8") as handle:

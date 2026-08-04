@@ -60,6 +60,33 @@ def test_checkpoint_store_rejects_unknown_status(tmp_path) -> None:
         store.put("stage", "key", 1, "typo")
 
 
+def test_checkpoint_store_reports_all_incomplete_retry_work(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put("datalinks", "MED:1", 1, "pending")
+    store.put("geo_metadata", "GSE1", 1, "retryable_error", error="403")
+    store.put(
+        "thematic_review",
+        "direct:1",
+        1,
+        "terminal_error",
+        error="invalid model output",
+    )
+    store.put("geo_metadata", "GSE2", 2, "available", payload={})
+
+    assert store.has_actionable() is True
+    assert store.has_incomplete() is True
+    assert store.has_actionable_boundary("discovery") is True
+    assert store.has_incomplete_boundary("review") is True
+
+    report = store.retry_report()
+    assert report["requires_retry"] is True
+    assert report["automatic_retry_count"] == 2
+    assert report["manual_retry_count"] == 1
+    assert report["stages"]["datalinks"]["counts"] == {"pending": 1}
+    assert report["stages"]["geo_metadata"]["automatic"][0]["key"] == "GSE1"
+    assert report["stages"]["thematic_review"]["manual"][0]["key"] == "direct:1"
+
+
 def test_checkpoint_store_migrates_version_one_database(tmp_path) -> None:
     path = tmp_path / "resume_state.sqlite"
     with sqlite3.connect(path) as connection:

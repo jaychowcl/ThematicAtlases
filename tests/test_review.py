@@ -563,6 +563,10 @@ def test_publication_context_aggregates_every_gse_for_shared_publication() -> No
 
     assert contexts["1"]["title"] == "Shared publication"
     assert contexts["1"]["accessions"] == ["GSE1", "GSE2"]
+    assert contexts["1"]["metadata"] == [
+        {"accession": "GSE1", "status": "pending", "context": ""},
+        {"accession": "GSE2", "status": "pending", "context": ""},
+    ]
 
 
 def test_direct_review_traces_and_applies_accession_removals(
@@ -682,7 +686,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
 
 
 def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
-    assert REVIEW_CONTRACT_VERSION == 5
+    assert REVIEW_CONTRACT_VERSION == 6
 
 
 def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(

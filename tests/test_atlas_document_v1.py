@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,46 @@ def test_document_rejects_unknown_top_level_fields():
 
     with pytest.raises(ValueError, match="unknown AtlasDocument fields"):
         AtlasDocument.from_mapping(payload)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda data: data["run"]["config"].update(queries="lung"), "queries must be an array"),
+        (
+            lambda data: data["datasets"][0].update(publication_ids=[1]),
+            r"publication_ids\[0\] must be a nonblank string",
+        ),
+        (
+            lambda data: data["datasets"][0].update(source_ordinal=True),
+            "source_ordinal must be an integer",
+        ),
+        (
+            lambda data: data["datasets"][0].update(
+                review={
+                    "judgement": "relevant",
+                    "criteria": [{"criterion": "human", "passed": 1}],
+                    "evidence": [],
+                }
+            ),
+            "passed must be boolean or null",
+        ),
+    ],
+)
+def test_document_rejects_ambiguous_wire_types(mutate, message):
+    payload = _document().to_mapping()
+    mutate(payload)
+
+    with pytest.raises(ValueError, match=message):
+        AtlasDocument.from_mapping(payload)
+
+
+def test_document_rejects_ambiguous_types_when_serializing_producer_objects():
+    document = _document()
+    invalid_dataset = replace(document.datasets[0], source_ordinal=True)
+
+    with pytest.raises(ValueError, match="source_ordinal must be an integer"):
+        replace(document, datasets=(invalid_dataset,)).to_mapping()
 
 
 @pytest.mark.parametrize("field", ["title", "theme"])

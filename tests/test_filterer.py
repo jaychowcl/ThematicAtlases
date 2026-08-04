@@ -265,6 +265,7 @@ def test_filter_jsons_reviews_publication_texts_with_agentic_curator_namespace(
             "metadata": [
                 {
                     "accession": "GSE1",
+                    "status": "available",
                     "context": (
                         "Study: Series metadata | source=fibrotic lung; "
                         "organism=Homo sapiens"

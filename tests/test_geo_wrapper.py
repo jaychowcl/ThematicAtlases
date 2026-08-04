@@ -1072,6 +1072,24 @@ def test_get_gse_retries_transient_failures(monkeypatch, caplog) -> None:
     assert "GEO ESearch request accession='GSM1'" in caplog.text
 
 
+def test_get_gse_retries_public_provider_forbidden_response(monkeypatch) -> None:
+    calls = []
+    responses = [
+        FakeResponse({}, status_code=403),
+        FakeResponse({"esearchresult": {"idlist": []}}),
+    ]
+
+    def fake_get(url, params, timeout):
+        calls.append(params.copy())
+        return responses.pop(0)
+
+    monkeypatch.setattr(geo_module.requests, "get", fake_get)
+    monkeypatch.setattr(geo_module.time, "sleep", lambda delay: None)
+
+    assert GEOWrapper(max_retries=1).get_gse("GSM1") is None
+    assert len(calls) == 2
+
+
 def test_get_gse_honors_retry_after(monkeypatch) -> None:
     sleeps = []
     responses = [

@@ -30,7 +30,7 @@ DATASET_DATALINK_CATEGORIES = {
 PREPRINT_API_URL = "https://api.biorxiv.org/details/{server}/{doi}/na/json"
 PREPRINT_DOI_PREFIXES = ("10.1101/", "10.64898/")
 PREPRINT_JATS_HOSTS = frozenset({"www.biorxiv.org", "www.medrxiv.org"})
-PUBLICATION_TEXT_CONTRACT_VERSION = 2
+PUBLICATION_TEXT_CONTRACT_VERSION = 3
 FULLTEXT_ACCESSION_CONTRACT_VERSION = 2
 
 
@@ -62,7 +62,7 @@ class EuropePMCWrapper:
         self._full_text_xml_url = (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/{epmc_id}/fullTextXML"
         )
-        self._retry_statuses = {429, 500, 502, 503, 504}
+        self._retry_statuses = {403, 429, 500, 502, 503, 504}
         self._request_policy = request_policy or RequestPolicy(
             timeout=timeout,
             max_retries=max_retries,
@@ -801,9 +801,8 @@ class EuropePMCWrapper:
                     publication=publication,
                     full_text_status=full_text_status,
                 )
-                if status_code != 404:
-                    checkpoint_status = "retryable_error"
-                    checkpoint_error = str(error)
+                checkpoint_status = "retryable_error"
+                checkpoint_error = str(error)
             except requests.RequestException as error:
                 enriched_publication = self._publication_with_fallback_text(
                     publication=publication,
@@ -842,6 +841,15 @@ class EuropePMCWrapper:
                         "publication": enriched_publication,
                     },
                     error=checkpoint_error,
+                    error_type=(
+                        "HTTPError" if checkpoint_status == "retryable_error" else None
+                    ),
+                    failure_category=(
+                        "public_full_text_unavailable"
+                        if checkpoint_status == "retryable_error"
+                        and enriched_publication["full_text_status"] == "unavailable"
+                        else None
+                    ),
                 )
             time.sleep(self._request_settings["request_delay"])
 
@@ -896,15 +904,19 @@ class EuropePMCWrapper:
             started = time.monotonic()
             try:
                 response_data = self._datalinks(source=source, epmc_id=epmc_id)
-            except requests.RequestException as error:
+            except Exception as error:
                 failed_publications += 1
                 if checkpoint_store is not None:
                     checkpoint_store.put(
                         "datalinks",
                         checkpoint_key,
                         index,
-                        "retryable_error",
+                        "retryable_error"
+                        if is_retryable_error(error)
+                        else "terminal_error",
                         error=str(error),
+                        error_type=type(error).__name__,
+                        failure_category=failure_category(error),
                     )
                 logger.warning(
                     "EuropePMC datalinks skipped publication source=%r epmc_id=%r error=%r",

@@ -318,6 +318,7 @@ def test_traced_create_records_normalized_lifecycle_and_final_artifact_roles(tmp
     assert {item["role"] for item in store.artifacts(run_dir.name)} == {
         "final_atlas",
         "harmonization_details",
+        "retry_report",
         "summary",
         "unsupported_accessions",
     }

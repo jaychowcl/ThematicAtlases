@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import logging
 import time
 from typing import Any
@@ -90,9 +92,17 @@ class RequestPolicy:
         retry_after = None if response is None else response.headers.get("Retry-After")
         if retry_after is not None:
             try:
-                return float(retry_after)
+                delay = float(retry_after)
             except (TypeError, ValueError):
-                pass
+                try:
+                    retry_at = parsedate_to_datetime(str(retry_after))
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=timezone.utc)
+                    delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+                except (TypeError, ValueError, OverflowError):
+                    delay = None
+            if delay is not None:
+                return min(max(delay, 0.0), 8.0)
         return min(0.5 * (2**attempt), 8.0)
 
 

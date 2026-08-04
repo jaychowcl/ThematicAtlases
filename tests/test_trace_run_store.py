@@ -82,3 +82,20 @@ def test_existing_trace_requires_an_initialized_v2_run_store(tmp_path):
 
     with pytest.raises(IncompatibleRunStoreError, match="atlas_run.sqlite3"):
         _ = trace.run_store
+
+
+@pytest.mark.parametrize("run_id", ["../escape", "nested/run", ".", "", None])
+def test_trace_rejects_unsafe_run_id_components(tmp_path, run_id):
+    with pytest.raises(ValueError, match="run_id must be a filesystem-safe"):
+        DevTraceWriter(str(tmp_path), run_id, {"command": "test"})
+
+
+@pytest.mark.parametrize("name", ["../escape.json", "nested/file.json", "."])
+def test_trace_rejects_unsafe_artifact_name_components(tmp_path, name):
+    trace = DevTraceWriter(str(tmp_path), "run-1", {"command": "test"})
+
+    with pytest.raises(ValueError, match="artifact name must be a filesystem-safe"):
+        trace.write(name, {})
+
+    with pytest.raises(ValueError, match="artifact name must be a filesystem-safe"):
+        trace.register_artifact("result", name)

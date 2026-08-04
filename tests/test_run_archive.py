@@ -6,7 +6,7 @@ import pytest
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases import run_archive
-from ThematicAtlases.run_archive import workflow_activity_lock
+from ThematicAtlases.run_archive import ArchiveDurabilityError, workflow_activity_lock
 from ThematicAtlases.trace import DevTraceWriter
 
 
@@ -221,6 +221,24 @@ def test_archive_rejects_trace_and_artifact_symlinks(tmp_path) -> None:
     assert source.exists()
 
 
+def test_archive_rejects_a_symlinked_trace_root(tmp_path) -> None:
+    real_active = tmp_path / "real-active"
+    source = _trace(real_active, "run-1", tmp_path / "out.json")
+    active = tmp_path / "active"
+    active.mkdir()
+    (active / "run-1").symlink_to(source, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="trace must not be a symlink"):
+        Atlas.archive_existing_runs(
+            dev_out_dir=active,
+            archive_root=tmp_path / "archive",
+            workflow="discovery",
+        )
+
+    assert source.exists()
+    assert not (tmp_path / "archive" / "discovery" / "run-1").exists()
+
+
 def test_archive_rejects_duplicate_artifact_basenames_without_publishing(tmp_path) -> None:
     active = tmp_path / "active"
     source = _trace(active, "run-1", tmp_path / "out.json")
@@ -305,6 +323,94 @@ def test_archive_publish_failure_retains_sources_and_publishes_nothing(tmp_path,
 
     assert source.exists() and artifact.exists()
     assert not destination.exists()
+
+
+def test_archive_fsyncs_published_directory_before_removing_sources(
+    tmp_path, monkeypatch
+) -> None:
+    active = tmp_path / "active"
+    artifact = tmp_path / "out.json"
+    source = _trace(active, "run-1", artifact)
+    artifact.write_text("{}", encoding="utf-8")
+    calls = []
+    original_fsync_directory = run_archive._fsync_directory
+
+    def record_fsync(path):
+        calls.append(Path(path))
+        return original_fsync_directory(path)
+
+    monkeypatch.setattr(run_archive, "_fsync_directory", record_fsync)
+
+    destination = Atlas.archive_existing_runs(
+        dev_out_dir=active,
+        archive_root=tmp_path / "archive",
+        workflow="discovery",
+        artifact_paths=[artifact],
+    )[0]
+
+    assert destination in calls
+    assert destination.parent in calls
+    assert not source.exists() and not artifact.exists()
+
+
+def test_archive_cleanup_failure_reports_published_archive_and_retains_artifact(
+    tmp_path, monkeypatch
+) -> None:
+    active = tmp_path / "active"
+    artifact = tmp_path / "out.json"
+    source = _trace(active, "run-1", artifact)
+    artifact.write_text("{}", encoding="utf-8")
+    destination = tmp_path / "archive" / "discovery" / "run-1"
+    original_rmtree = run_archive.shutil.rmtree
+
+    def fail_source_cleanup(path, *args, **kwargs):
+        if Path(path) == source:
+            raise OSError("cleanup failed")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(run_archive.shutil, "rmtree", fail_source_cleanup)
+
+    with pytest.raises(ArchiveDurabilityError, match="archive was published") as caught:
+        Atlas.archive_existing_runs(
+            dev_out_dir=active,
+            archive_root=tmp_path / "archive",
+            workflow="discovery",
+            artifact_paths=[artifact],
+        )
+
+    assert caught.value.destination == destination
+    assert destination.exists()
+    assert source.exists() and artifact.exists()
+
+
+def test_archive_publish_fsync_failure_reports_destination_and_retains_sources(
+    tmp_path, monkeypatch
+) -> None:
+    active = tmp_path / "active"
+    artifact = tmp_path / "out.json"
+    source = _trace(active, "run-1", artifact)
+    artifact.write_text("{}", encoding="utf-8")
+    destination = tmp_path / "archive" / "discovery" / "run-1"
+    original_fsync_directory = run_archive._fsync_directory
+
+    def fail_published_fsync(path):
+        if Path(path) == destination:
+            raise OSError("directory fsync failed")
+        return original_fsync_directory(path)
+
+    monkeypatch.setattr(run_archive, "_fsync_directory", fail_published_fsync)
+
+    with pytest.raises(ArchiveDurabilityError, match="archive was published") as caught:
+        Atlas.archive_existing_runs(
+            dev_out_dir=active,
+            archive_root=tmp_path / "archive",
+            workflow="discovery",
+            artifact_paths=[artifact],
+        )
+
+    assert caught.value.destination == destination
+    assert destination.exists()
+    assert source.exists() and artifact.exists()
 
 
 def test_archive_publish_failure_ignores_transient_sqlite_sidecar_changes(

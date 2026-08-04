@@ -23,7 +23,7 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct", "evidence_then_judgement"}
-REVIEW_CONTRACT_VERSION = 5
+REVIEW_CONTRACT_VERSION = 6
 
 logger = logging.getLogger(__name__)
 
@@ -125,18 +125,24 @@ class PublicationTextReviewer:
                     accession = accession.upper()
                     if accession not in context["accessions"]:
                         context["accessions"].append(accession)
+                else:
+                    accession = ""
                 metadata = build_miniml_metadata_context(
                     record.get("accession_metadata")
                 )
-                if metadata:
-                    metadata_entry = {"accession": accession, "context": metadata}
+                if accession:
+                    status = str(record.get("metadata_status") or "pending")
+                    if metadata:
+                        status = "available"
+                    elif status == "available":
+                        status = "available_but_empty"
+                    metadata_entry = {
+                        "accession": accession,
+                        "status": status,
+                        "context": metadata or "",
+                    }
                     if metadata_entry not in context["metadata"]:
                         context["metadata"].append(metadata_entry)
-                    context["metadata_statuses"][accession] = "available"
-                elif accession:
-                    status = str(record.get("metadata_status") or "pending")
-                    if status == "available":
-                        status = "available_but_empty"
                     context["metadata_statuses"][accession] = status
 
         return contexts
@@ -581,6 +587,8 @@ class PublicationTextReviewer:
             item.get("accession")
             for item in context.get("metadata", [])
             if item.get("accession")
+            and item.get("status", "available") == "available"
+            and item.get("context")
         ]
         accessions = list(context.get("accessions") or [])
         return {

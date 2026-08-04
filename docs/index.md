@@ -113,7 +113,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Verified run archival decision](codebase.md#decision-safe-run-archival)
   anchor: decision-safe-run-archival
   purpose: Observed lock, SQLite checkpoint, stable-snapshot, verification, and atomic-publication rules for whole-run archives.
-  keywords: AD-005, archive, activity lock, WAL, SHM, snapshot, checksum, atomic, symlink
+  keywords: AD-005, archive, activity lock, WAL, SHM, snapshot, checksum, atomic, fsync, ArchiveDurabilityError, symlink
 
 - id: decision-central-atlas-document
   title: [Central Atlas document and run authority](codebase.md#decision-central-atlas-document)
@@ -173,7 +173,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
   purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, accessions_to_remove, prune_accessions, review revision 1, contract version 5
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, exclusion_basis, accession evidence, accessions_to_remove, prune_accessions, review revision 2, contract version 6
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
@@ -271,7 +271,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, independent v1 dependencies, editable-install, dated deterministic test evidence, and console-command contract.
-  keywords: pyproject, Python 3.10, version 1.0.0, 2026-08-03, 441 passed, pytest, fail-closed network, allow_subprocess, thematic-atlas
+  keywords: pyproject, Python 3.10, version 1.0.0, 2026-08-04, 486 passed, pytest, fail-closed network, allow_subprocess, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)
@@ -319,7 +319,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
   purpose: Current automated coverage and verification commands.
-  keywords: pytest, py_compile, mocked network, documentation, CLI, workflows
+  keywords: pytest, 486 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
   title: [Atlas Workflow](codebase.md#atlas-workflow)
@@ -361,7 +361,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Rate Handling](codebase.md#rate-handling)
   anchor: rate-handling
   purpose: Shared injectable HTTP request policy, endpoint cadence, bounded retry, timeout, and Retry-After behavior.
-  keywords: RequestPolicy, retry, Retry-After, timeout, request_policy, request_delay, EuropePMCWrapper, GEOWrapper
+  keywords: RequestPolicy, retry, Retry-After, HTTP-date, bounded delay, timeout, request_policy, request_delay, EuropePMCWrapper, GEOWrapper
 
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)

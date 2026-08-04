@@ -58,3 +58,13 @@ def test_request_policy_exception_retry_and_final_status_are_caller_controlled()
     assert response.status_code == 503
     assert sleeps == [0.5]
     assert response.raise_calls == 0
+
+
+def test_retry_after_never_returns_negative_delay():
+    assert RequestPolicy.retry_delay(Response(429, {"Retry-After": "-3"}), 0) == 0
+
+
+def test_retry_after_http_date_is_parsed_and_bounded():
+    assert RequestPolicy.retry_delay(
+        Response(429, {"Retry-After": "Wed, 21 Oct 2099 07:28:00 GMT"}), 0
+    ) == 8

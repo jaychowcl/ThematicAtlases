@@ -297,7 +297,7 @@ Atlas(
 )
 ```
 
-`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_handlers=None` selects the built-in handlers, while an explicit empty mapping disables all handlers. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
 
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v1 wire
@@ -334,7 +334,7 @@ Atlas.collect_datasets(
 ```
 
 - `query` is an ordered list; `file` adds queries from UTF-8 text. `max_publications` is a global raw-hit cap, while `max_publications_per_query` must align one positive integer or `None` with each ordered query.
-- `theme`, `review_filter`, `review_strategy`, `prune_accessions`, and an optional injected `reviewer` control thematic review. The default direct strategy uses agentic-curator revision 1: one model-authored criterion catalog derived from the theme, one assessment per associated accession, and model-authored accession/publication decisions. `prune_accessions=True` removes a rejected publication–accession association and drops the accession only when no publication associations remain; `review_filter` independently controls whole-publication judgements. Trace output retains the catalog and assessments; Atlas v1 keeps its stable publication-level relevance projection.
+- `theme`, `review_filter`, `review_strategy`, `prune_accessions`, and an optional injected `reviewer` control thematic review. The default direct strategy uses agentic-curator revision 2: one model-authored criterion catalog derived from the theme, one assessment per associated accession, and model-authored accession/publication decisions with explicit exclusion bases and accession-specific evidence for qualifying calls. `prune_accessions=True` removes a rejected publication–accession association and drops the accession only when no publication associations remain; `review_filter` independently controls whole-publication judgements. Trace output retains the catalog and assessments; Atlas v1 keeps its stable publication-level relevance projection.
 - `metadata_repositories` selects handlers; `collect_metadata=False` skips enrichment. `review_before_metadata=True` reverses review/enrichment ordering and requires a theme.
 - `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
 - `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.
@@ -460,7 +460,7 @@ Atlas.archive_existing_runs(
 )
 ```
 
-It returns ordered archive paths and rejects active workflows, unsafe names, symlinks, destination collisions, and archive roots nested inside the active trace root.
+It returns ordered archive paths and rejects active workflows, unsafe names, symlinks, destination collisions, and archive roots nested inside the active trace root. Published directories and their parent are fsynced before sources are removed. If publication succeeds but durability or cleanup finalization fails, `ArchiveDurabilityError.destination` identifies the already-published archive and the original sources are retained whenever cleanup has not begun.
 
 Specialized public APIs are available when independently advancing or evaluating a trace:
 
@@ -562,8 +562,8 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 
 ## Testing
 
-The deterministic, network-blocked suite was last verified on 2026-08-03:
-`441 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+The deterministic, network-blocked suite was last verified on 2026-08-04:
+`486 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 

@@ -39,7 +39,7 @@ class GEOWrapper:
             "max_retries": max_retries,
         }
         self._base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        self._retry_statuses = {429, 500, 502, 503, 504}
+        self._retry_statuses = {403, 429, 500, 502, 503, 504}
         self._request_policy = request_policy or RequestPolicy(
             timeout=timeout,
             max_retries=max_retries,

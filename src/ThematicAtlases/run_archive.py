@@ -24,6 +24,19 @@ _LOCKS: dict[Path, "_WorkflowLock"] = {}
 _LOCKS_GUARD = threading.RLock()
 
 
+class ArchiveDurabilityError(OSError):
+    """Report that an archive was published but finalization did not complete."""
+
+    def __init__(self, destination: Path, finalization_error: BaseException):
+        self.destination = destination
+        self.finalization_error = finalization_error
+        self.cleanup_error = finalization_error
+        super().__init__(
+            f"archive was published at {destination}, but finalization failed: "
+            f"{finalization_error}"
+        )
+
+
 class _WorkflowLock:
     def __init__(self, path: Path, handle, *, exclusive: bool):
         self.path = path
@@ -103,9 +116,20 @@ def archive_existing_runs(
         raise ValueError("archive_root must not be inside dev_out_dir")
 
     with workflow_activity_lock(active_root, exclusive=True, blocking=False):
+        entries = list(active_root.iterdir())
+        linked_trace = next(
+            (
+                path
+                for path in entries
+                if path.is_symlink() and (path / "00_run_manifest.json").is_file()
+            ),
+            None,
+        )
+        if linked_trace is not None:
+            raise ValueError(f"archive trace must not be a symlink: {linked_trace}")
         traces = sorted(
             path
-            for path in active_root.iterdir()
+            for path in entries
             if path.is_dir() and (path / "00_run_manifest.json").is_file()
         )
         artifacts = _existing_artifacts(artifact_paths)
@@ -152,6 +176,7 @@ def _archive_one(
         source_files = _tree_manifest(source)
 
     staging = destination.with_name(f".{destination.name}.tmp-{uuid.uuid4().hex}")
+    published = False
     try:
         if source is None:
             staging.mkdir(parents=True)
@@ -208,15 +233,26 @@ def _archive_one(
             "artifacts": artifact_records,
         }
         _write_json(staging / "archive_manifest.json", archive_manifest)
+        _fsync_tree(staging)
         os.replace(staging, destination)
+        published = True
+        try:
+            _fsync_directory(destination)
+            _fsync_directory(destination.parent)
+        except Exception as error:
+            raise ArchiveDurabilityError(destination, error) from error
     except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
+        if not published:
+            shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    if source is not None:
-        shutil.rmtree(source)
-    for artifact in artifacts:
-        artifact.unlink()
+    try:
+        if source is not None:
+            shutil.rmtree(source)
+        for artifact in artifacts:
+            artifact.unlink()
+    except Exception as error:
+        raise ArchiveDurabilityError(destination, error) from error
 
 
 def _existing_artifacts(paths: list[str | Path] | tuple[str | Path, ...]) -> list[Path]:
@@ -328,6 +364,25 @@ def _write_json(path: Path, value: dict) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+
+
+def _fsync_tree(root: Path) -> None:
+    for path in root.rglob("*"):
+        if path.is_file():
+            with path.open("rb") as handle:
+                os.fsync(handle.fileno())
+    directories = [path for path in root.rglob("*") if path.is_dir()]
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        _fsync_directory(directory)
+    _fsync_directory(root)
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _sha256(path: Path) -> str:

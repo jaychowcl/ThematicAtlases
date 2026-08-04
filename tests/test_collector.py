@@ -377,6 +377,12 @@ def test_default_arrayexpress_handler_is_supported() -> None:
     ) == [record]
 
 
+def test_explicit_empty_metadata_handlers_disables_all_default_handlers() -> None:
+    collector = AtlasCollector(metadata_handlers={})
+
+    assert collector._metadata_handlers == {}
+
+
 def test_filter_accessions_keeps_arrayexpress_when_selected() -> None:
     records = [
         {"datalink_id": "GSE1", "datalink_id_scheme": "GEO"},

@@ -61,8 +61,8 @@ def test_readme_and_handoff_record_current_v1_and_test_evidence() -> None:
     for document in (readme, codebase):
         assert "Atlas document schema 1.0" in document
         assert "H5AD metadata schema 1.0" in document
-        assert "2026-08-03" in document
-        assert "441 passed, 4 skipped" in document
+        assert "2026-08-04" in document
+        assert "486 passed, 4 skipped" in document
     for stale in ("meta-standards-converter 4", "H5AD metadata schema 3.0"):
         assert stale not in index
         assert stale not in codebase

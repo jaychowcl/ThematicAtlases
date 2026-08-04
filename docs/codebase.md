@@ -149,14 +149,16 @@ and [project layout](#project-purpose-and-layout).
 - **Status:** Observed
 - **Decision:** A new fixed workflow relocates inactive traces and artifacts
   through an exclusive activity lock, non-busy SQLite checkpoint, stable
-  durable-file snapshots, staging copy, checksum verification, and atomic
-  publication before deleting any source. SQLite's trace-root `-wal` and
+  durable-file snapshots, staging copy, checksum verification, recursive file
+  and directory fsync, and atomic publication before deleting any source. SQLite's trace-root `-wal` and
   `-shm` sidecars are transient snapshot inputs and are not archived; a
   non-empty WAL after checkpointing fails closed.
 - **Rationale:** Not documented.
 - **Consequences:** Existing runs survive interrupted or conflicting archival,
-  while active workflows, symlinks, unsafe names, and destination collisions
-  stop a new run instead of being overwritten.
+  while active workflows, symlinks (including a symlinked trace root), unsafe
+  names, and destination collisions stop a new run instead of being
+  overwritten. `ArchiveDurabilityError` distinguishes a published destination
+  whose durability or cleanup finalization failed from a pre-publication error.
 - **Affected components:** `Atlas.archive_existing_runs`,
   `workflow_activity_lock`, trace manifests, SQLite stores, and fixed artifacts.
 - **Evidence:** [`run_archive.py`](../src/ThematicAtlases/run_archive.py) and
@@ -190,8 +192,9 @@ and [project layout](#project-purpose-and-layout).
   before network work.
 - Public workflow mappings have `schema_version == "1.0"` and the exact
   top-level sections `atlas`, `run`, `datasets`, `publications`, and `summary`.
-  Unknown fields, duplicate identities, dangling publication references, and
-  inconsistent derived counts fail validation. Legacy `accessions` and
+  Unknown fields, ambiguous boolean/integer or scalar/list values, duplicate
+  identities, dangling publication references, and inconsistent derived counts
+  fail validation during both mapping ingestion and producer serialization. Legacy `accessions` and
   `publication_texts` mappings exist only between mature internal stages.
 - Metadata repository routing defaults to GEO. Unsupported, unresolved, or
   failed metadata is represented explicitly rather than silently fabricated.
@@ -218,7 +221,9 @@ and [project layout](#project-purpose-and-layout).
   checkpoint items, replaced states, and metadata into normalized
   `work_items`, `attempts`, and `run_metadata`; deletes cascade consistently.
 - Whole-run archival requires an exclusive activity lock, rejects symlinks and
-  collisions, verifies copied content, and publishes before deleting sources.
+  collisions, verifies and fsyncs copied content, and durably publishes before
+  deleting sources. Post-publication finalization failure identifies the live
+  archive through `ArchiveDurabilityError.destination`.
 - Library modules do not configure global logging. No credential, prompt,
   response, authorization header, or full provider payload belongs in logs.
 
@@ -405,7 +410,7 @@ combined with Atlas-managed ontology-store/cache options.
 | [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects a v1 trace, requires authoritative `atlas_run.sqlite3`, optionally archives/requeues selected item-cache rows, reuses completed boundaries, and returns/publishes Atlas v1. Missing/ambiguous/incompatible runs, fingerprint mismatches, or invalid retry requests raise. |
 | [`Atlas.fork_run`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, new_run_id, overrides=None) -> Path` | Atomically clones a metadata-paused create trace with a new ledger identity. It preserves discovery/text/metadata checkpoints, records source provenance, accepts downstream-only overrides, and rejects discovery changes, existing destinations, incomplete sources, and traces containing downstream work. |
 | [`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | Archives the prior fingerprint and installs aligned normalized queries atomically. Empty/misaligned limits, active work, or unsafe state raise. |
-| [`Atlas.archive_existing_runs`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | Returns published archive paths after verification; active runs, symlinks, unsafe names, nested roots, and collisions raise without deleting sources. |
+| [`Atlas.archive_existing_runs`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | Returns durably published archive paths after verification and fsync; active runs, symlinks, unsafe names, nested roots, and collisions raise without deleting sources. A post-publication fsync or cleanup failure raises `ArchiveDurabilityError` with the published destination. |
 
 [`ThematicAtlases.cli_atlas.main(argv=None) -> int`](../src/ThematicAtlases/cli_atlas.py)
 parses `collect-datasets`, `create-atlas`, `harmonize-datasets`, `resume`, and
@@ -429,9 +434,9 @@ otherwise.
 | [`ThematicAtlases.unsupported_accessions`](../src/ThematicAtlases/unsupported_accessions.py) | Formally exports report schema version `1.0`, `is_unsupported_accession(record)`, `partition_unsupported_accessions(records)`, and `build_unsupported_accessions_report(records, *, atlas_id, run_id)`. The report keeps sanitized discovery/publication attribution and aggregate repository counts outside Atlas v1. |
 | [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) | Formally exports runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and `ArtifactPublisherPort`. They specify callable inputs/outputs for injected application collaborators; concrete exceptions and side effects remain owned by each implementation. |
 | [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v1 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path plus optional `event_emitter`, creates SQL schema version 2 for a new database, and rejects legacy/foreign/newer state. SQLite remains event authority; an emitter receives the same redacted event only after commit. Public methods are inventoried under supported helpers below. |
-| [`ThematicAtlases.infrastructure.RequestPolicy`](../src/ThematicAtlases/infrastructure/http.py) | `(*, timeout=30, max_retries=3, retry_statuses={429,500,502,503,504}, request_get=None, sleep=time.sleep, logger=None, name="HTTP")`; `get(url, *, params=None, retry_exceptions=False, raise_for_status=True) -> Response`. Retries are bounded, honor numeric `Retry-After`, otherwise use capped exponential delay, and propagate terminal request/status failures according to caller policy. |
+| [`ThematicAtlases.infrastructure.RequestPolicy`](../src/ThematicAtlases/infrastructure/http.py) | `(*, timeout=30, max_retries=3, retry_statuses={429,500,502,503,504}, request_get=None, sleep=time.sleep, logger=None, name="HTTP")`; `get(url, *, params=None, retry_exceptions=False, raise_for_status=True) -> Response`. Retries are bounded, honor numeric or HTTP-date `Retry-After` within zero to eight seconds, otherwise use capped exponential delay, and propagate terminal request/status failures according to caller policy. |
 | [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py), [`PublishedArtifactBundle`](../src/ThematicAtlases/artifact_publisher.py), [`resolve_current_bundle`](../src/ThematicAtlases/artifact_publisher.py), and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported immutable-generation publication boundary, verified resolver, and recovery-specific double-failure exception. `publish` makes one fsynced manifest pointer authoritative while maintaining direct compatibility views; failed restoration exposes the publication error, recovery errors, and preserved recovery paths. |
-| [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler(repository: str) -> Any` expose typed routing boundaries. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
+| [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `None` selects built-in GEO/ArrayExpress handlers; `{}` deliberately disables all handlers. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler(repository: str) -> Any` expose typed routing boundaries. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
 | [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
 | [`ThematicAtlases.filterer.ACCESSIONS`](../src/ThematicAtlases/filterer/review.py) | `"accessions"` atlas key. |
 | [`ThematicAtlases.filterer.AGENTIC_CURATOR`](../src/ThematicAtlases/filterer/review.py) | `"agentic_curator"` review-payload key. |
@@ -566,7 +571,8 @@ Complete public-member signatures for the exported classes:
   strategy="direct", reviewer=None, allow_theme_override=False) -> dict`](../src/ThematicAtlases/filterer/resume.py)
   validates a trace, reviews the current datalink snapshot, and writes review
   progress. [`DevTraceWriter`](../src/ThematicAtlases/trace.py) exposes
-  `checkpoint_store`, `existing`, `write`, and `metadata` for readable artifacts.
+  `checkpoint_store`, `existing`, `write`, and `metadata` for readable artifacts;
+  run IDs and artifact names must be single filesystem-safe path components.
 - [`GoogleCredentialPreflight.check() -> str`](../src/ThematicAtlases/credentials.py)
   refreshes ADC and verifies a quota project, raising actionable runtime errors.
   [`load_query_catalog(path) -> dict`](../src/ThematicAtlases/query_catalog.py)
@@ -861,8 +867,9 @@ whole-run archival safely relocates inactive traces and fixed artifacts.
 amend -> validate aligned query limits -> archive fingerprint -> install new
   \-> unchanged normalized configuration -----------------------> no-op/current
 archive run -> exclusive lock -> checkpoint -> snapshot/copy/resnapshot
-  -> matching durable checksums -> publish -> delete source
-  \-> busy/WAL/mutation/symlink/collision => error, keep source
+  -> matching checksums -> fsync tree -> publish -> fsync parents -> delete source
+  \-> pre-publish error => keep source and publish nothing
+  \-> post-publish finalization error => ArchiveDurabilityError(destination)
 ```
 
 #### Numbered stages
@@ -875,6 +882,9 @@ archive run -> exclusive lock -> checkpoint -> snapshot/copy/resnapshot
 4. The archive implementation rejects active locks, symlinks, unsafe names,
    nested roots, and collisions before deletion.
 5. SQLite checkpointing must report no busy readers and leave no non-empty WAL.
+6. The staged tree and published directory entry are fsynced before cleanup.
+   A failure after atomic publication reports the durable destination explicitly
+   instead of presenting the operation as an unpublished failure.
    Durable files are hashed before and after a staged copy, while the exact
    trace-root WAL/SHM sidecars are excluded; both source snapshots and the copy
    must match before manifest relocation and atomic publication. Any failure
@@ -1199,7 +1209,7 @@ are not part of the tracked source tree.
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-03 this deterministic gate reported `441 passed, 4 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-04 this deterministic gate reported `486 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1476,7 +1486,7 @@ skipped, failed, full-text, fallback, and missing counts.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly, plus the title and every distinct associated GSE accession. When metadata exists, context contains one compact `build_miniml_metadata_context(...)` entry per associated accession; full MINiML, protocol, platform, and author sections are not sent. Original `accession_metadata` remains unchanged in atlas and trace artifacts.
 - Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
 - Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
-- `review_strategy="direct"` is the default and makes one structured call over the whole publication. Agentic Curator revision 1 derives a shared catalog of 1–12 generic criteria from the non-empty theme, requires exactly one complete assessment per supplied GSE, and returns model-authored accession and publication decisions. `evidence_then_judgement` preserves the prior two-call evidence extraction followed by judgement as an explicit legacy strategy.
+- `review_strategy="direct"` is the default and makes one structured call over the whole publication. Agentic Curator revision 2 derives a shared catalog of 1–12 generic criteria from the non-empty theme, requires exactly one complete assessment per supplied GSE, records an explicit exclusion basis, and requires accession-specific evidence for qualifying assessments. `evidence_then_judgement` preserves the prior two-call evidence extraction followed by judgement as an explicit legacy strategy.
 - Direct output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, `strategy`, `review_revision`, `criteria`, `judgement`, `reasoning`, `confidence`, `accession_assessments`, derived `accessions_to_remove`, and `raw_review`. The model owns `qualifies`/`exclude`/`uncertain` and publication relevance decisions; agentic-curator derives removals only from `exclude`. With `prune_accessions=True` (the default), each removal drops that publication–accession association; the accession remains when another publication retains it and is dropped only when no associations remain. `review_filter` independently applies publication-level judgements. The canonical Atlas v1 projection remains unchanged and exposes its existing publication-level `thematic_relevance` criterion rather than the per-accession catalog.
 - The complete available publication remains the primary context. When accession metadata was collected first, each GSE additionally receives its own compact, at-most-500-character MINiML context. Full MINiML, author, protocol, and platform content is not sent, and absent metadata is represented by no compact context rather than inferred accession knowledge.
 - Existing `agentic_curator` reviews are reused only when their effective input matches. Review identity includes contract version, strategy, theme, publication text, title, associated accessions, compact metadata context, and metadata coverage. Contract version 5 invalidates revision-2 fibrosis-shaped direct checkpoints; a change to any review input triggers a new review.
@@ -1809,7 +1819,8 @@ dictionary. `EuropePMCWrapper` and `GEOWrapper` delegate GET retry mechanics to
 the same injectable `RequestPolicy`; endpoint adapters retain parsing and
 fallback decisions. The base delay can be overridden explicitly by a caller,
 including with zero for controlled tests. Transient response statuses `429`,
-`500`, `502`, `503`, and `504` are retried. Numeric `Retry-After` is honored;
+`500`, `502`, `503`, and `504` are retried. Numeric and HTTP-date
+`Retry-After` values are honored within the bounded zero-to-eight-second delay;
 otherwise retry delay uses capped exponential backoff. Pagination is
 sequential, with no parallel requests.
 
@@ -1959,7 +1970,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, opt-in trace checkpoints, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit artifacts, direct and legacy strategy isolation, shared-publication GSE aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, GEO-to-GSE resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `486 passed, 4 skipped` on 2026-08-04. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit artifacts, direct and legacy strategy isolation, shared-publication GSE aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection and explicit empty handler configuration, GEO filtering, ArrayExpress no-call behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, GEO-to-GSE resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 
