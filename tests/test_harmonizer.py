@@ -28,9 +28,11 @@ class RecordingOntologyHarmonizer:
 
 def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     document = {
-        "miniml_schema_version": "1.0",
+        "miniml_schema_version": "2.0",
+        "source": {"format": "test"},
+        "database": [], "organization": [], "contributor": [], "platform": [],
         "series": {"iid": "GSE1"},
-        "sample": [{"iid": "GSM1", "channel": [{"source": "lung"}]}],
+        "sample": [{"iid": "GSM1", "channel": [{"source": {"value": "lung"}}]}],
     }
 
     class PatchHarmonizer:
@@ -44,8 +46,8 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
                 "hz_label": "lung",
                 "occurrences": [{
                     "pre_hz_field_path": "/sample/0/channel/0/source",
-                    "pre_hz_label_path": "/sample/0/channel/0/source",
-                    "parent_path": "/sample/0/channel/0",
+                    "pre_hz_label_path": "/sample/0/channel/0/source/value",
+                    "parent_path": "/sample/0/channel/0/source",
                 }],
             }
             return {
@@ -68,8 +70,9 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     }]})
 
     metadata = result["accessions"][0]["accession_metadata"]
-    assert metadata["sample"][0]["channel"][0]["hz_organism_part"] == "lung"
-    assert details[0]["annotation_patch"]["schema_version"] == "1.0"
+    annotations = metadata["sample"][0]["channel"][0]["source"]["annotations"]
+    assert annotations == [{"field": "organism_part", "value": "lung"}]
+    assert details[0]["annotation_patch"]["schema_version"] == "2.0"
 
 
 def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -> None:

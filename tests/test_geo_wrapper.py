@@ -715,11 +715,18 @@ def test_package_gse_accession_extracts_string_series_accession() -> None:
 
 def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
     calls = []
+    package = {
+        "miniml_schema_version": "2.0",
+        "source": {"format": "GEO MINiML", "version": "0.5.4"},
+        "database": [], "organization": [], "contributor": [], "platform": [],
+        "sample": [],
+        "series": {"iid": "GSE1", "accession": [{"value": "GSE1"}]},
+    }
 
     class FakeGeo2JsonConverter:
         def convert(self, **kwargs):
             calls.append(kwargs)
-            return [{"series": {"accession": [{"value": "GSE1"}]}}]
+            return [package]
 
     monkeypatch.setattr(
         geo_module,
@@ -727,9 +734,7 @@ def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
         lambda: FakeGeo2JsonConverter(),
     )
 
-    assert GEOWrapper()._gse_metadata_packages(gse_accession="GSE1") == [
-        {"series": {"accession": [{"value": "GSE1"}]}}
-    ]
+    assert GEOWrapper()._gse_metadata_packages(gse_accession="GSE1") == [package]
     assert calls == [
         {
             "gse": "GSE1",
@@ -739,6 +744,17 @@ def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
             "out": None,
         }
     ]
+
+
+def test_gse_metadata_packages_rejects_non_v2_converter_output(monkeypatch) -> None:
+    class FakeGeo2JsonConverter:
+        def convert(self, **kwargs):
+            return [{"series": {"iid": "GSE1"}}]
+
+    monkeypatch.setattr(geo_module, "geo2json", lambda: FakeGeo2JsonConverter())
+
+    with pytest.raises(ValueError, match="MSC MINiML schema version '2.0'"):
+        GEOWrapper()._gse_metadata_packages(gse_accession="GSE1")
 
 
 def test_collect_accession_metadata_logs_progress_and_stats(caplog) -> None:
