@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+from meta_standards_converter.miniml import MINiMLCodec
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +102,11 @@ class AtlasHarmonizer:
                     len(item["indices"]),
                 )
                 try:
-                    return ontology_harmonizer.harmonize_miniml_json(
+                    return self._harmonize_metadata(
+                        ontology_harmonizer,
+                        metadata=item["metadata"],
                         publication_context=item["publication_context"],
-                        miniml_json=copy.deepcopy(item["metadata"]),
-                        **harmonization_options,
+                        options=harmonization_options,
                     ), None
                 except Exception as error:
                     return None, error
@@ -152,6 +154,10 @@ class AtlasHarmonizer:
                         ]
                     if "controls" in harmonization:
                         details[index]["controls"] = harmonization["controls"]
+                    if "annotation_patch" in harmonization:
+                        details[index]["annotation_patch"] = harmonization[
+                            "annotation_patch"
+                        ]
 
                 if checkpoint_store is None or cached:
                     return
@@ -258,6 +264,43 @@ class AtlasHarmonizer:
             sort_keys=True,
             default=repr,
         )
+
+    @staticmethod
+    def _harmonize_metadata(
+        ontology_harmonizer,
+        *,
+        metadata: dict | list,
+        publication_context: str | None,
+        options: dict,
+    ) -> dict:
+        """Use the typed MINiML boundary and patch API when the provider supports it."""
+        patch_method = getattr(
+            ontology_harmonizer, "harmonize_miniml_annotations", None
+        )
+        apply_method = getattr(
+            ontology_harmonizer, "apply_miniml_annotation_patch", None
+        )
+        if not callable(patch_method) or not callable(apply_method):
+            return ontology_harmonizer.harmonize_miniml_json(
+                publication_context=publication_context,
+                miniml_json=copy.deepcopy(metadata),
+                **options,
+            )
+
+        codec = MINiMLCodec()
+        decoded = codec.decode_many(metadata)
+        canonical = codec.encode_many(decoded.packages)
+        document = canonical[0] if isinstance(metadata, dict) else canonical
+        result = patch_method(
+            publication_context=publication_context,
+            miniml_json=document,
+            **options,
+        )
+        applied = apply_method(document, result["annotation_patch"])
+        verified = codec.decode_many(applied)
+        encoded = codec.encode_many(verified.packages)
+        result["miniml_json"] = encoded[0] if isinstance(metadata, dict) else encoded
+        return result
 
     def _preferred_ontology_ids(self) -> list[str]:
         store = self._ontostore

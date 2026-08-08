@@ -774,8 +774,10 @@ dataset -> eligible? -- no --> not_run/original
    share one result without changing accession order.
 4. Model-enabled controls preflight credentials; invalid options or credentials
    fail the invocation before provider work.
-5. Unique eligible work calls the delegated ontology harmonizer, serially or
-   with bounded workers.
+5. Unique eligible work is decoded through MSC 2's `MINiMLCodec`, calls the
+   delegated patch-first `harmonize_miniml_annotations`, applies the
+   source-bound patch to a copy, and decodes the result again. Legacy injected
+   test/adaptor harmonizers may still expose the mutating wrapper.
 6. Results and details are memoized/checkpointed; caught item failures remain
    local and retain original metadata. The adapter retains every provider
    target that has a usable metadata path, including unmatched targets, and
@@ -790,7 +792,9 @@ Atlas.harmonize_datasets(datasets)              # interface
   -> AtlasDocument.from_mapping                 # strict v1 validation
   -> AtlasDocumentAdapter.to_legacy             # internal projection
   -> AtlasHarmonizer.harmonize_datasets         # internal call
-     -> ontology_harmonizer.harmonize           # external package/API calls
+     -> MINiMLCodec.decode_many                 # typed package boundary
+     -> ontology_harmonizer.harmonize_miniml_annotations
+     -> ontology_harmonizer.apply_miniml_annotation_patch
      -> CheckpointStore.put                     # persistence call
   -> AtlasDocumentAdapter.assemble              # strict v1 result
   <- updated Atlas v1 + optional details sidecar
@@ -1204,12 +1208,12 @@ are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Version metadata is `1.0.0`, matching the initial Atlas document release.
+- Package version metadata is `1.1.0`; the Atlas document wire schema remains 1.0.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
-  `agentic-curator>=1,<2`, `google-auth>=2,<3`,
-  `meta-standards-converter>=1,<2`, and `requests>=2.31,<3`. MSC 1 supplies
+  `agentic-curator>=1.1,<2`, `google-auth>=2,<3`,
+  `meta-standards-converter>=2,<3`, and `requests>=2.31,<3`. MSC 2 supplies
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
@@ -1233,7 +1237,7 @@ and a fixed EBI/NCBI/preprint host allowlist. Run them with
 ## Public API
 
 `src/ThematicAtlases/__init__.py` intentionally exports only
-`__version__ == "1.0.0"`. Application and domain imports remain explicit, for
+`__version__ == "1.1.0"`. Application and domain imports remain explicit, for
 example `ThematicAtlases.atlas.Atlas` and
 `ThematicAtlases.domain.AtlasDocument`.
 
@@ -1518,10 +1522,11 @@ skipped, failed, full-text, fallback, and missing counts.
 
 `ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared
 `ontostore`, iterates atlas accessions, builds ordered publication context from
-non-empty publication titles and abstracts, and calls
-`agentic_curator.OntologyHarmonizer.harmonize_miniml_json(...)` for dictionary
-or list `accession_metadata`. Its lazily created default harmonizer receives
-that same store.
+non-empty publication titles and abstracts, canonicalizes dictionary or list
+`accession_metadata` with MSC 2, requests a versioned Agentic annotation patch,
+applies it copy-on-write, and revalidates the resulting typed packages. Patch
+details are retained in the harmonization sidecar/checkpoint. Its lazily
+created default harmonizer receives that same store.
 
 An injected `OntoStore` may configure ordered runtime-only
 `preferred_ontology_ids`. These preferences do not restrict local, semantic, or

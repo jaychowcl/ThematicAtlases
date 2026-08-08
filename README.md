@@ -37,7 +37,7 @@ The editable install provides the `thematic-atlas` console command. The equivale
 ### Requirements
 
 - Python 3.10 or newer.
-- Installable `agentic-curator>=1,<2` and `meta-standards-converter>=1,<2`
+- Installable `agentic-curator>=1.1,<2` and `meta-standards-converter>=2,<3`
   distributions. The package does not depend on sibling source checkouts or Git
   URLs at runtime or build time.
 - Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
