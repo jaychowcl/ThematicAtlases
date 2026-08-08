@@ -4,6 +4,7 @@ import pytest
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.harmonizer import AtlasHarmonizer
+from agentic_curator.contracts import MINiMLAnnotationPatch
 
 
 class RecordingOntologyHarmonizer:
@@ -23,6 +24,52 @@ class RecordingOntologyHarmonizer:
             "target_paths": [{"path": "/samples"}],
             "controls": {"direct_lookup_judge": True},
         }
+
+
+def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
+    document = {
+        "miniml_schema_version": "1.0",
+        "series": {"iid": "GSE1"},
+        "sample": [{"iid": "GSM1", "channel": [{"source": "lung"}]}],
+    }
+
+    class PatchHarmonizer:
+        calls = []
+
+        def harmonize_miniml_annotations(self, **kwargs):
+            self.calls.append(kwargs["miniml_json"])
+            target = {
+                "id": "target-1",
+                "hz_field": "organism_part",
+                "hz_label": "lung",
+                "occurrences": [{
+                    "pre_hz_field_path": "/sample/0/channel/0/source",
+                    "pre_hz_label_path": "/sample/0/channel/0/source",
+                    "parent_path": "/sample/0/channel/0",
+                }],
+            }
+            return {
+                "workflow": "local_exact",
+                "quality_status": "healthy",
+                "harmonization_targets": [target],
+                "annotation_patch": MINiMLAnnotationPatch.from_targets(
+                    kwargs["miniml_json"], [target]
+                ).to_mapping(),
+            }
+
+        def apply_miniml_annotation_patch(self, document, patch):
+            from agentic_curator import OntologyHarmonizer
+            return OntologyHarmonizer().apply_miniml_annotation_patch(document, patch)
+
+    result, details = AtlasHarmonizer(
+        ontology_harmonizer=PatchHarmonizer()
+    ).harmonize_datasets({"accessions": [{
+        "datalink_id": "GSE1", "accession_metadata": document
+    }]})
+
+    metadata = result["accessions"][0]["accession_metadata"]
+    assert metadata["sample"][0]["channel"][0]["hz_organism_part"] == "lung"
+    assert details[0]["annotation_patch"]["schema_version"] == "1.0"
 
 
 def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -> None:
