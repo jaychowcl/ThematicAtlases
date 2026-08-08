@@ -328,9 +328,11 @@ the Python API, or the canonical parent-adapter workflow documented in the
   projects provider `pre_hz_*`/`ontology_lookup` targets into canonical Atlas
   paths, raw values, and optional ontology matches. If the caller omits a
   theme, it derives one from Atlas metadata, the first nonblank query, or the
-  title. `assemble()` and `to_legacy()` preserve the complete nested MINiML
-  mapping, including its independent `miniml_schema_version`; the adapter does
-  not translate that marker into Atlas `schema_version`.
+  title. `assemble()` and `to_legacy()` pass every MINiML-shaped value through
+  the strict MSC boundary and preserve its canonical JSON mapping, including
+  the independent `miniml_schema_version`; the adapter does not translate that
+  marker into Atlas `schema_version`. A metadata collection represented as
+  `{"packages": [...]}` is validated package by package.
 <a id="type-atlas-document"></a>
 - [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v1
   exchange model. Frozen standard-library dataclasses and string enums own
@@ -341,10 +343,13 @@ the Python API, or the canonical parent-adapter workflow documented in the
   publication references, blank identity/title/theme text, and inconsistent
   counts. JSON is deterministic,
   UTF-8, newline-terminated, parent-creating, and atomically replaced.
-  Dataset `metadata` is an open mapping boundary: MSC-owned packages carrying
-  `miniml_schema_version: "1.0"`, their `mage_tab` extension, and unknown
-  package fields are retained without reinterpretation. ThematicAtlases owns
-  the surrounding Atlas v1 model, not the nested MINiML package schema.
+  Dataset `metadata` remains open for non-MINiML application mappings. A value
+  declaring `miniml_schema_version` or the legacy `mage_tab` marker, or a
+  `{"packages": [...]}` collection, is instead a strict MSC-owned boundary:
+  only MINiML 2.0 packages accepted by `MINiMLCodec.decode(..., strict=True)`
+  are retained, in canonical JSON-native form. MINiML 1.x and malformed nested
+  packages are rejected rather than silently reinterpreted. ThematicAtlases
+  owns the surrounding Atlas v1 model, not the nested MINiML package schema.
 <a id="type-atlas-run-store"></a>
 - [`AtlasRunStore`](../src/ThematicAtlases/run_store.py) owns the normalized v1
   operational database. It enables foreign keys/WAL/full synchronization and
@@ -457,7 +462,7 @@ otherwise.
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, prune_accessions=True, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Invalid worker/options or required credentials raise; caught item failures preserve input metadata; details may be written. |
-| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | Declares `metadata_handler_status="unsupported"`; its unimplemented `collect_accession_metadata(jsons, checkpoint_store=None)` remains a fail-fast guard but normal collector routing never calls it. Callers may inject a supported handler through `AtlasCollector(metadata_handlers=...)`. |
+| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | Declares `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through MSC and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
 | [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3, request_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints; scans visible text plus hidden curated JATS links, uses abstract fallback, versions text/discovery checkpoints, and checkpoints item outcomes. |
 | [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=30, request_delay=0.34, max_retries=3, request_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared policy and delegates MINiML/PubMed/SRA/ENA handlers; normalizes to GSE, drops unresolved/GPL-only records, deduplicates, and represents metadata errors/status. |
 | [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
@@ -1460,13 +1465,14 @@ Repository filtering behavior:
   order selects the canonical record and later aliases contribute only unique
   publications and original-datalink provenance.
 - GEO resolution and metadata downloads use per-item cross-process locks. New
-  metadata checkpoints store provenance-independent packages; reuse rebuilds
+  metadata checkpoints store provenance-independent, canonical MINiML 2.0
+  packages with explicit transport and checkpoint versions; reuse rebuilds
   records from the latest accession snapshot so later publication links are not
-  lost. Legacy record-shaped checkpoint payloads remain readable.
-- Default ArrayExpress metadata collection remains unimplemented, but its
-  handler status prevents invocation. Discovered records are preserved in the
-  unsupported inventory with `accession_metadata: null`; applications can
-  inject a handler whose status is `supported` to enable normal processing.
+  lost. Legacy record-shaped or unversioned package payloads are invalidated
+  and recomputed, or shown as pending during offline availability checks.
+- ArrayExpress metadata collection is enabled by default. Its MSC adapter
+  applies the same strict MINiML 2.0 boundary before a package can enter a
+  record, trace, or checkpoint.
 
 <a id="filterer"></a>
 ### Filterer
@@ -1846,14 +1852,20 @@ sequential, with no parallel requests.
 For each normalized E-MTAB, E-GEOD, or E-MEXP accession it calls
 `ae2json().convert(source=accession, out=None, sdrf_sources=None)`, so BioStudies
 IDF/SDRF content remains in memory. It returns the common MINiML-compatible
-package plus validated `mage_tab.model` and round-trip evidence with
+package as either a typed `MINiMLPackage` or mapping; the wrapper immediately
+decodes it strictly and encodes canonical JSON-native MINiML 2.0 before
+building an Atlas record. MAGE-TAB protocols and assay paths therefore use the
+core `series.protocols` and `series.assay_paths` fields rather than a parallel
+`mage_tab.model` object. Records identify the adapter with
 `metadata_source="ae2json"`.
 
 `arrayexpress_metadata` checkpoints store provenance-independent packages and
-use item locks plus available/no-data/retryable/terminal states. Offline
-availability overlays completed checkpoints without constructing a converter
-or issuing network calls; current publications are rebuilt from the latest
-record snapshot.
+use item locks plus available/no-data/retryable/terminal states. Payloads carry
+checkpoint version 2, MINiML checkpoint-payload version 1, and MINiML schema
+version 2.0. Unversioned/legacy available payloads are recomputed in an online
+run and reported pending by the offline availability overlay. Valid completed
+checkpoints are reused without constructing a converter or issuing network
+calls; current publications are rebuilt from the latest record snapshot.
 
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
@@ -1872,7 +1884,7 @@ Resolution behavior:
 - `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
 - Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
 - If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
-- GEO MINiML JSON metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=True, out=None)` and is appended directly to each output record as `accession_metadata`.
+- GEO metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=True, out=None)`. Typed or mapping results are strictly canonicalized as MINiML 2.0 before they are appended to an output record, traced, or checkpointed.
 - Related GEO super/subseries packages returned by `geo2json` become separate records, inherit the source record's `publications` and `original_datalinks`, and receive their own `accession_metadata` package.
 
 GEO metadata records add:
@@ -1913,12 +1925,14 @@ For newly parsed GSE packages, PubMed summaries, NCBI SRA XML, and ENA FASTQ
 reports are separately stored as `pubmed_enrichment/<PMID>`,
 `sra_xml/<SRA accession>`, and `ena_fastq/<SRA accession>`. Each stage uses the
 standard four checkpoint outcomes and a cross-process item lock. Parsed MINiML
-packages are persisted in a pending version-3 `geo_metadata` payload before
+packages are persisted in a pending version-4 `geo_metadata` payload before
 enrichment begins, so interruption resumes enrichment without another MINiML
 download or parse. Identifier failures leave partial GSE metadata available;
 later successful retries are merged into every affected cached package.
 
-Version-2 GSE rows remain readable and are not automatically enriched. The
+Older, unversioned, or schema-mismatched metadata payloads are not replayed as
+MINiML 2.0: online collection recomputes them and offline availability marks
+them pending. The
 audit reports all-null PubMed summaries, SRA accessions without runs, and any
 SRA-linked sample with at least one run lacking FASTQ data. Only identifiers in
 an explicit retry-tag file modify those legacy packages; other inferred gaps

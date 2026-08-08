@@ -149,7 +149,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
   anchor: type-atlas-document-adapter
   purpose: Internal anti-corruption boundary for strict Atlas v1 projection, lossless MINiML metadata transport, evidence envelopes, and provider harmonization targets.
-  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, miniml_schema_version, mage_tab, publication_texts, evidence, pre_hz, ontology_lookup, v1 projection
+  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, MSC MINiML 2.0, canonical JSON, strict validation, publication_texts, annotations, ontology_lookup, v1 projection
 
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
@@ -366,8 +366,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)
   anchor: arrayexpress-wrapper
-  purpose: In-memory BioStudies MAGE-TAB collection through MSC, checkpoint states, and offline availability overlay.
-  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, E-MEXP, BioStudies, ae2json, mage_tab.model, arrayexpress_metadata
+  purpose: In-memory BioStudies MAGE-TAB collection through the strict MSC MINiML 2.0 transport boundary, versioned checkpoints, and offline availability overlay.
+  keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, E-MEXP, BioStudies, ae2json, MINiMLPackage, series.protocols, series.assay_paths, checkpoint version 2, arrayexpress_metadata
 
 - id: geo-wrapper
   title: [GEO Wrapper](codebase.md#geo-wrapper)

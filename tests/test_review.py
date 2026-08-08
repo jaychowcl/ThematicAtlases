@@ -12,6 +12,7 @@ from ThematicAtlases.filterer.review import (
 from ThematicAtlases.filterer import review as review_module
 from ThematicAtlases.filterer.filterer import AtlasFilterer
 from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.miniml_boundary import checkpoint_payload
 from ThematicAtlases.run_store import AtlasRunStore
 
 
@@ -836,12 +837,16 @@ def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch)
         "GSE1",
         1,
         "available",
-        payload={
-            "checkpoint_version": 2,
-            "packages": [
-                {"series": {"accession": [{"value": "GSE1"}]}}
-            ],
-        },
+        payload=checkpoint_payload(
+            [{
+                "miniml_schema_version": "2.0",
+                "source": {"format": "test"},
+                "database": [], "organization": [], "contributor": [],
+                "platform": [], "sample": [],
+                "series": {"iid": "GSE1", "accession": [{"value": "GSE1"}]},
+            }],
+            checkpoint_version=4,
+        ),
     )
     second = review.resume(trace_dir, reviewer=FakeReviewer())
 

@@ -13,12 +13,21 @@
         "targets": []
       },
       "metadata": {
+        "contributor": [],
+        "database": [],
+        "miniml_schema_version": "2.0",
+        "organization": [],
+        "platform": [],
         "sample": [
           {
-            "characteristics": [
+            "channel": [
               {
-                "tag": "organism",
-                "value": "Homo sapiens"
+                "characteristics": [
+                  {
+                    "name": "organism",
+                    "value": "Homo sapiens"
+                  }
+                ]
               }
             ],
             "iid": "GSM100"
@@ -31,6 +40,9 @@
             }
           ],
           "iid": "GSE100"
+        },
+        "source": {
+          "format": "GEO MINiML"
         }
       },
       "publication_ids": [
