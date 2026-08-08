@@ -266,7 +266,7 @@ class CheckpointStore:
 
     @staticmethod
     def _json(value) -> str:
-        return json.dumps(value, sort_keys=True, separators=(",", ":"), default=repr)
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
     def set_meta(self, key: str, value) -> None:
         with self._lock, self._connection() as connection:

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
+from ThematicAtlases.miniml_boundary import canonicalize_atlas_metadata
+
 
 SCHEMA_VERSION = "1.0"
 
@@ -340,6 +342,7 @@ class AtlasDocument:
             if not isinstance(dataset.status, DatasetStatus):
                 raise ValueError("dataset status must be a DatasetStatus")
             _mapping(dataset.metadata, "metadata")
+            canonicalize_atlas_metadata(dataset.metadata)
             if not isinstance(dataset.publication_ids, (tuple, list)):
                 raise ValueError(
                     f"datasets[{dataset_index}].publication_ids must be an array"
@@ -481,7 +484,9 @@ class AtlasDocument:
             dataset_id = _nonblank(item.get("dataset_id"), "dataset_id")
             repository = _nonblank(item.get("source_repository"), "source_repository")
             ordinal = _integer(item.get("source_ordinal"), "source_ordinal")
-            metadata = _mapping(item.get("metadata"), "metadata")
+            metadata = canonicalize_atlas_metadata(
+                _mapping(item.get("metadata"), "metadata")
+            )
             publication_ids = _string_list(
                 item.get("publication_ids"),
                 f"datasets[{dataset_index}].publication_ids",

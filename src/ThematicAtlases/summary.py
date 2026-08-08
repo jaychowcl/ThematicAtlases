@@ -145,39 +145,50 @@ def _sample_platforms(sample: dict, platforms: dict[str, set[str]]) -> set[str]:
 
 
 def _organism_values(channel: dict) -> set[str]:
-    organisms = channel.get("hz_organism", channel.get("organism", []))
+    organisms = channel.get("organism", [])
     if not isinstance(organisms, list):
         organisms = [organisms]
     result = set()
     for organism in organisms:
         if isinstance(organism, dict):
-            result.update(_field_values(organism, "name"))
-            result.update(_field_values(organism, "value"))
+            annotated = _annotation_values(organism, {"organism", "species"})
+            if annotated:
+                result.update(annotated)
+            else:
+                result.update(_raw_field_values(organism, "name"))
+                result.update(_raw_field_values(organism, "value"))
         elif _normalized(organism):
             result.add(str(organism).strip())
+    result.update(_annotation_values(channel, {"organism", "species"}))
     return result
 
 
 def _characteristics(channel: dict) -> dict[str, set[str]]:
-    grouped: dict[str, dict[str, set[str]]] = defaultdict(lambda: {"raw": set(), "harmonized": set()})
+    grouped: dict[str, set[str]] = defaultdict(set)
     items = channel.get("characteristics", [])
     if isinstance(items, dict):
         items = [items]
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
-        tag = _normalized(item.get("tag"))
-        if not tag:
+        name = _normalized(item.get("name"))
+        if not name:
             continue
-        harmonized = tag.startswith("hz ")
-        base = tag[3:] if harmonized else tag
-        values = _field_values(item, "value")
-        grouped[base]["harmonized" if harmonized else "raw"].update(values)
-    return {tag: parts["harmonized"] or parts["raw"] for tag, parts in grouped.items()}
+        values = _annotation_values(item) or _raw_field_values(item, "value")
+        grouped[name].update(values)
+    return dict(grouped)
 
 
 def _field_values(item: dict, key: str) -> set[str]:
-    value = item.get(f"hz_{key}", item.get(key))
+    annotated = _annotation_values(item)
+    nested = item.get(key)
+    if not annotated and isinstance(nested, dict):
+        annotated = _annotation_values(nested)
+    return annotated or _raw_field_values(item, key)
+
+
+def _raw_field_values(item: dict, key: str) -> set[str]:
+    value = item.get(key)
     if isinstance(value, list):
         values = value
     else:
@@ -188,6 +199,23 @@ def _field_values(item: dict, key: str) -> set[str]:
             entry = entry.get("value") or entry.get("name")
         if _normalized(entry):
             result.add(str(entry).strip())
+    return result
+
+
+def _annotation_values(item: dict, fields: set[str] | None = None) -> set[str]:
+    result = set()
+    annotations = item.get("annotations", [])
+    if isinstance(annotations, dict):
+        annotations = [annotations]
+    for annotation in annotations if isinstance(annotations, list) else []:
+        if not isinstance(annotation, dict):
+            continue
+        field = _normalized(annotation.get("field"))
+        if fields is not None and field not in fields:
+            continue
+        value = annotation.get("value")
+        if _normalized(value):
+            result.add(str(value).strip())
     return result
 
 

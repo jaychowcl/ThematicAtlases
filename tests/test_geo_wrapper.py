@@ -9,6 +9,22 @@ from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers import geo as geo_module
 from ThematicAtlases.wrappers.geo import GEOWrapper
 from ThematicAtlases.wrappers.enrichment import RetryTags
+from ThematicAtlases.trace import DevTraceWriter
+from ThematicAtlases.miniml_boundary import checkpoint_payload
+from meta_standards_converter.miniml import MINiMLCodec
+
+
+def v2_package(accession: str = "GSE1") -> dict:
+    return {
+        "miniml_schema_version": "2.0",
+        "source": {"format": "GEO MINiML"},
+        "database": [],
+        "organization": [],
+        "contributor": [],
+        "platform": [],
+        "sample": [],
+        "series": {"iid": accession, "accession": [{"value": accession}]},
+    }
 
 
 class FakeResponse:
@@ -41,17 +57,7 @@ class FakeGEOWrapper(GEOWrapper):
         "GPL1": None,
     }
     metadata_packages: dict[str, list[dict]] = {
-        "GSE1": [
-            {
-                "series": {
-                    "accession": [
-                        {
-                            "value": "GSE1",
-                        }
-                    ]
-                }
-            }
-        ],
+        "GSE1": [v2_package("GSE1")],
     }
 
     def get_gse(self, accession: str) -> str | None:
@@ -77,7 +83,7 @@ def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
             self.__class__.calls.append(gse_accession)
             if gse_accession == "GSE2":
                 raise KeyboardInterrupt()
-            return [{"series": {"accession": [{"value": gse_accession}]}}]
+            return [v2_package(gse_accession)]
 
     try:
         InterruptingGeo().collect_accession_metadata(
@@ -93,7 +99,7 @@ def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
 
         def _gse_metadata_packages(self, gse_accession):
             self.__class__.calls.append(gse_accession)
-            return [{"series": {"accession": [{"value": gse_accession}]}}]
+            return [v2_package(gse_accession)]
 
     result = CompletingGeo().collect_accession_metadata(
         records, checkpoint_store=store
@@ -139,7 +145,7 @@ def test_geo_metadata_checkpoint_rebuilds_latest_publication_provenance(tmp_path
     assert "packages" in store.get("geo_metadata", "GSE1")["payload"]
 
 
-def test_legacy_geo_metadata_checkpoint_preserves_related_gse_identity(tmp_path) -> None:
+def test_legacy_geo_metadata_checkpoint_is_invalidated_and_recomputed(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume_state.sqlite")
     store.put(
         "geo_metadata",
@@ -158,7 +164,14 @@ def test_legacy_geo_metadata_checkpoint_preserves_related_gse_identity(tmp_path)
         },
     )
 
-    result = FakeGEOWrapper().collect_accession_metadata(
+    class RecomputingGeo(FakeGEOWrapper):
+        calls = []
+
+        def _gse_metadata_packages(self, gse_accession):
+            self.__class__.calls.append(gse_accession)
+            return [v2_package(gse_accession)]
+
+    result = RecomputingGeo().collect_accession_metadata(
         [
             {
                 "datalink_id": "GSE1",
@@ -169,9 +182,26 @@ def test_legacy_geo_metadata_checkpoint_preserves_related_gse_identity(tmp_path)
         checkpoint_store=store,
     )
 
-    assert result[0]["datalink_id"] == "GSE9"
-    assert result[0]["source_datalink_id"] == "GSE1"
+    assert RecomputingGeo.calls == ["GSE1"]
+    assert result[0]["datalink_id"] == "GSE1"
     assert result[0]["publications"] == [{"source": "MED", "epmc_id": "new"}]
+
+
+def test_offline_geo_resume_marks_legacy_metadata_checkpoint_pending(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put(
+        "geo_resolution", "GSE1", 1, "available", payload={"gse_accession": "GSE1"}
+    )
+    store.put(
+        "geo_metadata", "GSE1", 1, "available", payload={"packages": [{"mage_tab": {}}]}
+    )
+
+    result = GEOWrapper().available_accession_metadata(
+        [{"datalink_id": "GSE1", "publications": []}], store
+    )
+
+    assert result[0]["metadata_status"] == "pending"
+    assert result[0]["accession_metadata"] is None
 
 
 def test_geo_metadata_item_lock_prevents_duplicate_concurrent_downloads(tmp_path) -> None:
@@ -185,7 +215,7 @@ def test_geo_metadata_item_lock_prevents_duplicate_concurrent_downloads(tmp_path
             calls.append(gse_accession)
             started.set()
             assert release.wait(timeout=5)
-            return [{"series": {"accession": [{"value": gse_accession}]}}]
+            return [v2_package(gse_accession)]
 
     record = {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []}
 
@@ -217,7 +247,7 @@ def test_interrupted_identifier_enrichment_reuses_parsed_gse_packages(
 
         def convert(self, **kwargs):
             converter_calls.append(kwargs)
-            return [{"series": {"accession": [{"value": "GSE1"}]}}]
+            return [MINiMLCodec().decode(v2_package(), strict=True).package]
 
     monkeypatch.setattr(geo_module, "geo2json", FakeConverter)
 
@@ -239,7 +269,6 @@ def test_interrupted_identifier_enrichment_reuses_parsed_gse_packages(
 
     class CompletingEnricher:
         def enrich(self, data):
-            data["repaired"] = True
             return data
 
     class CompletingGeo(GEOWrapper):
@@ -248,38 +277,68 @@ def test_interrupted_identifier_enrichment_reuses_parsed_gse_packages(
 
     result = CompletingGeo().collect_accession_metadata([record], checkpoint_store=store)
 
-    assert result[0]["accession_metadata"]["repaired"] is True
+    assert result[0]["accession_metadata"] == v2_package()
     assert len(converter_calls) == 1
     assert store.get("geo_metadata", "GSE1")["status"] == "available"
 
 
+def test_checkpointed_geo_path_persists_json_native_typed_packages(tmp_path, monkeypatch) -> None:
+    typed = MINiMLCodec().decode(v2_package(), strict=True).package
+
+    class TypedConverter:
+        def __init__(self, enricher):
+            self.enricher = enricher
+
+        def convert(self, **_kwargs):
+            return [typed]
+
+    class TypedEnricher:
+        def enrich(self, data):
+            return data
+
+    monkeypatch.setattr(geo_module, "geo2json", TypedConverter)
+    store = CheckpointStore(tmp_path / "run.sqlite3")
+
+    packages, payload = GEOWrapper()._checkpointed_gse_metadata_packages(
+        gse_accession="GSE1",
+        index=1,
+        checkpoint_store=store,
+        retry_tags=None,
+    )
+
+    assert packages == [v2_package()]
+    assert payload["packages"] == [v2_package()]
+    persisted = store.get("geo_metadata", "GSE1")["payload"]
+    assert persisted["packages"] == [v2_package()]
+    trace = DevTraceWriter(tmp_path / "traces", "run-1", {"command": "test"})
+    trace.write(
+        "metadata.json",
+        trace.metadata([{"datalink_id": "GSE1", "accession_metadata": packages[0]}]),
+    )
+
+
 def test_manual_tag_repairs_every_affected_legacy_package(tmp_path, monkeypatch) -> None:
     store = CheckpointStore(tmp_path / "resume_state.sqlite")
-    package = {
-        "series": {
-            "accession": [{"value": "GSE1"}],
-            "pubmed_publication": [{"pubmed_id": "123", "title": None}],
-        }
-    }
+    package = v2_package("GSE1")
+    package["series"]["pubmed_publication"] = [
+        {"pubmed_id": "123", "title": None}
+    ]
+    related = v2_package("GSE2")
+    related["series"]["pubmed_publication"] = [
+        {"pubmed_id": "123", "title": None}
+    ]
     store.put(
         "geo_metadata",
         "GSE1",
         1,
         "available",
-        payload={
-            "checkpoint_version": 2,
-            "packages": [
-                package,
-                {
-                    "series": {
-                        "accession": [{"value": "GSE2"}],
-                        "pubmed_publication": [
-                            {"pubmed_id": "123", "title": None}
-                        ],
-                    }
-                },
-            ],
-        },
+        payload=checkpoint_payload(
+            [package, related],
+            checkpoint_version=4,
+            enrichment_mode="selected",
+            enrichment_state="complete",
+            tracked_identifiers={"pubmed": ["123"], "sra": [], "ena": []},
+        ),
     )
     calls = []
 
@@ -340,15 +399,7 @@ def test_collect_accession_metadata_keeps_gse_and_publications() -> None:
             "metadata_repository": "geo",
             "metadata_source": "geo2json",
             "metadata_status": "available",
-            "accession_metadata": {
-                "series": {
-                    "accession": [
-                        {
-                            "value": "GSE1",
-                        }
-                    ]
-                }
-            },
+            "accession_metadata": v2_package("GSE1"),
         }
     ]
     assert FakeGEOWrapper.accessions == ["GSE1"]
@@ -381,15 +432,7 @@ def test_collect_accession_metadata_resolves_gsm_and_preserves_original_metadata
     ]
     assert result[0]["publications"] == [{"source": "MED", "epmc_id": "1"}]
     assert result[0]["metadata_status"] == "available"
-    assert result[0]["accession_metadata"] == {
-        "series": {
-            "accession": [
-                {
-                    "value": "GSE1",
-                }
-            ]
-        }
-    }
+    assert result[0]["accession_metadata"] == v2_package("GSE1")
     assert FakeGEOWrapper.metadata_calls == ["GSE1"]
 
 
@@ -498,26 +541,7 @@ def test_collect_accession_metadata_collapses_same_gse_and_merges_metadata() -> 
 def test_collect_accession_metadata_includes_related_gse_records() -> None:
     class LocalGEOWrapper(FakeGEOWrapper):
         metadata_packages = {
-            "GSE1": [
-                {
-                    "series": {
-                        "accession": [
-                            {
-                                "value": "GSE1",
-                            }
-                        ]
-                    }
-                },
-                {
-                    "series": {
-                        "accession": [
-                            {
-                                "value": "GSE2",
-                            }
-                        ]
-                    }
-                },
-            ]
+            "GSE1": [v2_package("GSE1"), v2_package("GSE2")]
         }
 
     records = [
@@ -552,28 +576,8 @@ def test_collect_accession_metadata_merges_duplicate_related_gse_provenance() ->
             "GSE3": "GSE3",
         }
         metadata_packages = {
-            "GSE1": [
-                {
-                    "series": {
-                        "accession": [
-                            {
-                                "value": "GSE2",
-                            }
-                        ]
-                    }
-                }
-            ],
-            "GSE3": [
-                {
-                    "series": {
-                        "accession": [
-                            {
-                                "value": "GSE2",
-                            }
-                        ]
-                    }
-                }
-            ],
+            "GSE1": [v2_package("GSE2")],
+            "GSE3": [v2_package("GSE2")],
         }
 
     records = [

@@ -280,7 +280,9 @@ class AtlasHarmonizer:
         apply_method = getattr(
             ontology_harmonizer, "apply_miniml_annotation_patch", None
         )
-        if not callable(patch_method) or not callable(apply_method):
+        typed_provider = callable(patch_method) and callable(apply_method)
+        declared_miniml = AtlasHarmonizer._declares_miniml(metadata)
+        if not typed_provider and not declared_miniml:
             return ontology_harmonizer.harmonize_miniml_json(
                 publication_context=publication_context,
                 miniml_json=copy.deepcopy(metadata),
@@ -291,6 +293,21 @@ class AtlasHarmonizer:
         decoded = codec.decode_many(metadata, strict=True)
         canonical = codec.encode_many(decoded.packages)
         document = canonical[0] if isinstance(metadata, dict) else canonical
+        if not typed_provider:
+            result = ontology_harmonizer.harmonize_miniml_json(
+                publication_context=publication_context,
+                miniml_json=copy.deepcopy(document),
+                **options,
+            )
+            if not isinstance(result, dict) or "miniml_json" not in result:
+                raise ValueError("legacy MINiML harmonizer must return miniml_json")
+            verified = codec.decode_many(result["miniml_json"], strict=True)
+            encoded = codec.encode_many(verified.packages)
+            result["miniml_json"] = (
+                encoded[0] if isinstance(metadata, dict) else encoded
+            )
+            return result
+
         result = patch_method(
             publication_context=publication_context,
             miniml_json=document,
@@ -301,6 +318,15 @@ class AtlasHarmonizer:
         encoded = codec.encode_many(verified.packages)
         result["miniml_json"] = encoded[0] if isinstance(metadata, dict) else encoded
         return result
+
+    @staticmethod
+    def _declares_miniml(metadata) -> bool:
+        values = metadata if isinstance(metadata, list) else [metadata]
+        return bool(values) and all(
+            isinstance(value, dict)
+            and ("miniml_schema_version" in value or "mage_tab" in value)
+            for value in values
+        )
 
     def _preferred_ontology_ids(self) -> list[str]:
         store = self._ontostore

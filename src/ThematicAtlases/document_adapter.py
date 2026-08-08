@@ -25,6 +25,7 @@ from ThematicAtlases.domain import (
     ReviewCriterion,
     RunStatus,
 )
+from ThematicAtlases.miniml_boundary import canonicalize_atlas_metadata
 
 
 class AtlasDocumentAdapter:
@@ -182,11 +183,11 @@ class AtlasDocumentAdapter:
         ).lower()
         raw_metadata = record.get("accession_metadata")
         if isinstance(raw_metadata, Mapping):
-            metadata: Mapping[str, Any] = deepcopy(dict(raw_metadata))
+            metadata: Mapping[str, Any] = canonicalize_atlas_metadata(raw_metadata)
         elif isinstance(raw_metadata, list) and all(
             isinstance(item, Mapping) for item in raw_metadata
         ):
-            metadata = {"packages": deepcopy(raw_metadata)}
+            metadata = canonicalize_atlas_metadata({"packages": raw_metadata})
         else:
             metadata = {}
 

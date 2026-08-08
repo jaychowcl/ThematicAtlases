@@ -75,6 +75,31 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     assert details[0]["annotation_patch"]["schema_version"] == "2.0"
 
 
+def test_explicit_legacy_harmonizer_output_is_strictly_validated() -> None:
+    document = {
+        "miniml_schema_version": "2.0",
+        "source": {"format": "test"},
+        "database": [], "organization": [], "contributor": [], "platform": [],
+        "series": {"iid": "GSE1"}, "sample": [],
+    }
+
+    class InvalidLegacyHarmonizer:
+        def harmonize_miniml_json(self, **kwargs):
+            return {
+                "miniml_json": {**kwargs["miniml_json"], "hz_organism": "mouse"},
+                "harmonization_targets": [],
+            }
+
+    result, details = AtlasHarmonizer(
+        ontology_harmonizer=InvalidLegacyHarmonizer()
+    ).harmonize_datasets(
+        {"accessions": [{"datalink_id": "GSE1", "accession_metadata": document}]}
+    )
+
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "error"
+    assert "unsupported MINiML package field" in details[0]["error"]
+
+
 def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -> None:
     RecordingOntologyHarmonizer.calls = []
     datasets = {

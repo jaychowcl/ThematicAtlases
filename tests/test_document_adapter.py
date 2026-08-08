@@ -1,5 +1,20 @@
+import pytest
+
 from ThematicAtlases.document_adapter import AtlasDocumentAdapter
 from ThematicAtlases.domain import DatasetStatus, RunStatus
+
+
+def _v2_package(sample_id: str) -> dict:
+    return {
+        "miniml_schema_version": "2.0",
+        "source": {"format": "test"},
+        "database": [],
+        "organization": [],
+        "contributor": [],
+        "platform": [],
+        "sample": [{"iid": sample_id}],
+        "series": {"iid": "GSE1"},
+    }
 
 
 def _legacy_atlas():
@@ -189,8 +204,8 @@ def test_adapter_wraps_multiple_miniml_packages_explicitly():
             "datalink_id": "GSE1",
             "metadata_repository": "geo",
             "accession_metadata": [
-                {"series": {"iid": "GSE1"}, "sample": [{"iid": "GSM1"}]},
-                {"series": {"iid": "GSE1"}, "sample": [{"iid": "GSM2"}]},
+                _v2_package("GSM1"),
+                _v2_package("GSM2"),
             ],
             "ontology_harmonization_run_status": "completed",
         }
@@ -210,7 +225,7 @@ def test_adapter_wraps_multiple_miniml_packages_explicitly():
     assert len(document.datasets[0].metadata["packages"]) == 2
 
 
-def test_adapter_preserves_versioned_miniml_package_metadata():
+def test_adapter_rejects_legacy_miniml_package_metadata():
     legacy = _legacy_atlas()
     legacy["accessions"][0]["accession_metadata"] = {
         "miniml_schema_version": "1.0",
@@ -220,20 +235,16 @@ def test_adapter_preserves_versioned_miniml_package_metadata():
     }
 
     adapter = AtlasDocumentAdapter()
-    document = adapter.assemble(
-        legacy,
-        atlas_metadata={"atlas_id": "atlas-lung"},
-        run_id="run-1",
-        created_at="2026-07-31T00:00:00Z",
-        theme="lung",
-        config={},
-        run_status=RunStatus.COMPLETE,
-    )
-
-    assert document.datasets[0].metadata["miniml_schema_version"] == "1.0"
-    assert adapter.to_legacy(document)["accessions"][0]["accession_metadata"] == (
-        legacy["accessions"][0]["accession_metadata"]
-    )
+    with pytest.raises(ValueError, match="MSC MINiML schema version '2.0'"):
+        adapter.assemble(
+            legacy,
+            atlas_metadata={"atlas_id": "atlas-lung"},
+            run_id="run-1",
+            created_at="2026-07-31T00:00:00Z",
+            theme="lung",
+            config={},
+            run_status=RunStatus.COMPLETE,
+        )
 
 
 def test_adapter_projects_v2_back_to_minimal_internal_harmonization_input():

@@ -9,6 +9,11 @@ import requests
 
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
+from ThematicAtlases.miniml_boundary import (
+    canonicalize_miniml_packages,
+    checkpoint_packages,
+    checkpoint_payload,
+)
 from ThematicAtlases.wrappers.enrichment import (
     CheckpointedINSDCFetcher,
     CheckpointedPubmedFetcher,
@@ -16,6 +21,18 @@ from ThematicAtlases.wrappers.enrichment import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_checkpoint_payload(_packages, **values):
+    values = dict(values)
+    for key in (
+        "checkpoint_version",
+        "miniml_checkpoint_payload_version",
+        "miniml_schema_version",
+        "packages",
+    ):
+        values.pop(key, None)
+    return checkpoint_payload(_packages, checkpoint_version=4, **values)
 
 
 class GEOWrapper:
@@ -181,7 +198,13 @@ class GEOWrapper:
         enriched = []
         for record in gse_records:
             checkpoint = checkpoint_store.get("geo_metadata", record.get("datalink_id", ""))
-            if checkpoint and checkpoint["status"] in {"available", "no_data", "terminal_error"}:
+            if (
+                checkpoint
+                and checkpoint["status"] == "available"
+                and checkpoint_packages(checkpoint.get("payload")) is not None
+            ):
+                enriched.extend(self._records_from_metadata_checkpoint(record, checkpoint))
+            elif checkpoint and checkpoint["status"] in {"no_data", "terminal_error"}:
                 enriched.extend(self._records_from_metadata_checkpoint(record, checkpoint))
             else:
                 enriched.append(
@@ -364,9 +387,14 @@ class GEOWrapper:
                     if checkpoint_store is not None
                     else None
                 )
-                if checkpoint and checkpoint["status"] == "available":
+                cached_packages = (
+                    checkpoint_packages(checkpoint.get("payload"))
+                    if checkpoint and checkpoint["status"] == "available"
+                    else None
+                )
+                if cached_packages is not None:
                     payload = checkpoint.get("payload") or {}
-                    packages = list(payload.get("packages") or [])
+                    packages = cached_packages
                     mode = payload.get("enrichment_mode")
                     if checkpoint_store is not None and packages and (
                         mode in {"all", "selected"} or retry_tags is not None
@@ -401,10 +429,9 @@ class GEOWrapper:
                     pending_payload = (checkpoint or {}).get("payload") or {}
                     if (
                         checkpoint_store is not None
-                        and pending_payload.get("checkpoint_version") == 3
-                        and pending_payload.get("packages")
+                        and checkpoint_packages(pending_payload)
                     ):
-                        packages = list(pending_payload["packages"])
+                        packages = checkpoint_packages(pending_payload) or []
                         packages, pending_payload = self._repair_enrichment_packages(
                             packages=packages,
                             payload=pending_payload,
@@ -416,10 +443,8 @@ class GEOWrapper:
                             packages = self._gse_metadata_packages(
                                 gse_accession=gse_accession
                             )
-                            pending_payload = {
-                                "checkpoint_version": 2,
-                                "packages": packages,
-                            }
+                            packages = canonicalize_miniml_packages(packages)
+                            pending_payload = _metadata_checkpoint_payload(packages)
                         else:
                             packages, pending_payload = self._checkpointed_gse_metadata_packages(
                                 gse_accession=gse_accession,
@@ -429,10 +454,8 @@ class GEOWrapper:
                             )
                     else:
                         packages = self._gse_metadata_packages(gse_accession=gse_accession)
-                        pending_payload = {
-                            "checkpoint_version": 2,
-                            "packages": packages,
-                        }
+                        packages = canonicalize_miniml_packages(packages)
+                        pending_payload = _metadata_checkpoint_payload(packages)
                 except Exception as error:
                     error_records += 1
                     logger.warning(
@@ -451,7 +474,7 @@ class GEOWrapper:
                             if is_retryable_error(error)
                             else "terminal_error",
                             payload=(checkpoint or {}).get("payload")
-                            or {"checkpoint_version": 3, "packages": []},
+                            or _metadata_checkpoint_payload([]),
                             error=str(error),
                         )
                     continue
@@ -465,12 +488,9 @@ class GEOWrapper:
                             gse_accession,
                             index,
                             "no_data",
-                            payload={
-                                "checkpoint_version": 3,
-                                "enrichment_mode": "all",
-                                "enrichment_state": "complete",
-                                "packages": [],
-                            },
+                            payload=_metadata_checkpoint_payload(
+                                [], enrichment_mode="all", enrichment_state="complete"
+                            ),
                         )
                     continue
 
@@ -486,11 +506,10 @@ class GEOWrapper:
                         gse_accession,
                         index,
                         "available",
-                        payload={
-                            **pending_payload,
-                            "packages": packages,
-                            "enrichment_state": "complete",
-                        },
+                        payload=_metadata_checkpoint_payload(
+                            packages,
+                            **{**pending_payload, "enrichment_state": "complete"},
+                        ),
                     )
 
         result = self._deduplicate_gse_jsons(jsons=metadata_records)
@@ -516,19 +535,16 @@ class GEOWrapper:
         enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
         converter = geo2json(enricher=enricher)
         logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
-        packages = converter.convert(
+        packages = canonicalize_miniml_packages(converter.convert(
             gse=gse_accession,
             related_series=True,
             remove_empty=True,
             enrich=False,
             out=None,
+        ))
+        payload = _metadata_checkpoint_payload(
+            packages, enrichment_mode="all", enrichment_state="pending"
         )
-        payload = {
-            "checkpoint_version": 3,
-            "enrichment_mode": "all",
-            "enrichment_state": "pending",
-            "packages": packages,
-        }
         checkpoint_store.put(
             "geo_metadata",
             gse_accession,
@@ -538,8 +554,12 @@ class GEOWrapper:
             error="identifier enrichment pending",
         )
         for package_index, package in enumerate(packages):
-            packages[package_index] = converter.enricher.enrich(data=package)
-            payload["packages"] = packages
+            packages[package_index] = canonicalize_miniml_packages(
+                [converter.enricher.enrich(data=package)]
+            )[0]
+            payload = _metadata_checkpoint_payload(
+                packages, enrichment_mode="all", enrichment_state="pending"
+            )
             checkpoint_store.put(
                 "geo_metadata",
                 gse_accession,
@@ -583,8 +603,12 @@ class GEOWrapper:
         mode = payload.get("enrichment_mode")
         if mode == "all":
             enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
-            packages = [enricher.enrich(data=package) for package in packages]
-            return packages, {**payload, "packages": packages, "enrichment_state": "complete"}
+            packages = canonicalize_miniml_packages(
+                [enricher.enrich(data=package) for package in packages]
+            )
+            return packages, _metadata_checkpoint_payload(
+                packages, **{**payload, "enrichment_state": "complete"}
+            )
 
         tracked = payload.get("tracked_identifiers") or {
             "pubmed": [], "sra": [], "ena": []
@@ -607,14 +631,15 @@ class GEOWrapper:
             selected,
             retry_tags,
         )
-        return packages, {
-            **payload,
-            "checkpoint_version": 3,
-            "enrichment_mode": "selected",
-            "enrichment_state": "complete",
-            "tracked_identifiers": tracked,
-            "packages": packages,
-        }
+        return packages, _metadata_checkpoint_payload(
+            packages,
+            **{
+                **payload,
+                "enrichment_mode": "selected",
+                "enrichment_state": "complete",
+                "tracked_identifiers": tracked,
+            },
+        )
 
     def _repair_selected_packages(
         self,
@@ -693,26 +718,9 @@ class GEOWrapper:
     def _records_from_metadata_checkpoint(self, record: dict, checkpoint: dict) -> list[dict]:
         payload = checkpoint.get("payload") or {}
         status = checkpoint.get("status")
-        if "packages" in payload:
-            packages = payload.get("packages") or []
-            if status == "available" and packages:
-                return self._metadata_records_from_packages(record, packages)
-        elif status == "available":
-            legacy_records = []
-            for item in payload.get("records", []):
-                package = item.get("accession_metadata")
-                if not isinstance(package, (dict, list)):
-                    continue
-                legacy_records.append(
-                    self._metadata_record(
-                        record=record,
-                        package=package,
-                        package_gse=item.get("datalink_id")
-                        or record.get("datalink_id", ""),
-                    )
-                )
-            if legacy_records:
-                return legacy_records
+        packages = checkpoint_packages(payload)
+        if status == "available" and packages:
+            return self._metadata_records_from_packages(record, packages)
         if status == "no_data":
             return [self._metadata_unavailable_record(record)]
         return [self._metadata_error_record(record)]

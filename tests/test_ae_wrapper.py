@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
+from meta_standards_converter.miniml import MINiMLCodec
 
 
 def record(accession="E-MTAB-1"):
@@ -16,12 +17,17 @@ def record(accession="E-MTAB-1"):
 
 def package(accession="E-MTAB-1"):
     return {
+        "miniml_schema_version": "2.0",
+        "source": {"format": "MAGE-TAB"},
+        "database": [],
+        "organization": [],
+        "contributor": [],
+        "platform": [],
         "series": {"accession": [
-            {"database": "ArrayExpress", "value": accession},
-            {"database": "GEO", "value": "GSE1"},
+            {"value": accession},
+            {"value": "GSE1"},
         ]},
         "sample": [],
-        "mage_tab": {"model": {"schema_version": 1}},
     }
 
 
@@ -30,10 +36,10 @@ class FakeConverter:
 
     def convert(self, **kwargs):
         self.__class__.calls.append(kwargs)
-        return [package(kwargs["source"])]
+        return [MINiMLCodec().decode(package(kwargs["source"]), strict=True).package]
 
 
-def test_arrayexpress_collects_magetab_into_memory() -> None:
+def test_arrayexpress_canonicalizes_typed_magetab_package_into_memory() -> None:
     FakeConverter.calls = []
     result = ArrayExpressWrapper(converter_factory=FakeConverter).collect_accession_metadata(
         [record()]
@@ -45,7 +51,7 @@ def test_arrayexpress_collects_magetab_into_memory() -> None:
     assert result[0]["metadata_repository"] == "arrayexpress"
     assert result[0]["metadata_source"] == "ae2json"
     assert result[0]["metadata_status"] == "available"
-    assert result[0]["accession_metadata"]["mage_tab"]["model"]["schema_version"] == 1
+    assert result[0]["accession_metadata"] == package()
 
 
 def test_arrayexpress_checkpoint_resume_is_offline_and_rebuilds_record(tmp_path) -> None:
@@ -62,6 +68,41 @@ def test_arrayexpress_checkpoint_resume_is_offline_and_rebuilds_record(tmp_path)
     assert result[0]["publications"] == [{"pmid": "new"}]
     assert result[0]["metadata_status"] == "available"
     assert store.get("arrayexpress_metadata", "E-MTAB-1")["status"] == "available"
+
+
+def test_arrayexpress_recomputes_legacy_unversioned_checkpoint(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "atlas.sqlite3")
+    store.put(
+        "arrayexpress_metadata",
+        "E-MTAB-1",
+        1,
+        "available",
+        payload={"checkpoint_version": 1, "packages": [{"mage_tab": {}}]},
+    )
+    FakeConverter.calls = []
+
+    result = ArrayExpressWrapper(converter_factory=FakeConverter).collect_accession_metadata(
+        [record()], checkpoint_store=store
+    )
+
+    assert FakeConverter.calls
+    assert result[0]["accession_metadata"] == package()
+
+
+def test_arrayexpress_offline_resume_marks_legacy_checkpoint_pending(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "atlas.sqlite3")
+    store.put(
+        "arrayexpress_metadata",
+        "E-MTAB-1",
+        1,
+        "available",
+        payload={"checkpoint_version": 1, "packages": [{"mage_tab": {}}]},
+    )
+
+    result = ArrayExpressWrapper().available_accession_metadata([record()], store)
+
+    assert result[0]["metadata_status"] == "pending"
+    assert result[0]["accession_metadata"] is None
 
 
 def test_arrayexpress_isolates_errors_and_no_data() -> None:

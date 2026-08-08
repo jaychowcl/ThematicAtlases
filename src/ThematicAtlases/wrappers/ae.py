@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 from contextlib import nullcontext
+from collections.abc import Mapping
 
 from meta_standards_converter.converters.ae2json import ae2json
 
 from ThematicAtlases.checkpoint import is_retryable_error
+from ThematicAtlases.miniml_boundary import checkpoint_packages, checkpoint_payload, canonicalize_miniml_package
 
 
 logger = logging.getLogger(__name__)
@@ -43,17 +45,23 @@ class ArrayExpressWrapper:
                     if checkpoint_store is not None
                     else None
                 )
-                if checkpoint and checkpoint["status"] in {
-                    "available", "no_data", "terminal_error"
-                }:
+                if checkpoint and checkpoint["status"] == "available" and checkpoint_packages(checkpoint.get("payload")) is not None:
+                    records.append(self._record_from_checkpoint(record, checkpoint))
+                    continue
+                if checkpoint and checkpoint["status"] in {"no_data", "terminal_error"}:
                     records.append(self._record_from_checkpoint(record, checkpoint))
                     continue
                 try:
-                    packages = self._converter_factory().convert(
+                    converted = self._converter_factory().convert(
                         source=accession,
                         out=None,
                         sdrf_sources=None,
                     )
+                    packages = [
+                        canonicalize_miniml_package(item)
+                        for item in converted
+                        if isinstance(item, Mapping)
+                    ]
                 except Exception as error:
                     logger.warning(
                         "ArrayExpress metadata failed accession=%s error_type=%s",
@@ -70,19 +78,16 @@ class ArrayExpressWrapper:
                             accession,
                             index,
                             status,
-                            payload={"checkpoint_version": 1, "packages": []},
+                            payload=checkpoint_payload([], checkpoint_version=2),
                             error=str(error),
                         )
                     records.append(self._error_record(record))
                     continue
-                package = next(
-                    (item for item in packages if isinstance(item, dict)), None
-                )
+                package = next(iter(packages), None)
                 status = "available" if package is not None else "no_data"
-                payload = {
-                    "checkpoint_version": 1,
-                    "packages": [package] if package is not None else [],
-                }
+                payload = checkpoint_payload(
+                    [package] if package is not None else [], checkpoint_version=2
+                )
                 if checkpoint_store is not None:
                     checkpoint_store.put(
                         self.STAGE, accession, index, status, payload=payload
@@ -103,9 +108,9 @@ class ArrayExpressWrapper:
         for record in jsons:
             accession = self._normalize_accession(record.get("datalink_id"))
             checkpoint = checkpoint_store.get(self.STAGE, accession) if accession else None
-            if checkpoint and checkpoint["status"] in {
-                "available", "no_data", "terminal_error"
-            }:
+            if checkpoint and checkpoint["status"] == "available" and checkpoint_packages(checkpoint.get("payload")) is not None:
+                records.append(self._record_from_checkpoint(record, checkpoint))
+            elif checkpoint and checkpoint["status"] in {"no_data", "terminal_error"}:
                 records.append(self._record_from_checkpoint(record, checkpoint))
             else:
                 records.append(self._pending_record(record))
@@ -113,13 +118,8 @@ class ArrayExpressWrapper:
 
     def _record_from_checkpoint(self, record: dict, checkpoint: dict) -> dict:
         status = checkpoint.get("status")
-        package = next(
-            (
-                item for item in (checkpoint.get("payload") or {}).get("packages", [])
-                if isinstance(item, dict)
-            ),
-            None,
-        )
+        packages = checkpoint_packages(checkpoint.get("payload"))
+        package = next(iter(packages or ()), None)
         if status == "available" and package is not None:
             return self._available_record(record, package)
         if status == "no_data":

@@ -22,17 +22,32 @@ def test_build_atlas_summary_reports_operations_and_scientific_profile() -> None
                             "platform_ref": {"ref": "GPL1"},
                             "channel": [
                                 {
-                                    "source": "lung biopsy",
-                                    "organism": [{"name": "Homo sapiens"}],
+                                    "source": {
+                                        "value": "biopsy",
+                                        "annotations": [
+                                            {"field": "organism_part", "value": "lung biopsy"}
+                                        ],
+                                    },
+                                    "organism": [{
+                                        "name": "human",
+                                        "annotations": [
+                                            {"field": "organism", "value": "Homo sapiens"}
+                                        ],
+                                    }],
                                     "characteristics": [
-                                        {"tag": "disease", "value": "fibrosis"},
-                                        {"tag": "hz_disease", "value": "pulmonary fibrosis"},
-                                        {"tag": "tissue", "value": "lung"},
+                                        {
+                                            "name": "disease",
+                                            "value": "fibrosis",
+                                            "annotations": [
+                                                {"field": "disease", "value": "pulmonary fibrosis"}
+                                            ],
+                                        },
+                                        {"name": "tissue", "value": "lung"},
                                     ],
                                 },
                                 {
-                                    "source": "lung biopsy",
-                                    "characteristics": [{"tag": "tissue", "value": "lung"}],
+                                    "source": {"value": "lung biopsy"},
+                                    "characteristics": [{"name": "tissue", "value": "lung"}],
                                 },
                             ],
                         }
