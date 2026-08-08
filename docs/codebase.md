@@ -70,6 +70,10 @@ and [project layout](#project-purpose-and-layout).
   `CheckpointStore` owns internal item results, fingerprints, retry history,
   and atomic amendments.
 - **Package boundary:** `ThematicAtlases` owns atlas workflow policy.
+  Agentic Curator 2.x owns typed MSC MINiML 2.0 annotation patches and
+  Meta Standards Converter 3.x owns strict package decoding and explicit v1
+  migration; this repository transports those packages without weakening
+  either boundary.
   `benchmark_ThematicAtlases` consumes outputs but never mutates production
   traces. Repository metadata-handler status is explicit: GEO is supported;
   ArrayExpress and scanner-only curated repositories are retained as terminal

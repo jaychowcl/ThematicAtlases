@@ -21,7 +21,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [System Context And Boundaries](codebase.md#system-context-and-boundaries)
   anchor: system-context-and-boundaries
   purpose: External actors, delegated packages, persistence, network, trust, privacy, and failure ownership.
-  keywords: Europe PMC, NCBI, ENA, Google ADC, agentic-curator 1.x, meta-standards-converter 1.x, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy
+  keywords: Europe PMC, NCBI, ENA, Google ADC, agentic-curator 2.x, meta-standards-converter 3.x, MSC MINiML 2.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy
 
 - id: architectural-decisions
   title: [Architectural Decisions](codebase.md#architectural-decisions)
