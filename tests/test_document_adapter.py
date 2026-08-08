@@ -210,6 +210,32 @@ def test_adapter_wraps_multiple_miniml_packages_explicitly():
     assert len(document.datasets[0].metadata["packages"]) == 2
 
 
+def test_adapter_preserves_versioned_miniml_package_metadata():
+    legacy = _legacy_atlas()
+    legacy["accessions"][0]["accession_metadata"] = {
+        "miniml_schema_version": "1.0",
+        "series": {"iid": "GSE1"},
+        "sample": [{"iid": "GSM1"}],
+        "mage_tab": {"version": "1.1"},
+    }
+
+    adapter = AtlasDocumentAdapter()
+    document = adapter.assemble(
+        legacy,
+        atlas_metadata={"atlas_id": "atlas-lung"},
+        run_id="run-1",
+        created_at="2026-07-31T00:00:00Z",
+        theme="lung",
+        config={},
+        run_status=RunStatus.COMPLETE,
+    )
+
+    assert document.datasets[0].metadata["miniml_schema_version"] == "1.0"
+    assert adapter.to_legacy(document)["accessions"][0]["accession_metadata"] == (
+        legacy["accessions"][0]["accession_metadata"]
+    )
+
+
 def test_adapter_projects_v2_back_to_minimal_internal_harmonization_input():
     adapter = AtlasDocumentAdapter()
     document = adapter.assemble(
