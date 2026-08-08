@@ -288,7 +288,7 @@ class AtlasHarmonizer:
             )
 
         codec = MINiMLCodec()
-        decoded = codec.decode_many(metadata)
+        decoded = codec.decode_many(metadata, strict=True)
         canonical = codec.encode_many(decoded.packages)
         document = canonical[0] if isinstance(metadata, dict) else canonical
         result = patch_method(
@@ -297,7 +297,7 @@ class AtlasHarmonizer:
             **options,
         )
         applied = apply_method(document, result["annotation_patch"])
-        verified = codec.decode_many(applied)
+        verified = codec.decode_many(applied, strict=True)
         encoded = codec.encode_many(verified.packages)
         result["miniml_json"] = encoded[0] if isinstance(metadata, dict) else encoded
         return result

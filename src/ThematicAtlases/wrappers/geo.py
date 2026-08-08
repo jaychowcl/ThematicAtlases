@@ -4,6 +4,7 @@ from contextlib import nullcontext
 
 from meta_standards_converter.converters.geo2json import geo2json
 from meta_standards_converter.enrichers.miniml_enricher import MINiMLEnricher
+from meta_standards_converter.miniml import MINiMLCodec
 import requests
 
 from ThematicAtlases.checkpoint import is_retryable_error
@@ -718,13 +719,15 @@ class GEOWrapper:
 
     def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
         logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
-        return geo2json().convert(
+        packages = geo2json().convert(
             gse=gse_accession,
             related_series=True,
             remove_empty=True,
             enrich=True,
             out=None,
         )
+        codec = MINiMLCodec()
+        return [codec.encode(codec.decode(package, strict=True).package) for package in packages]
 
     def _package_gse_accession(self, package: dict) -> str:
         series = package.get("series") or {}

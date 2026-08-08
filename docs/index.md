@@ -271,7 +271,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, independent v1 dependencies, editable-install, dated deterministic test evidence, and console-command contract.
-  keywords: pyproject, Python 3.10, version 1.1.0, MSC 2, annotation patch, pytest, fail-closed network, allow_subprocess, thematic-atlas
+  keywords: pyproject, Python 3.10, version 2.0.0, MSC MINiML 2.0, annotation patch, pytest, fail-closed network, allow_subprocess, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)

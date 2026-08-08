@@ -1208,12 +1208,12 @@ are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Package version metadata is `1.1.0`; the Atlas document wire schema remains 1.0.
+- Package version metadata is `2.0.0`; the Atlas document wire schema remains 1.0 while embedded metadata requires MSC MINiML 2.0.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
-  `agentic-curator>=1.1,<2`, `google-auth>=2,<3`,
-  `meta-standards-converter>=2,<3`, and `requests>=2.31,<3`. MSC 2 supplies
+  `agentic-curator>=2,<3`, `google-auth>=2,<3`,
+  `meta-standards-converter>=3,<4`, and `requests>=2.31,<3`. MSC 3 supplies
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
@@ -1237,7 +1237,7 @@ and a fixed EBI/NCBI/preprint host allowlist. Run them with
 ## Public API
 
 `src/ThematicAtlases/__init__.py` intentionally exports only
-`__version__ == "1.1.0"`. Application and domain imports remain explicit, for
+`__version__ == "2.0.0"`. Application and domain imports remain explicit, for
 example `ThematicAtlases.atlas.Atlas` and
 `ThematicAtlases.domain.AtlasDocument`.
 
