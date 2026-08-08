@@ -324,7 +324,9 @@ the Python API, or the canonical parent-adapter workflow documented in the
   projects provider `pre_hz_*`/`ontology_lookup` targets into canonical Atlas
   paths, raw values, and optional ontology matches. If the caller omits a
   theme, it derives one from Atlas metadata, the first nonblank query, or the
-  title.
+  title. `assemble()` and `to_legacy()` preserve the complete nested MINiML
+  mapping, including its independent `miniml_schema_version`; the adapter does
+  not translate that marker into Atlas `schema_version`.
 <a id="type-atlas-document"></a>
 - [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v1
   exchange model. Frozen standard-library dataclasses and string enums own
@@ -335,6 +337,10 @@ the Python API, or the canonical parent-adapter workflow documented in the
   publication references, blank identity/title/theme text, and inconsistent
   counts. JSON is deterministic,
   UTF-8, newline-terminated, parent-creating, and atomically replaced.
+  Dataset `metadata` is an open mapping boundary: MSC-owned packages carrying
+  `miniml_schema_version: "1.0"`, their `mage_tab` extension, and unknown
+  package fields are retained without reinterpretation. ThematicAtlases owns
+  the surrounding Atlas v1 model, not the nested MINiML package schema.
 <a id="type-atlas-run-store"></a>
 - [`AtlasRunStore`](../src/ThematicAtlases/run_store.py) owns the normalized v1
   operational database. It enables foreign keys/WAL/full synchronization and

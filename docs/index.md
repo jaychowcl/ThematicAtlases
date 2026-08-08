@@ -130,8 +130,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-document
   title: [AtlasDocument v1](codebase.md#type-atlas-document)
   anchor: type-atlas-document
-  purpose: Versioned domain dataclasses, owner-produced golden fixture, strict validation, deterministic JSON, and cross-reference invariants.
-  keywords: AtlasDocument, schema_version, golden fixture, downstream contract, dataclass, codec, validation, atomic JSON
+  purpose: Versioned domain dataclasses, owner-produced golden fixture, strict validation, deterministic JSON, cross-reference invariants, and preservation of MSC-owned MINiML package metadata.
+  keywords: AtlasDocument, schema_version, miniml_schema_version, MINiMLPackage, metadata, golden fixture, downstream contract, dataclass, codec, validation, atomic JSON
 
 - id: type-atlas-document-service
   title: [AtlasDocumentService](codebase.md#type-atlas-document-service)
@@ -148,8 +148,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-document-adapter
   title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
   anchor: type-atlas-document-adapter
-  purpose: Internal anti-corruption boundary for strict Atlas v1 projection, evidence envelopes, and provider harmonization targets.
-  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, publication_texts, evidence, pre_hz, ontology_lookup, v1 projection
+  purpose: Internal anti-corruption boundary for strict Atlas v1 projection, lossless MINiML metadata transport, evidence envelopes, and provider harmonization targets.
+  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, miniml_schema_version, mage_tab, publication_texts, evidence, pre_hz, ontology_lookup, v1 projection
 
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
