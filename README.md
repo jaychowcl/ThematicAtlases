@@ -198,7 +198,7 @@ thematic-atlas collect-datasets [OPTIONS]
 | `--query-generator` | Generate additional queries from the theme; requires a theme and model credentials. |
 | `--max-generated-queries N` | Positive generated-query limit; default `3` and maximum supported by `Atlas` is `3`. |
 | `--review-filter {none,not-relevant,not-relevant-and-unsure}` | Remove selected review outcomes. Default `none`; removal requires a theme. |
-| `--review-strategy {direct,evidence_then_judgement}` | Review contract. Default `direct`; the other choice is the legacy two-stage strategy. |
+| `--review-strategy direct` | Review contract. Direct grounded review is the only supported strategy. |
 
 Publication-text discovery recognizes GEO, ArrayExpress/BioStudies, BioProject,
 INSDC/SRA/ENA/DRA, BioSample, EGA, dbGaP, Broad Single Cell Portal, Synapse,

@@ -22,7 +22,7 @@ REVIEW_FILTERS = {
     "not_relevant",
     "not_relevant_and_unsure",
 }
-REVIEW_STRATEGIES = {"direct", "evidence_then_judgement"}
+REVIEW_STRATEGIES = {"direct"}
 REVIEW_CONTRACT_VERSION = 7
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,7 @@ class PublicationTextReviewer:
     ) -> dict:
         self.validate_options(theme=theme, review_filter="none", strategy=strategy)
         reviewer = reviewer or self._reviewer()
+        reviewer_identity = self._reviewer_identity(reviewer)
         reviewed_publication_texts = {}
         reviewed_count = 0
         reused_count = 0
@@ -189,12 +190,14 @@ class PublicationTextReviewer:
                 context=context,
                 theme=theme,
                 strategy=strategy,
+                reviewer_identity=reviewer_identity,
             )
             identity_hash = self._review_identity_hash(
                 publication_text=publication_text,
                 context=context,
                 theme=theme,
                 strategy=strategy,
+                reviewer_identity=reviewer_identity,
             )
             item_lock = (
                 checkpoint_store.item_lock(
@@ -216,6 +219,7 @@ class PublicationTextReviewer:
                     input_hash=input_hash,
                     identity_hash=identity_hash,
                     strategy=strategy,
+                    reviewer_identity=reviewer_identity,
                 )
             reviewed_publication_texts[publication_ref] = outcome["publication_text"]
             reviewed_count += outcome["reviewed"]
@@ -246,6 +250,7 @@ class PublicationTextReviewer:
         input_hash: str,
         identity_hash: str,
         strategy: str,
+        reviewer_identity: dict,
     ) -> dict:
         checkpoint_key = self._review_checkpoint_key(strategy, publication_ref)
         checkpoint = (
@@ -266,22 +271,11 @@ class PublicationTextReviewer:
 
         existing_review = publication_text.get(AGENTIC_CURATOR)
         coverage_context = self._metadata_context(context)
-        metadata_changes_review = any(
-            status != "pending"
-            for status in (context.get("metadata_statuses") or {}).values()
-        )
         if (
             isinstance(existing_review, dict)
             and existing_review.get("theme") == theme
             and existing_review.get("strategy") == strategy
-            and (
-                "metadata_statuses" not in context
-                or (
-                    not metadata_changes_review
-                    and existing_review.get("review_input_hash") is None
-                )
-                or existing_review.get("review_input_hash") == input_hash
-            )
+            and existing_review.get("review_input_hash") == input_hash
         ):
             return {
                 "publication_text": publication_text,
@@ -332,15 +326,12 @@ class PublicationTextReviewer:
                 "review_status": "failed",
                 "error_type": type(error).__name__,
                 "error": safe_error,
+                "review_input_hash": input_hash,
+                "review_contract_version": REVIEW_CONTRACT_VERSION,
+                "reviewer_identity": reviewer_identity,
             }
             if coverage_context is not None:
-                failed_review.update(
-                    {
-                        "review_input_hash": input_hash,
-                        "review_contract_version": REVIEW_CONTRACT_VERSION,
-                        "metadata_context": coverage_context,
-                    }
-                )
+                failed_review["metadata_context"] = coverage_context
             publication_text[AGENTIC_CURATOR] = failed_review
             if checkpoint_store is not None:
                 checkpoint_store.put(
@@ -357,6 +348,7 @@ class PublicationTextReviewer:
                         "review_contract_version": REVIEW_CONTRACT_VERSION,
                         "strategy": strategy,
                         "publication_ref": publication_ref,
+                        "reviewer_identity": reviewer_identity,
                     },
                     error=safe_error_json(
                         error,
@@ -381,6 +373,7 @@ class PublicationTextReviewer:
             strategy=strategy,
             review_input_hash=input_hash,
             metadata_context=coverage_context,
+            reviewer_identity=reviewer_identity,
         )
         if checkpoint_store is not None:
             checkpoint_store.put(
@@ -395,6 +388,7 @@ class PublicationTextReviewer:
                     "review_contract_version": REVIEW_CONTRACT_VERSION,
                     "strategy": strategy,
                     "publication_ref": publication_ref,
+                    "reviewer_identity": reviewer_identity,
                 },
             )
         return {
@@ -410,6 +404,7 @@ class PublicationTextReviewer:
         context: dict,
         theme: str,
         strategy: str = "direct",
+        reviewer_identity: dict | None = None,
     ) -> str:
         value = json.dumps(
             {
@@ -418,6 +413,7 @@ class PublicationTextReviewer:
                 "context": context,
                 "strategy": strategy,
                 "review_contract_version": REVIEW_CONTRACT_VERSION,
+                "reviewer_identity": reviewer_identity or {},
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -431,6 +427,7 @@ class PublicationTextReviewer:
         context: dict,
         theme: str,
         strategy: str = "direct",
+        reviewer_identity: dict | None = None,
     ) -> str:
         value = json.dumps(
             {
@@ -440,6 +437,7 @@ class PublicationTextReviewer:
                 "accessions": context.get("accessions", []),
                 "strategy": strategy,
                 "review_contract_version": REVIEW_CONTRACT_VERSION,
+                "reviewer_identity": reviewer_identity or {},
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -543,6 +541,7 @@ class PublicationTextReviewer:
         strategy: str = "direct",
         review_input_hash: str | None = None,
         metadata_context: dict | None = None,
+        reviewer_identity: dict | None = None,
     ) -> dict:
         direct_judgement = " ".join(
             str(review.get("judgement", "")).lower().replace("_", " ").split()
@@ -566,10 +565,16 @@ class PublicationTextReviewer:
                 "review_revision": review.get("review_revision"),
                 "raw_review": review,
             }
+            if review_input_hash is not None:
+                result.update(
+                    {
+                        "review_input_hash": review_input_hash,
+                        "review_contract_version": REVIEW_CONTRACT_VERSION,
+                        "reviewer_identity": reviewer_identity or {},
+                    }
+                )
             if metadata_context is not None:
                 result["metadata_context"] = metadata_context
-                result["review_input_hash"] = review_input_hash
-                result["review_contract_version"] = REVIEW_CONTRACT_VERSION
             return result
         raw_evidences = review.get("evidences", "")
         raw_judgement = review.get("judgement", "")
@@ -593,11 +598,64 @@ class PublicationTextReviewer:
                 "accessions_to_remove", []
             ),
         }
+        if review_input_hash is not None:
+            result.update(
+                {
+                    "review_input_hash": review_input_hash,
+                    "review_contract_version": REVIEW_CONTRACT_VERSION,
+                    "reviewer_identity": reviewer_identity or {},
+                }
+            )
         if metadata_context is not None:
             result["metadata_context"] = metadata_context
-            result["review_input_hash"] = review_input_hash
-            result["review_contract_version"] = REVIEW_CONTRACT_VERSION
         return result
+
+    @staticmethod
+    def _reviewer_identity(reviewer) -> dict:
+        declared = getattr(reviewer, "review_execution_identity", None)
+        if callable(declared):
+            identity = declared()
+            if not isinstance(identity, dict):
+                raise TypeError("review_execution_identity must return a mapping")
+            required = {"provider", "model", "generation", "prompt_sha256"}
+            missing = sorted(required.difference(identity))
+            if missing:
+                raise ValueError(
+                    "review_execution_identity is missing: " + ", ".join(missing)
+                )
+            return json.loads(
+                json.dumps(identity, sort_keys=True, separators=(",", ":"))
+            )
+
+        reviewer_type = type(reviewer)
+        review_method = getattr(reviewer_type, "review_relevancy", None)
+        try:
+            review_source = inspect.getsource(review_method)
+        except (OSError, TypeError):
+            review_source = f"{reviewer_type.__module__}.{reviewer_type.__qualname__}"
+        llm = getattr(reviewer, "llm", None)
+        platform = getattr(llm, "platform", None)
+        generation = {
+            "max_output_tokens": getattr(reviewer, "MAX_OUTPUT_TOKENS", None),
+            "review_revision": getattr(reviewer, "DIRECT_REVIEW_REVISION", None),
+            "contract_version": REVIEW_CONTRACT_VERSION,
+        }
+        return {
+            "reviewer": f"{reviewer_type.__module__}.{reviewer_type.__qualname__}",
+            "provider": str(
+                getattr(llm, "platform_name", None)
+                or (type(llm).__name__ if llm is not None else "default")
+            ),
+            "model": str(
+                getattr(platform, "model", None)
+                or getattr(llm, "model", None)
+                or "default"
+            ),
+            "generation": generation,
+            "prompt_sha256": hashlib.sha256(
+                review_source.encode("utf-8")
+            ).hexdigest(),
+        }
 
     @staticmethod
     def _metadata_context(context: dict) -> dict | None:

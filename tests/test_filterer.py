@@ -281,7 +281,7 @@ def test_filter_jsons_reviews_publication_texts_with_agentic_curator_namespace(
     ]
 
 
-def test_filter_jsons_reuses_existing_agentic_curator_review() -> None:
+def test_filter_jsons_does_not_reuse_unfingerprinted_agentic_curator_review() -> None:
     result = AtlasFilterer().filter_jsons(
         jsons={
             "accessions": [
@@ -312,15 +312,35 @@ def test_filter_jsons_reuses_existing_agentic_curator_review() -> None:
         reviewer=_FailingReviewer(),
     )
 
-    assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == "relevant"
+    assert result["publication_texts"]["1"]["agentic_curator"]["review_status"] == (
+        "failed"
+    )
 
 
 def test_filter_jsons_review_filters_publications() -> None:
+    class JudgementReviewer:
+        def review_relevancy(self, publication_text, **_kwargs):
+            judgement = (
+                "not_relevant"
+                if publication_text == "Not relevant text"
+                else "unsure" if publication_text == "Unsure text" else "relevant"
+            )
+            return {
+                "judgement": judgement,
+                "reasoning": "fixture judgement",
+                "confidence": "high",
+                "criteria": [],
+                "accessions_to_remove": [],
+                "accession_assessments": [],
+                "review_revision": 3,
+                "strategy": "direct",
+            }
+
     result = AtlasFilterer().filter_jsons(
         jsons=_reviewed_atlas_object(),
         theme="fibrosis",
         review_filter="not_relevant_and_unsure",
-        reviewer=_FailingReviewer(),
+        reviewer=JudgementReviewer(),
     )
 
     assert result["accessions"] == [

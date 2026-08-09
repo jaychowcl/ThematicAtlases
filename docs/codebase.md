@@ -174,14 +174,15 @@ MSC additionally validates public DNS for its ArrayExpress fetcher.
   [`test_filterer.py`](../tests/test_filterer.py).
 
 <a id="ad-004-review-strategies"></a>
-### AD-004: Direct review is the default and legacy review remains isolated
+### AD-004: Grounded direct review is the sole review contract
 
 - **Status:** Observed
-- **Decision:** `direct` is the default review contract;
-  `evidence_then_judgement` remains an explicit compatibility choice.
+- **Decision:** `direct` is the only supported review contract; the retired
+  evidence-then-judgement path is rejected before any model call.
 - **Rationale:** Not documented.
-- **Consequences:** review strategy is fingerprinted and cannot change on
-  resume without an explicit supported override.
+- **Consequences:** review identity includes provider, model, generation
+  configuration, prompt digest, and scientific inputs. A changed or legacy
+  unfingerprinted review is recomputed instead of being silently reused.
 - **Affected components:** CLI, `PublicationTextReviewer`, filterer traces, and
   independent review.
 - **Evidence:** [`README.md`](../README.md),
@@ -634,7 +635,10 @@ Complete public-member signatures for the exported classes:
   `ValueError`, `RuntimeError`, filesystem, or SQLite errors without partial
   source deletion. `is_retryable_error(error) -> bool` and
   `failure_category(error) -> str` classify failures.
-  The selective retry entry is `CheckpointStore.request_retries`.
+  The selective retry entry is `CheckpointStore.request_retries`; all selected
+  history rows and retry transitions commit in one transaction. Status/stage
+  and stage/item/history indexes support resume, retry reporting, and history
+  lookup without full checkpoint-table scans.
 - [`TracePublicationReviewResumer.resume(trace_dir, *, theme=None,
   strategy="direct", reviewer=None, allow_theme_override=False) -> dict`](../src/ThematicAtlases/filterer/resume.py)
   validates a trace, reviews the current datalink snapshot, and writes review
@@ -1566,17 +1570,17 @@ skipped, failed, full-text, fallback, and missing counts.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly, plus the title and every distinct associated GSE accession. When metadata exists, context contains one compact `build_miniml_metadata_context(...)` entry per associated accession; full MINiML, protocol, platform, and author sections are not sent. Original `accession_metadata` remains unchanged in atlas and trace artifacts.
 - Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
 - Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
-- `review_strategy="direct"` is the default and makes one structured call over the whole publication. Agentic Curator revision 3 derives a shared catalog of 1–12 generic criteria from the non-empty theme, requires exactly one complete assessment per supplied accession, and accepts a destructive exclusion only when a failed criterion cites a verified SHA-256-bound exact quote tied to that accession. `evidence_then_judgement` preserves the two-call evidence extraction followed by publication judgement, but cannot request accession removal.
-- Direct output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, `strategy`, `review_revision`, `evidence_contract_version`, `criteria`, `judgement`, `reasoning`, `confidence`, `accession_assessments`, derived `accessions_to_remove`, and `raw_review`. The model owns `qualifies`/`exclude`/`uncertain` and publication relevance decisions; agentic-curator derives removals only from grounded exclusions. With explicit `prune_accessions=True`, each removal drops that publication–accession association; the accession remains when another publication retains it and is dropped only when no associations remain. The default is `False`. `review_filter` independently applies publication-level judgements. The canonical Atlas v1 projection remains unchanged and exposes its existing publication-level `thematic_relevance` criterion rather than the per-accession catalog.
+- `review_strategy="direct"` is the sole supported strategy and makes one structured call over the whole publication. Agentic Curator revision 3 derives a shared catalog of 1–12 generic criteria from the non-empty theme, requires exactly one complete assessment per supplied accession, and accepts a destructive exclusion only when a failed criterion cites a verified SHA-256-bound exact quote tied to that accession. The retired evidence-then-judgement value fails before a model call.
+- Direct output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, `strategy`, `review_revision`, `evidence_contract_version`, `criteria`, `judgement`, `reasoning`, `confidence`, `accession_assessments`, derived `accessions_to_remove`, `raw_review`, `review_input_hash`, `review_contract_version`, and `reviewer_identity`. The reviewer identity binds provider, model, generation configuration, and prompt SHA-256. The model owns `qualifies`/`exclude`/`uncertain` and publication relevance decisions; agentic-curator derives removals only from grounded exclusions. With explicit `prune_accessions=True`, each removal drops that publication–accession association; the accession remains when another publication retains it and is dropped only when no associations remain. The default is `False`. `review_filter` independently applies publication-level judgements. The canonical Atlas v1 projection remains unchanged and exposes its existing publication-level `thematic_relevance` criterion rather than the per-accession catalog.
 - The complete available publication remains the primary context. When accession metadata was collected first, each GSE additionally receives its own compact, at-most-500-character MINiML context. Full MINiML, author, protocol, and platform content is not sent, and absent metadata is represented by no compact context rather than inferred accession knowledge.
-- Existing `agentic_curator` reviews are reused only when their effective input matches. Review identity includes contract version, strategy, theme, publication text, title, associated accessions, compact metadata context, and metadata coverage. Contract version 7 rejects pre-grounding review checkpoints; a change to any review input triggers a new review.
+- Existing `agentic_curator` reviews are reused only when their effective input matches. Review identity includes contract version, strategy, theme, publication text, title, associated accessions, compact metadata context, metadata coverage, reviewer class/provider/model, generation configuration, and prompt digest. Contract version 7 rejects pre-grounding or unfingerprinted review checkpoints; a change to any review or execution input triggers a new review.
 - Incremental reviewer snapshots overlay completed metadata checkpoints without
   waiting for missing metadata. Reviews store `metadata_context` with used and
   non-used accessions plus per-accession status. Contract version 5 includes the
   compact metadata context and its coverage in the effective input hash, so
   metadata arriving after an early review triggers a replacement review on the
   next reviewer or full-resume invocation. The raw MINiML object is not sent.
-- Each thematic review is checkpointed atomically under `thematic_review/<strategy>:<publication_ref>`. Direct and legacy strategies resume independently. Per-item locks prevent duplicate calls. Invalid structured output gets one immediate correction attempt and then becomes terminal; transient provider/network failures become `retryable_error` and participate in full Atlas resume gates.
+- Each thematic review is checkpointed atomically under `thematic_review/direct:<publication_ref>`. Per-item locks prevent duplicate calls. Invalid structured output gets one immediate correction attempt and then becomes terminal; transient provider/network failures become `retryable_error` and participate in full Atlas resume gates.
 - `PublicationTextReviewer.resume` reviews one stable datalink snapshot and can
   be invoked again as collection advances. A caller must explicitly allow a
   theme override when reviewing a historical collector snapshot with a newer
@@ -2023,9 +2027,9 @@ change.
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--stop-after metadata] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--stop-after metadata] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct] [--harmonization-details-out PATH]`
 - `fork-run [--resource-profile standard|large] [--resource-override FIELD=VALUE] --dev-out-dir DIR --run-id SOURCE --new-run-id DEST --config JSON`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct]`
 - `harmonize-datasets [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
 - `resume [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`
 

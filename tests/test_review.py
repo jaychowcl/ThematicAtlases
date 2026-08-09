@@ -274,7 +274,15 @@ def test_review_publication_texts_parses_agentic_curator_schema() -> None:
             "title": "Fibrosis atlas publication",
         }
     ]
-    assert result["1"]["agentic_curator"] == {
+    stored_review = dict(result["1"]["agentic_curator"])
+    review_input_hash = stored_review.pop("review_input_hash")
+    reviewer_identity = stored_review.pop("reviewer_identity")
+    assert stored_review.pop("review_contract_version") == REVIEW_CONTRACT_VERSION
+    assert len(review_input_hash) == 64
+    assert set(reviewer_identity) >= {
+        "provider", "model", "generation", "prompt_sha256"
+    }
+    assert stored_review == {
         "theme": "fibrosis",
         "strategy": "direct",
         "evidences": [
@@ -311,7 +319,7 @@ def test_review_publication_texts_parses_agentic_curator_schema() -> None:
     }
 
 
-def test_review_publication_texts_reuses_matching_theme() -> None:
+def test_review_publication_texts_does_not_reuse_unfingerprinted_legacy_review() -> None:
     publication_texts = {
         "1": {
             "text": "Full text",
@@ -323,12 +331,15 @@ def test_review_publication_texts_reuses_matching_theme() -> None:
         }
     }
 
-    assert PublicationTextReviewer().review_publication_texts(
+    result = PublicationTextReviewer().review_publication_texts(
         publication_texts=publication_texts,
         contexts={},
         theme="fibrosis",
         reviewer=FailingReviewer(),
-    ) == publication_texts
+    )
+
+    assert result["1"]["agentic_curator"]["review_status"] == "failed"
+    assert result["1"]["agentic_curator"]["error_type"] == "AssertionError"
 
 
 def test_review_publication_texts_isolates_and_retains_failed_publication(caplog) -> None:
@@ -693,9 +704,7 @@ def test_review_contract_version_requires_criterion_based_direct_reviews() -> No
     assert REVIEW_CONTRACT_VERSION == 7
 
 
-def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(
-    tmp_path,
-) -> None:
+def test_retired_evidence_then_judgement_strategy_is_rejected(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume.sqlite")
     store.put(
         "thematic_review",
@@ -714,19 +723,68 @@ def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(
         "checkpoint_store": store,
     }
 
-    review.review_publication_texts(**options, strategy="direct")
-    review.review_publication_texts(**options, strategy="evidence_then_judgement")
-    review.review_publication_texts(**options, strategy="direct")
+    with pytest.raises(ValueError, match="Unsupported review_strategy"):
+        review.review_publication_texts(
+            **options, strategy="evidence_then_judgement"
+        )
 
-    assert [call["strategy"] for call in DirectReviewer.calls] == [
-        "direct",
-        "evidence_then_judgement",
-    ]
-    assert store.get("thematic_review", "direct:1")["status"] == "available"
-    assert (
-        store.get("thematic_review", "evidence_then_judgement:1")["status"]
-        == "available"
+    assert DirectReviewer.calls == []
+    assert store.get("thematic_review", "evidence_then_judgement:1") is None
+
+
+def test_review_checkpoint_identity_includes_provider_model_and_prompt() -> None:
+    class IdentityReviewer:
+        calls = 0
+
+        def __init__(self, model):
+            self.model = model
+
+        def review_execution_identity(self):
+            return {
+                "provider": "test-provider",
+                "model": self.model,
+                "generation": {"temperature": 0},
+                "prompt_sha256": "prompt-v1",
+            }
+
+        def review_relevancy(self, **_kwargs):
+            self.__class__.calls += 1
+            return {
+                "judgement": "relevant",
+                "reasoning": "grounded",
+                "confidence": "high",
+                "criteria": [],
+                "accessions_to_remove": [],
+                "accession_assessments": [],
+                "review_revision": 3,
+                "strategy": "direct",
+            }
+
+    publication_texts = {"1": {"text": "fibrosis"}}
+    contexts = {"1": {"title": "Title", "accessions": ["GSE1"]}}
+    review = PublicationTextReviewer()
+
+    first = review.review_publication_texts(
+        publication_texts=publication_texts,
+        contexts=contexts,
+        theme="fibrosis",
+        reviewer=IdentityReviewer("model-a"),
     )
+    second = review.review_publication_texts(
+        publication_texts=first,
+        contexts=contexts,
+        theme="fibrosis",
+        reviewer=IdentityReviewer("model-b"),
+    )
+
+    assert IdentityReviewer.calls == 2
+    identity = second["1"]["agentic_curator"]["reviewer_identity"]
+    assert identity == {
+        "provider": "test-provider",
+        "model": "model-b",
+        "generation": {"temperature": 0},
+        "prompt_sha256": "prompt-v1",
+    }
 
 
 def test_review_checkpoint_lock_prevents_duplicate_concurrent_calls(tmp_path) -> None:
@@ -913,6 +971,7 @@ def test_normal_filterer_reuses_review_created_by_incremental_resume(tmp_path) -
         datalink_id="GSE1",
         text="reviewed early",
     )
+    FakeReviewer.calls = []
     snapshot = PublicationTextReviewer().resume(
         trace_dir,
         reviewer=FakeReviewer(),
@@ -921,13 +980,14 @@ def test_normal_filterer_reuses_review_created_by_incremental_resume(tmp_path) -
     result = AtlasFilterer().filter_jsons(
         jsons=snapshot["accessions"],
         theme="fibrosis",
-        reviewer=FailingReviewer(),
+        reviewer=FakeReviewer(),
         _checkpoint_store=store,
     )
 
     assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == (
         "relevant"
     )
+    assert len(FakeReviewer.calls) == 1
 
 
 def test_resume_applies_manifest_repository_selection(tmp_path) -> None:

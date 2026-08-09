@@ -11,7 +11,7 @@ from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
-REVIEW_STRATEGY_CHOICES = ("direct", "evidence_then_judgement")
+REVIEW_STRATEGY_CHOICES = ("direct",)
 METADATA_REPOSITORY_CHOICES = ("geo", "arrayexpress")
 
 

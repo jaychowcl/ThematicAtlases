@@ -107,6 +107,8 @@ class CheckpointStore:
                 );
                 CREATE INDEX IF NOT EXISTS checkpoint_items_stage_order
                     ON checkpoint_items(stage, ordinal, item_key);
+                CREATE INDEX IF NOT EXISTS checkpoint_items_status_stage_order
+                    ON checkpoint_items(status, stage, ordinal, item_key);
                 CREATE TABLE IF NOT EXISTS checkpoint_attempt_history (
                     history_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     stage TEXT NOT NULL,
@@ -122,6 +124,8 @@ class CheckpointStore:
                     failure_category TEXT,
                     replaced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE INDEX IF NOT EXISTS checkpoint_history_stage_item_order
+                    ON checkpoint_attempt_history(stage, item_key, history_id);
                 """
             )
             columns = {
@@ -658,17 +662,40 @@ class CheckpointStore:
                     selected[("harmonization", item["key"])] = item
         if (stages or items or degraded_stages) and not selected:
             raise ValueError("retry selection did not match any eligible items")
-        for (stage, key), item in selected.items():
-            self.put(
-                stage,
-                key,
-                item["ordinal"],
-                "retryable_error",
-                payload=item.get("payload"),
-                error="operator requested retry",
-                error_type="ManualRetry",
-                failure_category="manual_retry",
-            )
+        with self._lock, self._connection() as connection:
+            for stage, key in selected:
+                connection.execute(
+                    """
+                    INSERT INTO checkpoint_attempt_history(
+                        stage, item_key, ordinal, status, payload, error,
+                        attempt_count, first_failed_at, last_attempt_at,
+                        error_type, failure_category
+                    )
+                    SELECT stage, item_key, ordinal, status, payload, error,
+                           attempt_count, first_failed_at, last_attempt_at,
+                           error_type, failure_category
+                    FROM checkpoint_items
+                    WHERE stage = ? AND item_key = ?
+                    """,
+                    (stage, key),
+                )
+                connection.execute(
+                    """
+                    UPDATE checkpoint_items
+                    SET status = 'retryable_error',
+                        error = 'operator requested retry',
+                        attempt_count = attempt_count + 1,
+                        first_failed_at = COALESCE(
+                            first_failed_at, CURRENT_TIMESTAMP
+                        ),
+                        last_attempt_at = CURRENT_TIMESTAMP,
+                        error_type = 'ManualRetry',
+                        failure_category = 'manual_retry',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE stage = ? AND item_key = ?
+                    """,
+                    (stage, key),
+                )
         return len(selected)
 
     def archive_stage(

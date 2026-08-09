@@ -181,6 +181,49 @@ def test_checkpoint_store_rejects_ineligible_retry_selection(tmp_path) -> None:
         store.request_retries(items={"datalinks": ["MED:1"]})
 
 
+def test_checkpoint_store_installs_status_and_history_lookup_indexes(tmp_path) -> None:
+    path = tmp_path / "resume_state.sqlite"
+    CheckpointStore(path)
+
+    with sqlite3.connect(path) as connection:
+        item_indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list(checkpoint_items)")
+        }
+        history_indexes = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA index_list(checkpoint_attempt_history)"
+            )
+        }
+
+    assert "checkpoint_items_status_stage_order" in item_indexes
+    assert "checkpoint_history_stage_item_order" in history_indexes
+
+
+def test_checkpoint_retry_selection_is_one_atomic_write(tmp_path) -> None:
+    path = tmp_path / "resume_state.sqlite"
+    store = CheckpointStore(path)
+    store.put("datalinks", "first", 1, "terminal_error")
+    store.put("datalinks", "second", 2, "terminal_error")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_second_retry
+            BEFORE UPDATE ON checkpoint_items
+            WHEN NEW.item_key = 'second' AND NEW.status = 'retryable_error'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected retry failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected retry failure"):
+        store.request_retries(stages=["datalinks"])
+
+    assert store.get("datalinks", "first")["status"] == "terminal_error"
+    assert store.get("datalinks", "second")["status"] == "terminal_error"
+
+
 def test_checkpoint_store_validates_run_fingerprint(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume_state.sqlite")
     store.validate_fingerprint({"query": ["fibrosis"], "max_publications": 50})

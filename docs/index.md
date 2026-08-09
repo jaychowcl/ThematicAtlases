@@ -203,7 +203,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [CheckpointStore](codebase.md#type-checkpoint-store)
   anchor: type-checkpoint-store
   purpose: SQLite schema, fingerprints, item history, retry selection, and comparison archives.
-  keywords: CheckpointStore, SQLite, request_retries, history, item lock
+  keywords: CheckpointStore, SQLite, request_retries, atomic batch, status index, history index, item lock
 
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
@@ -257,7 +257,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Independent review workflow](codebase.md#workflow-independent-review)
   anchor: workflow-independent-review
   purpose: Stable-snapshot text collection, review_relevancy dispatch, checkpointing, and progress.
-  keywords: publication reviewer, TracePublicationReviewResumer, review_relevancy
+  keywords: publication reviewer, TracePublicationReviewResumer, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
 
 - id: workflow-metadata-repair
   title: [Metadata resume, audit, and repair workflow](codebase.md#workflow-metadata-repair)
