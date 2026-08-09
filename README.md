@@ -175,6 +175,10 @@ workers, and two ontology-build workers. Byte ceilings limit stored objects,
 files, decoded payloads, or transfer totals at the component that consumes
 them; they do not reserve that amount of RAM. Disk-writing delegated
 components preflight the required capacity with at least 10% headroom.
+For non-identity `Content-Encoding`, the transport `Content-Length` bounds the
+encoded response but is not compared with the decoded bytes produced by
+`requests`; decoded response and aggregate limits still apply. This keeps
+compressed Europe PMC and bioRxiv/medRxiv full text both usable and bounded.
 
 `collect-datasets` searches, filters, optionally enriches/reviews, and writes an atlas object:
 
@@ -602,7 +606,7 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 ## Testing
 
 The deterministic, network-blocked suite was last verified on 2026-08-09:
-`532 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+`536 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 

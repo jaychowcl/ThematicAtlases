@@ -21,6 +21,15 @@ class Response:
         pass
 
 
+class StreamingResponse(Response):
+    def __init__(self, body, headers):
+        super().__init__(200, headers)
+        self.body = body
+
+    def iter_content(self, chunk_size):
+        yield self.body
+
+
 def test_request_policy_retries_declared_status_with_retry_after():
     responses = [Response(429, {"Retry-After": "3"}), Response(200)]
     sleeps = []
@@ -130,3 +139,20 @@ def test_request_policy_rejects_declared_oversized_response():
             allowed_hosts={"example.test"},
             resource_overrides={"max_xml_bytes": 64},
         ).get("https://example.test/data")
+
+
+def test_request_policy_accepts_compressed_length_distinct_from_decoded_body():
+    body = b"<article><body>decoded JATS</body></article>"
+    response = StreamingResponse(
+        body,
+        {"Content-Length": "12", "Content-Encoding": "gzip"},
+    )
+
+    returned = RequestPolicy(
+        max_retries=0,
+        request_get=lambda **_kwargs: response,
+        allowed_hosts={"example.test"},
+        resource_overrides={"max_xml_bytes": 64},
+    ).get("https://example.test/data")
+
+    assert returned._content == body

@@ -121,6 +121,11 @@ workers, and two ontology-build workers. These are object/file/transfer
 ceilings, not RAM reservations. Delegated disk consumers preflight at least
 10% headroom; this package directly enforces HTTPS, allowed host suffixes,
 manual redirect ceilings, response-body limits, and aggregate transfer limits.
+When a response has a non-identity `Content-Encoding`, its declared
+`Content-Length` is treated as the encoded transport size and is not compared
+with the decoded bytes yielded by `requests`; both the declared ceiling and
+the decoded response/aggregate ceilings still apply. This permits bounded
+bioRxiv/medRxiv JATS retrieval through compressed HTTP responses.
 MSC additionally validates public DNS for its ArrayExpress fetcher.
 
 <a id="architectural-decisions"></a>
@@ -1307,7 +1312,7 @@ are not part of the tracked source tree.
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-09 this deterministic gate reported `532 passed, 4 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-09 this deterministic gate reported `536 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1929,8 +1934,10 @@ dictionary. `EuropePMCWrapper` and `GEOWrapper` delegate GET mechanics to the
 same injectable `RequestPolicy`; endpoint adapters retain parsing and fallback
 decisions. The policy requires HTTPS, exact or suffix-allowed hosts, disables
 automatic redirects and validates every redirect, bounds response XML/body
-and aggregate transfer bytes, and closes retried/redirected responses. The
-base delay can be overridden explicitly by a caller, including with zero for
+and aggregate transfer bytes, and closes retried/redirected responses.
+Compressed response bodies are constrained by decoded size without falsely
+requiring decoded bytes to equal the encoded `Content-Length`. The base delay
+can be overridden explicitly by a caller, including with zero for
 controlled tests. Transient response statuses `429`, `500`, `502`, `503`, and
 `504` are retried. Numeric and HTTP-date `Retry-After` values are honored within
 the bounded zero-to-eight-second delay; otherwise retry delay uses capped
@@ -2099,7 +2106,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `535 passed, 4 skipped` on 2026-08-09. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded DTD-free XML parsing, response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `536 passed, 4 skipped` on 2026-08-09. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

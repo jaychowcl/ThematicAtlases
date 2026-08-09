@@ -88,8 +88,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: request-policy
   title: [Typed resource and request policy](codebase.md#request-policy)
   anchor: request-policy
-  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/response/aggregate boundaries, worker limits, and delegated disk preflight.
-  keywords: ResourceProfile, standard, large, resource override, 10% headroom, RequestPolicy, HTTPS, redirects, max_xml_bytes, aggregate download, ontology file, not RAM
+  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/decoded-response/aggregate boundaries, compressed transport handling, worker limits, and delegated disk preflight.
+  keywords: ResourceProfile, standard, large, resource override, 10% headroom, RequestPolicy, HTTPS, redirects, Content-Encoding, Content-Length, compressed response, decoded body, max_xml_bytes, aggregate download, ontology file, not RAM
 
 - id: interface-thematic-atlas-cli
   title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)

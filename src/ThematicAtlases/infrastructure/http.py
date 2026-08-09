@@ -212,6 +212,10 @@ class RequestPolicy:
     def _enforce_response_limit(self, response: Any) -> None:
         limit = self.resource_profile.max_xml_bytes
         raw_length = response.headers.get("Content-Length")
+        raw_encoding = response.headers.get("Content-Encoding")
+        content_length_describes_decoded_body = (
+            str(raw_encoding or "").strip().casefold() in {"", "identity"}
+        )
         declared = None
         if raw_length not in {None, ""}:
             try:
@@ -237,7 +241,11 @@ class RequestPolicy:
                 raise ResponseSizeLimitError(
                     f"response exceeds the {limit} byte limit"
                 )
-        if declared is not None and len(content) != declared:
+        if (
+            declared is not None
+            and content_length_describes_decoded_body
+            and len(content) != declared
+        ):
             raise ResponseSizeLimitError(
                 "response body size does not match Content-Length"
             )
