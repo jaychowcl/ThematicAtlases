@@ -21,7 +21,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [System Context And Boundaries](codebase.md#system-context-and-boundaries)
   anchor: system-context-and-boundaries
   purpose: External actors, delegated packages, persistence, network, trust, privacy, and failure ownership.
-  keywords: Europe PMC, NCBI, ENA, BioStudies, Google ADC, agentic-curator 2.x, meta-standards-converter 3.x, MSC MINiML 2.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy, safe errors
+  keywords: Europe PMC, NCBI, ENA, BioStudies, Google ADC, agentic-curator 3.x, meta-standards-converter 4.x, MSC MINiML 2.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy, safe errors
 
 - id: architectural-decisions
   title: [Architectural Decisions](codebase.md#architectural-decisions)
@@ -295,7 +295,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, independent v1 dependencies, editable-install, dated deterministic test evidence, and console-command contract.
-  keywords: pyproject, Python 3.10, version 2.0.0, MSC MINiML 2.0, annotation patch, pytest, fail-closed network, allow_subprocess, thematic-atlas
+  keywords: pyproject, Python 3.10, version 3.0.0, MSC MINiML 2.0, annotation patch, pytest, fail-closed network, allow_subprocess, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)
@@ -343,7 +343,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
   purpose: Current automated coverage and verification commands.
-  keywords: pytest, 526 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
+  keywords: pytest, 532 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
   title: [Atlas Workflow](codebase.md#atlas-workflow)

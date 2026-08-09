@@ -37,7 +37,7 @@ The editable install provides the `thematic-atlas` console command. The equivale
 ### Requirements
 
 - Python 3.10 or newer.
-- Installable `agentic-curator>=2,<3` and `meta-standards-converter>=3,<4`
+- Installable `agentic-curator>=3,<4` and `meta-standards-converter>=4,<5`
   distributions. The package does not depend on sibling source checkouts or Git
   URLs at runtime or build time.
 - Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
@@ -601,7 +601,7 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 ## Testing
 
 The deterministic, network-blocked suite was last verified on 2026-08-09:
-`526 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+`532 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 

@@ -16,16 +16,16 @@ def test_pyproject_declares_direct_runtime_and_development_dependencies() -> Non
 
     assert "google-auth>=2,<3" in dependencies
     assert "requests>=2.31,<3" in dependencies
-    assert "agentic-curator>=2,<3" in dependencies
-    assert "meta-standards-converter>=3,<4" in dependencies
+    assert "agentic-curator>=3,<4" in dependencies
+    assert "meta-standards-converter>=4,<5" in dependencies
     assert not any("git+" in value for value in dependencies)
     assert "pytest>=8" in project["optional-dependencies"]["dev"]
 
 
-def test_package_exposes_v1_release_version() -> None:
+def test_package_exposes_current_release_version() -> None:
     package = importlib.import_module("ThematicAtlases")
 
-    assert package.__version__ == "2.0.0"
+    assert package.__version__ == "3.0.0"
 
 
 def test_requirements_file_delegates_to_runtime_project_metadata() -> None:

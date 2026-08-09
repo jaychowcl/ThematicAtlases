@@ -53,7 +53,7 @@ def test_readme_uses_the_required_user_facing_structure() -> None:
     ]
 
 
-def test_readme_and_handoff_record_current_v1_and_test_evidence() -> None:
+def test_readme_and_handoff_record_current_contracts_and_test_evidence() -> None:
     readme = README.read_text(encoding="utf-8")
     codebase = CODEBASE.read_text(encoding="utf-8")
     index = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
@@ -62,8 +62,8 @@ def test_readme_and_handoff_record_current_v1_and_test_evidence() -> None:
         assert "Atlas document schema 1.0" in document
         assert "H5AD metadata schema 1.0" in document
         assert "2026-08-09" in document
-        assert "526 passed, 4 skipped" in document
-    for stale in ("meta-standards-converter 4", "H5AD metadata schema 3.0"):
+        assert "532 passed, 4 skipped" in document
+    for stale in ("meta-standards-converter 3", "H5AD metadata schema 3.0"):
         assert stale not in index
         assert stale not in codebase
 
