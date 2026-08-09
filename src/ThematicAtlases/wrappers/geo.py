@@ -1,14 +1,18 @@
 import logging
 import time
 from contextlib import nullcontext
+from dataclasses import dataclass
+from typing import Any
 
 from meta_standards_converter.converters.geo2json import geo2json
 from meta_standards_converter.enrichers.miniml_enricher import MINiMLEnricher
 from meta_standards_converter.miniml import MINiMLCodec
+from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 import requests
 
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
+from ThematicAtlases.runtime_contracts import safe_error_json, safe_error_mapping
 from ThematicAtlases.miniml_boundary import (
     canonicalize_miniml_packages,
     checkpoint_packages,
@@ -21,6 +25,49 @@ from ThematicAtlases.wrappers.enrichment import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EnrichmentRepairOutcome:
+    stage: str
+    identifier: str
+    package_index: int
+    status: str
+    error: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stage": self.stage,
+            "identifier": self.identifier,
+            "package_index": self.package_index,
+            "status": self.status,
+            "error": self.error,
+        }
+
+
+@dataclass(frozen=True)
+class EnrichmentRepairSummary:
+    selected: RetryTags
+    outcomes: tuple[EnrichmentRepairOutcome, ...]
+    contract_version: str = "1.0"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "selected_identifiers": {
+                "pubmed": list(self.selected.pubmed),
+                "sra": list(self.selected.sra),
+                "ena": list(self.selected.ena),
+            },
+            "attempt_count": len(self.outcomes),
+            "succeeded_count": sum(
+                outcome.status == "succeeded" for outcome in self.outcomes
+            ),
+            "failed_count": sum(
+                outcome.status == "failed" for outcome in self.outcomes
+            ),
+            "outcomes": [outcome.to_dict() for outcome in self.outcomes],
+        }
 
 
 def _metadata_checkpoint_payload(_packages, **values):
@@ -43,28 +90,45 @@ class GEOWrapper:
         api_key: str | None = None,
         tool: str = "ThematicAtlases",
         email: str | None = None,
-        timeout: int = 30,
+        timeout: int | float | tuple[int | float, int | float] | None = None,
         request_delay: float = 0.34,
         max_retries: int = 3,
         request_policy: RequestPolicy | None = None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides=None,
     ):
+        self.resource_profile = (
+            resource_profile.with_overrides(resource_overrides)
+            if isinstance(resource_profile, ResourceProfile) and resource_overrides
+            else resource_profile
+            if isinstance(resource_profile, ResourceProfile)
+            else get_resource_profile(
+                resource_profile,
+                overrides=resource_overrides,
+            )
+        )
+        effective_timeout = timeout or (
+            self.resource_profile.connect_timeout_seconds,
+            self.resource_profile.read_timeout_seconds,
+        )
         self._api_key = api_key
         self._tool = tool
         self._email = email
         self._request_settings = {
-            "timeout": timeout,
+            "timeout": effective_timeout,
             "request_delay": request_delay,
             "max_retries": max_retries,
         }
         self._base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self._retry_statuses = {403, 429, 500, 502, 503, 504}
         self._request_policy = request_policy or RequestPolicy(
-            timeout=timeout,
+            timeout=effective_timeout,
             max_retries=max_retries,
             retry_statuses=self._retry_statuses,
             sleep=time.sleep,
             logger=logger,
             name="GEO",
+            resource_profile=self.resource_profile,
         )
 
     def collect_accession_metadata(
@@ -116,7 +180,13 @@ class GEOWrapper:
                                 "retryable_error"
                                 if is_retryable_error(error)
                                 else "terminal_error",
-                                error=str(error),
+                                error=safe_error_json(
+                                    error,
+                                    provider="NCBI GEO",
+                                    stage="geo_resolution",
+                                    item_id=source_accession,
+                                    retryable=is_retryable_error(error),
+                                ),
                             )
                         raise
                     if checkpoint_store is not None:
@@ -475,7 +545,13 @@ class GEOWrapper:
                             else "terminal_error",
                             payload=(checkpoint or {}).get("payload")
                             or _metadata_checkpoint_payload([]),
-                            error=str(error),
+                            error=safe_error_json(
+                                error,
+                                provider="NCBI GEO",
+                                stage="geo_metadata",
+                                item_id=gse_accession,
+                                retryable=is_retryable_error(error),
+                            ),
                         )
                     continue
 
@@ -582,6 +658,7 @@ class GEOWrapper:
                 checkpoint_store,
                 forced_identifiers=() if retry_tags is None else retry_tags.pubmed,
                 tag_id=None if retry_tags is None else retry_tags.tag_id,
+                resource_profile=self.resource_profile,
             ),
             insdc_fetcher=CheckpointedINSDCFetcher(
                 checkpoint_store,
@@ -589,6 +666,7 @@ class GEOWrapper:
                 forced_ena=() if retry_tags is None else retry_tags.ena,
                 ena_identifiers=ena_identifiers,
                 tag_id=None if retry_tags is None else retry_tags.tag_id,
+                resource_profile=self.resource_profile,
             ),
         )
 
@@ -625,7 +703,7 @@ class GEOWrapper:
             sra=tuple(tracked["sra"]),
             ena=tuple(tracked["ena"]),
         )
-        packages = self._repair_selected_packages(
+        packages, repair_summary = self._repair_selected_packages(
             packages,
             checkpoint_store,
             selected,
@@ -638,6 +716,7 @@ class GEOWrapper:
                 "enrichment_mode": "selected",
                 "enrichment_state": "complete",
                 "tracked_identifiers": tracked,
+                "repair_summary": repair_summary.to_dict(),
             },
         )
 
@@ -647,11 +726,12 @@ class GEOWrapper:
         checkpoint_store,
         selected: RetryTags,
         forced: RetryTags | None,
-    ):
+    ) -> tuple[list[dict], EnrichmentRepairSummary]:
         pubmed_fetcher = CheckpointedPubmedFetcher(
             checkpoint_store,
             forced_identifiers=() if forced is None else forced.pubmed,
             tag_id=None if forced is None else forced.tag_id,
+            resource_profile=self.resource_profile,
         )
         insdc_fetcher = CheckpointedINSDCFetcher(
             checkpoint_store,
@@ -659,8 +739,10 @@ class GEOWrapper:
             forced_ena=() if forced is None else forced.ena,
             ena_identifiers=selected.ena,
             tag_id=None if forced is None else forced.tag_id,
+            resource_profile=self.resource_profile,
         )
-        for package in packages:
+        outcomes = []
+        for package_index, package in enumerate(packages):
             series = package.get("series") if isinstance(package.get("series"), dict) else {}
             publications = series.get("pubmed_publication") or []
             publications = publications if isinstance(publications, list) else [publications]
@@ -670,8 +752,27 @@ class GEOWrapper:
                     continue
                 try:
                     values = pubmed_fetcher.pubmed_summary(identifier)
-                except Exception:
+                except Exception as error:
+                    outcomes.append(EnrichmentRepairOutcome(
+                        stage="pubmed_enrichment",
+                        identifier=identifier,
+                        package_index=package_index,
+                        status="failed",
+                        error=safe_error_mapping(
+                            error,
+                            provider="NCBI PubMed",
+                            stage="pubmed_enrichment",
+                            item_id=identifier,
+                            retryable=is_retryable_error(error),
+                        ),
+                    ))
                     continue
+                outcomes.append(EnrichmentRepairOutcome(
+                    stage="pubmed_enrichment",
+                    identifier=identifier,
+                    package_index=package_index,
+                    status="succeeded",
+                ))
                 for field, value in zip(
                     ("doi", "author_list", "title", "status", "status_term_source_ref", "status_term_accession_number"),
                     values,
@@ -691,10 +792,51 @@ class GEOWrapper:
                     if identifier in selected.sra:
                         try:
                             runs = insdc_fetcher.fetch_sra_runs(identifier)
-                        except Exception:
+                        except Exception as error:
+                            outcomes.append(EnrichmentRepairOutcome(
+                                stage="sra_xml",
+                                identifier=identifier,
+                                package_index=package_index,
+                                status="failed",
+                                error=safe_error_mapping(
+                                    error,
+                                    provider="NCBI SRA",
+                                    stage="sra_xml",
+                                    item_id=identifier,
+                                    retryable=is_retryable_error(error),
+                                ),
+                            ))
                             continue
+                        outcomes.append(EnrichmentRepairOutcome(
+                            stage="sra_xml",
+                            identifier=identifier,
+                            package_index=package_index,
+                            status="succeeded",
+                        ))
                     elif identifier in selected.ena:
-                        fastqs = insdc_fetcher.fetch_ena_fastq_files(identifier)
+                        try:
+                            fastqs = insdc_fetcher.fetch_ena_fastq_files(identifier)
+                        except Exception as error:
+                            outcomes.append(EnrichmentRepairOutcome(
+                                stage="ena_fastq",
+                                identifier=identifier,
+                                package_index=package_index,
+                                status="failed",
+                                error=safe_error_mapping(
+                                    error,
+                                    provider="ENA",
+                                    stage="ena_fastq",
+                                    item_id=identifier,
+                                    retryable=is_retryable_error(error),
+                                ),
+                            ))
+                            continue
+                        outcomes.append(EnrichmentRepairOutcome(
+                            stage="ena_fastq",
+                            identifier=identifier,
+                            package_index=package_index,
+                            status="succeeded",
+                        ))
                         for run in runs:
                             files = fastqs.get(run.get("run"))
                             if files:
@@ -702,7 +844,10 @@ class GEOWrapper:
                                 run["submitted_file_name"] = files[0].get("filename")
                                 run["md5"] = files[0].get("md5")
                 sample["sra_run"] = runs
-        return packages
+        return packages, EnrichmentRepairSummary(
+            selected=selected,
+            outcomes=tuple(outcomes),
+        )
 
     def _metadata_records_from_packages(self, record: dict, packages: list[dict]) -> list[dict]:
         return [
@@ -720,7 +865,16 @@ class GEOWrapper:
         status = checkpoint.get("status")
         packages = checkpoint_packages(payload)
         if status == "available" and packages:
-            return self._metadata_records_from_packages(record, packages)
+            records = self._metadata_records_from_packages(record, packages)
+            repair_summary = payload.get("repair_summary")
+            if (
+                isinstance(repair_summary, dict)
+                and repair_summary.get("failed_count", 0) > 0
+            ):
+                for metadata_record in records:
+                    metadata_record["metadata_status"] = "partial"
+                    metadata_record["metadata_repair_summary"] = repair_summary
+            return records
         if status == "no_data":
             return [self._metadata_unavailable_record(record)]
         return [self._metadata_error_record(record)]

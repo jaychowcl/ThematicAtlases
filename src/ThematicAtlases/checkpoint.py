@@ -8,6 +8,10 @@ import threading
 from contextlib import contextmanager
 
 import fcntl
+from meta_standards_converter.runtime_contracts import (
+    ExecutionStatus,
+    OperationStatusV2,
+)
 
 
 CHECKPOINT_STATUSES = {
@@ -33,6 +37,22 @@ STAGE_POLICIES = {
     "thematic_review": "review",
     "harmonization": "harmonization",
 }
+
+HARMONIZATION_RETRY_STAGES = frozenset(
+    {
+        "target_checker",
+        "local_lookup",
+        "rag_index_prepare",
+        "rag_query_embedding",
+        "rag_index_search",
+        "rag_judge",
+        "ols_lookup_judge",
+        "field_assignment",
+        "field_assignment_validation",
+        "hierarchy_enrichment",
+        "structured_response_validation",
+    }
+)
 
 
 class CheckpointStore:
@@ -620,16 +640,20 @@ class CheckpointStore:
                 selected[(stage, key)] = item
         requested_degraded = {str(value) for value in degraded_stages}
         for stage in requested_degraded:
-            if stage not in {"target_checker", "field_assignment"}:
+            if stage not in HARMONIZATION_RETRY_STAGES:
                 raise ValueError(f"unknown degraded harmonization stage: {stage!r}")
         if requested_degraded:
             for item in self.items("harmonization"):
                 payload = item.get("payload") or {}
-                observed = {
-                    str(entry.get("stage"))
-                    for entry in payload.get("degraded_stages", [])
-                    if isinstance(entry, dict)
-                }
+                try:
+                    status = OperationStatusV2.from_dict(payload.get("status", {}))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                observed = (
+                    {error.stage for error in status.errors if error.stage}
+                    if status.execution is ExecutionStatus.DEGRADED
+                    else set()
+                )
                 if item["status"] == "available" and observed & requested_degraded:
                     selected[("harmonization", item["key"])] = item
         if (stages or items or degraded_stages) and not selected:

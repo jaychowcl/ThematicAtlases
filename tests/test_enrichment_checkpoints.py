@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import requests
+from meta_standards_converter.xml_safety import UnsafeXMLDocumentError
+from meta_standards_converter.runtime_contracts import get_resource_profile
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers.enrichment import (
@@ -38,6 +40,21 @@ class FakePubmed:
         return self.outcome
 
 
+def test_default_enrichment_fetchers_preserve_typed_resource_overrides(tmp_path) -> None:
+    profile = get_resource_profile(
+        "standard",
+        overrides={"max_xml_bytes": 4096, "network_workers": 2},
+    )
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+
+    pubmed = CheckpointedPubmedFetcher(store, resource_profile=profile)
+    insdc = CheckpointedINSDCFetcher(store, resource_profile=profile)
+
+    assert pubmed.fetcher.resource_profile is profile
+    assert insdc.resource_profile is profile
+    assert insdc.fetcher.resource_profile is profile
+
+
 def test_pubmed_checkpoint_reuses_available_and_no_data(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume.sqlite")
     available = FakePubmed()
@@ -63,7 +80,7 @@ def test_pubmed_checkpoint_reuses_available_and_no_data(tmp_path) -> None:
         (requests.HTTPError("bad PMID", response=type("R", (), {"status_code": 404})()), "terminal_error"),
     ],
 )
-def test_pubmed_checkpoint_records_exact_errors(tmp_path, error, status) -> None:
+def test_pubmed_checkpoint_records_safe_errors(tmp_path, error, status) -> None:
     store = CheckpointStore(tmp_path / "resume.sqlite")
     fetcher = CheckpointedPubmedFetcher(store, fetcher=FakePubmed(error))
 
@@ -72,7 +89,11 @@ def test_pubmed_checkpoint_records_exact_errors(tmp_path, error, status) -> None
 
     item = store.get("pubmed_enrichment", "789")
     assert item["status"] == status
-    assert item["error"] == str(error)
+    persisted = json.loads(item["error"])
+    assert persisted["error_type"] == type(error).__name__
+    assert persisted["stage"] == "pubmed_enrichment"
+    assert persisted["item_id"] == "789"
+    assert str(error) not in item["error"]
 
 
 def test_pubmed_item_lock_prevents_duplicate_calls(tmp_path) -> None:
@@ -175,7 +196,8 @@ def test_ena_failure_preserves_sra_runs_and_records_identifier(tmp_path) -> None
     assert store.get("sra_xml", "SRX1")["status"] == "available"
     ena = store.get("ena_fastq", "SRX1")
     assert ena["status"] == "retryable_error"
-    assert ena["error"] == "ENA timeout for SRX1"
+    assert json.loads(ena["error"])["error_type"] == "Timeout"
+    assert "ENA timeout for SRX1" not in ena["error"]
 
 
 def test_sra_failure_records_exact_identifier(tmp_path) -> None:
@@ -188,8 +210,23 @@ def test_sra_failure_records_exact_identifier(tmp_path) -> None:
 
     item = store.get("sra_xml", "SRX9")
     assert item["status"] == "retryable_error"
-    assert item["error"] == "SRA timeout for SRX9"
+    assert json.loads(item["error"])["error_type"] == "Timeout"
+    assert "SRA timeout for SRX9" not in item["error"]
     assert store.get("ena_fastq", "SRX9") is None
+
+
+def test_cached_sra_xml_rejects_dtd_declarations(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+    store.put(
+        "sra_xml",
+        "SRX1",
+        1,
+        "available",
+        payload={"xml": '<!DOCTYPE x [<!ENTITY y "z">]><root>&y;</root>'},
+    )
+
+    with pytest.raises(UnsafeXMLDocumentError):
+        CheckpointedINSDCFetcher(store, fetcher=FakeINSDC())._ncbi_nrx("SRX1")
 
 
 def _legacy_package():

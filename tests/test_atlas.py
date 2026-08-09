@@ -1150,6 +1150,48 @@ def test_final_status_and_latest_resume_include_terminal_checkpoint_failure(
     assert atlas._final_run_status({"accessions": []}, store) == RunStatus.PARTIAL
 
 
+def test_final_run_status_is_partial_for_degraded_harmonization() -> None:
+    result = {
+        "accessions": [{
+            "ontology_harmonization_run_status": "completed",
+            "ontology_harmonization_status": {
+                "contract_version": "2.0",
+                "execution": "degraded",
+            },
+        }]
+    }
+
+    assert Atlas(metadata={})._final_run_status(result) == RunStatus.PARTIAL
+
+
+def test_atlas_shares_one_repository_capability_registry_across_stages() -> None:
+    from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
+
+    registry = RepositoryCapabilityRegistry()
+    atlas = Atlas(metadata={}, capability_registry=registry)
+
+    assert atlas._capability_registry is registry
+    assert atlas._collector._capability_registry is registry
+    assert atlas._filterer._publication_text_reviewer._capability_registry is registry
+    assert atlas._harmonizer._capability_registry is registry
+
+
+def test_atlas_applies_one_typed_resource_profile_across_default_stages() -> None:
+    atlas = Atlas(
+        metadata={},
+        resource_profile="large",
+        resource_overrides={"network_workers": 3, "max_xml_bytes": 4096},
+    )
+
+    assert atlas._resource_profile.name == "large"
+    assert atlas._resource_profile.network_workers == 3
+    assert atlas._resource_profile.max_xml_bytes == 4096
+    assert atlas._collector._epmc_wrapper().resource_profile is atlas._resource_profile
+    assert atlas._collector._metadata_handlers["geo"]().resource_profile is atlas._resource_profile
+    assert atlas._harmonizer._max_workers == 3
+    assert atlas._harmonizer._resource_profile is atlas._resource_profile
+
+
 def test_resume_requeues_stale_review_contract(tmp_path) -> None:
     from ThematicAtlases.checkpoint import CheckpointStore
 

@@ -126,8 +126,27 @@ def test_checkpoint_store_selectively_requeues_terminal_and_degraded_items(
         1,
         "available",
         payload={
-            "quality_status": "degraded",
-            "degraded_stages": [{"stage": "target_checker"}],
+            "contract_version": "2.0",
+            "status": {
+                "contract_version": "2.0",
+                "execution": "degraded",
+                "completeness": "partial",
+                "evidence_confidence": "insufficient",
+                "validation": "valid",
+                "publication": "review_required",
+                "terminal_reason": "provider_degraded",
+                "errors": [{
+                    "contract_version": "1.0",
+                    "error_type": "ProviderError",
+                    "provider": "llm",
+                    "location": None,
+                    "http_status": None,
+                    "retry_category": "retryable",
+                    "stage": "target_checker",
+                    "item_id": "target-1",
+                    "correlation_id": "test-correlation",
+                }],
+            },
         },
     )
 
@@ -138,6 +157,20 @@ def test_checkpoint_store_selectively_requeues_terminal_and_degraded_items(
     assert store.get("thematic_review", "direct:1")["status"] == "retryable_error"
     assert store.get("harmonization", "work-1")["status"] == "retryable_error"
     assert store.history("harmonization", "work-1")[0]["status"] == "available"
+
+
+def test_checkpoint_store_does_not_infer_degradation_from_retired_fields(tmp_path) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put(
+        "harmonization",
+        "legacy-work",
+        1,
+        "available",
+        payload={"quality_status": "degraded", "degraded_stages": [{"stage": "target_checker"}]},
+    )
+
+    with pytest.raises(ValueError, match="did not match any eligible items"):
+        store.request_retries(degraded_stages=["target_checker"])
 
 
 def test_checkpoint_store_rejects_ineligible_retry_selection(tmp_path) -> None:

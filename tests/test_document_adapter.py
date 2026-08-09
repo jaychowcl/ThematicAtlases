@@ -1,7 +1,37 @@
 import pytest
 
 from ThematicAtlases.document_adapter import AtlasDocumentAdapter
-from ThematicAtlases.domain import DatasetStatus, RunStatus
+from ThematicAtlases.domain import DiagnosticSeverity, DatasetStatus, RunStatus
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    SafeErrorEnvelope,
+    ValidationStatus,
+)
+
+
+def _status(execution=ExecutionStatus.SUCCEEDED, *, errors=()) -> dict:
+    failed = execution is ExecutionStatus.FAILED
+    return OperationStatusV2(
+        execution=execution,
+        completeness=(
+            CompletenessStatus.EMPTY if failed else CompletenessStatus.COMPLETE
+        ),
+        evidence_confidence=(
+            EvidenceConfidence.NOT_ASSESSED if failed else EvidenceConfidence.HIGH
+        ),
+        validation=ValidationStatus.NOT_RUN if failed else ValidationStatus.VALID,
+        publication=(
+            PublicationDisposition.BLOCKED
+            if failed
+            else PublicationDisposition.PUBLISHABLE
+        ),
+        terminal_reason="harmonization_failed" if failed else "harmonization_complete",
+        errors=errors,
+    ).to_dict()
 
 
 def _v2_package(sample_id: str) -> dict:
@@ -36,7 +66,7 @@ def _legacy_atlas():
                     }
                 ],
                 "ontology_harmonization_run_status": "completed",
-                "ontology_harmonization_quality_status": "healthy",
+                "ontology_harmonization_status": _status(),
             },
             {
                 "datalink_id": "GSE2",
@@ -51,7 +81,17 @@ def _legacy_atlas():
                     }
                 ],
                 "ontology_harmonization_run_status": "error",
-                "ontology_harmonization_error": "lookup failed",
+                "ontology_harmonization_status": _status(
+                    ExecutionStatus.FAILED,
+                    errors=(
+                        SafeErrorEnvelope(
+                            error_type="LookupError",
+                            provider="agentic_curator",
+                            stage="harmonization",
+                            item_id="GSE2",
+                        ),
+                    ),
+                ),
             },
         ],
         "publication_texts": {
@@ -83,7 +123,7 @@ def test_adapter_assembles_one_valid_canonical_document_without_fragmented_json(
             {
                 "datalink_id": "GSE1",
                 "run_status": "completed",
-                "degraded_stages": [],
+                "status": _status(),
                 "harmonization_targets": [{"path": "/sample/0/organism"}],
             }
         ],
@@ -98,7 +138,9 @@ def test_adapter_assembles_one_valid_canonical_document_without_fragmented_json(
     assert [item.publication_id for item in document.publications] == ["PMID:1"]
     assert document.publications[0].review.judgement.value == "relevant"
     assert document.datasets[0].harmonization.targets[0].path == "/sample/0/organism"
-    assert document.datasets[1].diagnostics[0].message == "lookup failed"
+    assert document.datasets[1].diagnostics[0].message == (
+        "harmonization failed: LookupError at harmonization (item GSE2)"
+    )
     assert document.summary.dataset_count == 2
     assert document.summary.publication_count == 1
     assert document.summary.completed_dataset_count == 1
@@ -149,6 +191,45 @@ def test_adapter_ignores_malformed_evidence_without_leaking_mapping_keys():
     assert document.publications[0].review.evidence == ()
 
 
+def test_adapter_preserves_partial_metadata_as_collected_with_repair_diagnostic():
+    legacy = {
+        "accessions": [
+            {
+                "datalink_id": "GSE1",
+                "metadata_repository": "geo",
+                "metadata_status": "partial",
+                "accession_metadata": _v2_package("GSM1"),
+                "metadata_repair_summary": {
+                    "contract_version": "1.0",
+                    "attempt_count": 2,
+                    "succeeded_count": 1,
+                    "failed_count": 1,
+                },
+                "publications": [],
+            }
+        ],
+        "publication_texts": {},
+    }
+
+    document = AtlasDocumentAdapter().assemble(
+        legacy,
+        atlas_metadata={"atlas_id": "atlas-partial"},
+        run_id="run-partial",
+        created_at="2026-08-09T00:00:00Z",
+        theme="partial metadata",
+        config={},
+        run_status=RunStatus.PARTIAL,
+    )
+
+    dataset = document.datasets[0]
+    assert dataset.status is DatasetStatus.COLLECTED
+    assert dataset.diagnostics[0].code == "metadata_repair_partial"
+    assert dataset.diagnostics[0].severity is DiagnosticSeverity.WARNING
+    assert dataset.diagnostics[0].message == (
+        "metadata enrichment repair completed partially: 1 of 2 attempts failed"
+    )
+
+
 def test_adapter_projects_agentic_curator_harmonization_targets():
     document = AtlasDocumentAdapter().assemble(
         _legacy_atlas(),
@@ -161,7 +242,7 @@ def test_adapter_projects_agentic_curator_harmonization_targets():
         harmonization_details=[
             {
                 "datalink_id": "GSE1",
-                "degraded_stages": [],
+                "status": _status(),
                 "harmonization_targets": [
                     {
                         "pre_hz_field": "tissue",
@@ -208,6 +289,7 @@ def test_adapter_wraps_multiple_miniml_packages_explicitly():
                 _v2_package("GSM2"),
             ],
             "ontology_harmonization_run_status": "completed",
+            "ontology_harmonization_status": _status(),
         }
     ]
     legacy["publication_texts"] = {}
@@ -266,4 +348,24 @@ def test_adapter_projects_v2_back_to_minimal_internal_harmonization_input():
         "GSE2",
     ]
     assert legacy["accessions"][0]["accession_metadata"]["sample"][0]["iid"] == "GSM1"
+    assert legacy["accessions"][0]["ontology_harmonization_status"] == _status()
+    assert legacy["accessions"][1]["ontology_harmonization_status"]["execution"] == "failed"
     assert legacy["publication_texts"]["PMID:1"]["agentic_curator"]["judgement"] == "relevant"
+
+
+def test_adapter_rejects_contradictory_harmonization_statuses():
+    legacy = _legacy_atlas()
+    with pytest.raises(ValueError, match="contradictory harmonization status"):
+        AtlasDocumentAdapter().assemble(
+            legacy,
+            atlas_metadata={"atlas_id": "atlas-lung"},
+            run_id="run-1",
+            created_at="2026-07-31T00:00:00Z",
+            theme="lung",
+            config={},
+            run_status=RunStatus.PARTIAL,
+            harmonization_details=[{
+                "datalink_id": "GSE1",
+                "status": _status(ExecutionStatus.FAILED),
+            }],
+        )

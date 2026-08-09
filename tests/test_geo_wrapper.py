@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -366,6 +367,74 @@ def test_manual_tag_repairs_every_affected_legacy_package(tmp_path, monkeypatch)
     payload = store.get("geo_metadata", "GSE1")["payload"]
     assert payload["enrichment_mode"] == "selected"
     assert payload["tracked_identifiers"]["pubmed"] == ["123"]
+    assert payload["repair_summary"] == {
+        "contract_version": "1.0",
+        "selected_identifiers": {"pubmed": ["123"], "sra": [], "ena": []},
+        "attempt_count": 2,
+        "succeeded_count": 2,
+        "failed_count": 0,
+        "outcomes": [
+            {
+                "stage": "pubmed_enrichment",
+                "identifier": "123",
+                "package_index": 0,
+                "status": "succeeded",
+                "error": None,
+            },
+            {
+                "stage": "pubmed_enrichment",
+                "identifier": "123",
+                "package_index": 1,
+                "status": "succeeded",
+                "error": None,
+            },
+        ],
+    }
+
+
+def test_manual_repair_failure_is_safe_and_marks_metadata_partial(
+    tmp_path, monkeypatch
+) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    package = v2_package("GSE1")
+    package["series"]["pubmed_publication"] = [{"pubmed_id": "123"}]
+    store.put(
+        "geo_metadata",
+        "GSE1",
+        1,
+        "available",
+        payload=checkpoint_payload(
+            [package],
+            checkpoint_version=4,
+            enrichment_mode="selected",
+            enrichment_state="complete",
+            tracked_identifiers={"pubmed": ["123"], "sra": [], "ena": []},
+        ),
+    )
+
+    class FailingCheckpointedPubmed:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def pubmed_summary(self, identifier):
+            raise RuntimeError("secret-token-canary")
+
+    monkeypatch.setattr(
+        geo_module, "CheckpointedPubmedFetcher", FailingCheckpointedPubmed
+    )
+    record = {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []}
+    result = GEOWrapper().collect_accession_metadata(
+        [record],
+        checkpoint_store=store,
+        retry_tags=RetryTags(tag_id="manual-1", pubmed=("123",)),
+    )
+
+    payload = store.get("geo_metadata", "GSE1")["payload"]
+    assert payload["repair_summary"]["failed_count"] == 1
+    assert payload["repair_summary"]["outcomes"][0]["error"]["error_type"] == "RuntimeError"
+    assert "secret-token-canary" not in json.dumps(payload)
+    assert result[0]["metadata_status"] == "partial"
+    assert result[0]["metadata_repair_summary"]["failed_count"] == 1
 
 
 def test_collect_accession_metadata_keeps_gse_and_publications() -> None:

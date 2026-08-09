@@ -351,13 +351,13 @@ def test_review_publication_texts_isolates_and_retains_failed_publication(caplog
         reviewer=PartlyFailingReviewer(),
     )
 
-    assert result["bad"]["agentic_curator"] == {
-        "theme": "fibrosis",
-        "strategy": "direct",
-        "review_status": "failed",
-        "error_type": "ValueError",
-        "error": "LLM response was not valid JSON.",
-    }
+    failed = result["bad"]["agentic_curator"]
+    assert failed["theme"] == "fibrosis"
+    assert failed["strategy"] == "direct"
+    assert failed["review_status"] == "failed"
+    assert failed["error_type"] == "ValueError"
+    assert failed["error"]["error_type"] == "ValueError"
+    assert "LLM response was not valid JSON" not in json.dumps(failed)
     assert result["good"]["agentic_curator"]["judgement"] == "relevant"
     accessions = [
         {"datalink_id": "GSE1", "publications": [{"publication_text_ref": "bad"}]},
@@ -549,7 +549,7 @@ def test_review_records_metadata_context_coverage() -> None:
     }
 
 
-def test_publication_context_aggregates_every_gse_for_shared_publication() -> None:
+def test_publication_context_uses_capability_review_identities() -> None:
     publication = {
         "publication_text_ref": "1",
         "title": "Shared publication",
@@ -559,14 +559,16 @@ def test_publication_context_aggregates_every_gse_for_shared_publication() -> No
             {"datalink_id": "GSE1", "publications": [publication]},
             {"datalink_id": "GSE2", "publications": [publication]},
             {"datalink_id": "GSM3", "publications": [publication]},
+            {"datalink_id": "E-MTAB-6486", "publications": [publication]},
         ]
     )
 
     assert contexts["1"]["title"] == "Shared publication"
-    assert contexts["1"]["accessions"] == ["GSE1", "GSE2"]
+    assert contexts["1"]["accessions"] == ["GSE1", "GSE2", "E-MTAB-6486"]
     assert contexts["1"]["metadata"] == [
         {"accession": "GSE1", "status": "pending", "context": ""},
         {"accession": "GSE2", "status": "pending", "context": ""},
+        {"accession": "E-MTAB-6486", "status": "pending", "context": ""},
     ]
 
 

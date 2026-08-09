@@ -1,12 +1,20 @@
 import copy
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import hashlib
+import inspect
 import json
 import logging
 from pathlib import Path
 
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from meta_standards_converter.miniml import MINiMLCodec
+from meta_standards_converter.runtime_contracts import (
+    ExecutionStatus,
+    OperationStatusV2,
+)
+from ThematicAtlases.runtime_contracts import failed_status, not_run_status
+from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
+from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +40,28 @@ class AtlasHarmonizer:
         ontostore=None,
         credential_checker=None,
         max_workers: int = 1,
+        capability_registry: RepositoryCapabilityRegistry | None = None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides: dict[str, int | float] | None = None,
     ):
         self._ontology_harmonizer_instance = ontology_harmonizer
         self._ontology_harmonizer_factory = ontology_harmonizer_factory
         self._ontostore = ontostore
         self._credential_checker = credential_checker
         self._credentials_checked = False
+        self._capability_registry = (
+            capability_registry or RepositoryCapabilityRegistry()
+        )
+        self._resource_profile = (
+            resource_profile.with_overrides(resource_overrides)
+            if isinstance(resource_profile, ResourceProfile) and resource_overrides
+            else resource_profile
+            if isinstance(resource_profile, ResourceProfile)
+            else get_resource_profile(
+                resource_profile,
+                overrides=resource_overrides,
+            )
+        )
         if max_workers < 1:
             raise ValueError("max_workers must be a positive integer")
         self._max_workers = max_workers
@@ -60,12 +84,32 @@ class AtlasHarmonizer:
             metadata = record.get("accession_metadata")
             datalink_id = record.get("datalink_id", "")
 
-            if not isinstance(metadata, (dict, list)):
+            eligibility_reason = self._eligibility_reason(record)
+            if eligibility_reason is not None:
+                status = not_run_status(
+                    terminal_reason=eligibility_reason
+                ).to_dict()
                 record["ontology_harmonization_run_status"] = "not_run"
+                record["ontology_harmonization_status"] = status
                 record.pop("ontology_harmonization_error", None)
                 details[index] = {
                     "datalink_id": datalink_id,
                     "run_status": "not_run",
+                    "status": status,
+                }
+                continue
+
+            if not isinstance(metadata, (dict, list)):
+                status = not_run_status(
+                    terminal_reason="metadata_unavailable"
+                ).to_dict()
+                record["ontology_harmonization_run_status"] = "not_run"
+                record["ontology_harmonization_status"] = status
+                record.pop("ontology_harmonization_error", None)
+                details[index] = {
+                    "datalink_id": datalink_id,
+                    "run_status": "not_run",
+                    "status": status,
                 }
                 continue
 
@@ -102,12 +146,14 @@ class AtlasHarmonizer:
                     len(item["indices"]),
                 )
                 try:
-                    return self._harmonize_metadata(
+                    harmonization = self._harmonize_metadata(
                         ontology_harmonizer,
                         metadata=item["metadata"],
                         publication_context=item["publication_context"],
                         options=harmonization_options,
-                    ), None
+                    )
+                    self._validated_operation_status(harmonization)
+                    return harmonization, None
                 except Exception as error:
                     return None, error
 
@@ -117,23 +163,36 @@ class AtlasHarmonizer:
                     datalink_id = record.get("datalink_id", "")
                     if error is not None:
                         logger.error(
-                            "Atlas ontology harmonization failed datalink_id=%r error=%r",
+                            "Atlas ontology harmonization failed datalink_id=%r error_type=%s",
                             datalink_id,
-                            error,
+                            type(error).__name__,
                         )
+                        retryable = is_retryable_error(error)
+                        status = failed_status(
+                            error,
+                            provider="agentic_curator",
+                            stage="harmonization",
+                            item_id=str(datalink_id) or None,
+                            retryable=retryable,
+                            terminal_reason="harmonization_failed",
+                        ).to_dict()
+                        safe_error = status["errors"][0]
                         record["ontology_harmonization_run_status"] = "error"
-                        record["ontology_harmonization_error"] = str(error)
+                        record["ontology_harmonization_status"] = status
+                        record["ontology_harmonization_error"] = safe_error
                         details[index] = {
                             "datalink_id": datalink_id,
                             "run_status": "error",
-                            "error": str(error),
+                            "status": status,
+                            "error": safe_error,
                         }
                         continue
 
+                    status = self._validated_operation_status(harmonization).to_dict()
                     record["accession_metadata"] = harmonization["miniml_json"]
                     record["ontology_harmonization_run_status"] = "completed"
-                    quality_status = self._quality_status(harmonization)
-                    record["ontology_harmonization_quality_status"] = quality_status
+                    record["ontology_harmonization_status"] = status
+                    record.pop("ontology_harmonization_quality_status", None)
                     record.pop("ontology_harmonization_error", None)
                     details[index] = {
                         "datalink_id": datalink_id,
@@ -143,10 +202,7 @@ class AtlasHarmonizer:
                         ),
                         "workflow": harmonization.get("workflow"),
                         "target_paths": harmonization.get("target_paths"),
-                        "quality_status": quality_status,
-                        "degraded_stages": harmonization.get(
-                            "degraded_stages", []
-                        ),
+                        "status": status,
                     }
                     if "preferred_ontology_ids" in harmonization:
                         details[index]["preferred_ontology_ids"] = harmonization[
@@ -170,14 +226,23 @@ class AtlasHarmonizer:
                         payload=harmonization,
                     )
                 else:
+                    retryable = is_retryable_error(error)
+                    persisted_error = failed_status(
+                        error,
+                        provider="agentic_curator",
+                        stage="harmonization",
+                        item_id=str(item["work_key"]),
+                        retryable=retryable,
+                        terminal_reason="harmonization_failed",
+                    ).errors[0].to_dict()
                     checkpoint_store.put(
                         "harmonization",
                         item["work_key"],
                         item["position"],
                         "retryable_error"
-                        if is_retryable_error(error)
+                        if retryable
                         else "terminal_error",
-                        error=str(error),
+                        error=json.dumps(persisted_error, sort_keys=True),
                         error_type=type(error).__name__,
                         failure_category=failure_category(error),
                     )
@@ -231,19 +296,42 @@ class AtlasHarmonizer:
         )
         return result, details
 
+    def _eligibility_reason(self, record: dict) -> str | None:
+        try:
+            capability = self._capability_registry.for_accession(
+                record.get("datalink_id")
+            )
+        except ValueError:
+            return "unsupported_repository"
+        declared_repository = str(
+            record.get("metadata_repository") or ""
+        ).strip().casefold()
+        if declared_repository and declared_repository != capability.repository_id:
+            return "repository_identity_mismatch"
+        if not capability.harmonization_supported:
+            return "harmonization_unsupported"
+        return None
+
     @staticmethod
-    def _quality_status(harmonization: dict) -> str:
-        explicit = harmonization.get("quality_status")
-        if explicit in {"healthy", "degraded"}:
-            return explicit
-        if (harmonization.get("target_checker") or {}).get("status") == "failed":
-            return "degraded"
-        if any(
-            isinstance(target, dict) and target.get("field_assignment_fallback")
-            for target in harmonization.get("harmonization_targets", [])
-        ):
-            return "degraded"
-        return "healthy"
+    def _validated_operation_status(harmonization: dict) -> OperationStatusV2:
+        if not isinstance(harmonization, dict):
+            raise ValueError("ontology harmonizer result must be an object")
+        if harmonization.get("contract_version") != "2.0":
+            raise ValueError(
+                "ontology harmonizer result must use contract_version 2.0"
+            )
+        raw_status = harmonization.get("status")
+        if not isinstance(raw_status, dict):
+            raise ValueError("ontology harmonizer result must contain status v2")
+        status = OperationStatusV2.from_dict(raw_status)
+        if status.execution not in {
+            ExecutionStatus.SUCCEEDED,
+            ExecutionStatus.DEGRADED,
+        }:
+            raise ValueError(
+                "ontology harmonizer did not return a usable terminal result"
+            )
+        return status
 
     def _work_key(
         self,
@@ -373,9 +461,21 @@ class AtlasHarmonizer:
             return self._ontology_harmonizer_instance
 
         from agentic_curator import OntologyHarmonizer
+        from agentic_curator.curators.ontology_harmonizer import OntoStore
 
         if self._ontostore is None:
-            self._ontology_harmonizer_instance = OntologyHarmonizer()
+            self._ontostore = OntoStore(resource_profile=self._resource_profile)
+            parameters = inspect.signature(OntologyHarmonizer).parameters.values()
+            supports_ontostore = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                or parameter.name == "ontostore"
+                for parameter in parameters
+            )
+            self._ontology_harmonizer_instance = (
+                OntologyHarmonizer(ontostore=self._ontostore)
+                if supports_ontostore
+                else OntologyHarmonizer()
+            )
         else:
             self._ontology_harmonizer_instance = OntologyHarmonizer(
                 ontostore=self._ontostore

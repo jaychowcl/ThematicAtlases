@@ -1,7 +1,12 @@
+import json
 import logging
 
 import pytest
 import requests
+from meta_standards_converter.xml_safety import (
+    UnsafeXMLDocumentError,
+    XMLSizeLimitError,
+)
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers import epmc as epmc_module
@@ -1396,6 +1401,19 @@ def test_collect_datalinks_checkpoints_non_network_processing_failure(
     item = store.get("datalinks", "MED:123")
     assert item["status"] == "terminal_error"
     assert item["error_type"] == "ValueError"
+    assert json.loads(item["error"])["error_type"] == "ValueError"
+    assert "malformed provider payload" not in item["error"]
+
+
+def test_xml_boundaries_reject_unsafe_and_oversized_documents() -> None:
+    with pytest.raises(UnsafeXMLDocumentError):
+        EuropePMCWrapper()._datalinks_xml_to_json(
+            '<!DOCTYPE x [<!ENTITY y "z">]><root>&y;</root>'
+        )
+    with pytest.raises(XMLSizeLimitError):
+        EuropePMCWrapper(
+            resource_overrides={"max_xml_bytes": 32}
+        )._plain_text_from_xml("<article>" + "x" * 64 + "</article>")
 
 
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:

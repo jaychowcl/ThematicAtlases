@@ -9,6 +9,24 @@ from ThematicAtlases.domain import AtlasDocument
 from ThematicAtlases.run_store import AtlasRunStore
 from ThematicAtlases import cli_atlas
 from ThematicAtlases.harmonizer import AtlasHarmonizer
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    ValidationStatus,
+)
+
+
+SUCCESS_STATUS = OperationStatusV2(
+    execution=ExecutionStatus.SUCCEEDED,
+    completeness=CompletenessStatus.COMPLETE,
+    evidence_confidence=EvidenceConfidence.HIGH,
+    validation=ValidationStatus.VALID,
+    publication=PublicationDisposition.PUBLISHABLE,
+    terminal_reason="harmonization_complete",
+).to_dict()
 
 
 def _run_dir(tmp_path, manifest, *, run_id="run-1"):
@@ -84,6 +102,8 @@ def test_resume_retries_only_selected_harmonization_item(tmp_path) -> None:
         def harmonize_miniml_json(self, **kwargs):
             calls.append(kwargs["miniml_json"]["value"])
             return {
+                "contract_version": "2.0",
+                "status": SUCCESS_STATUS,
                 "miniml_json": {**kwargs["miniml_json"], "retried": True},
                 "harmonization_targets": [],
                 "workflow": "retry",
@@ -108,7 +128,10 @@ def test_resume_retries_only_selected_harmonization_item(tmp_path) -> None:
     assert calls == ["one"]
     document = AtlasDocument.from_mapping(result)
     assert document.datasets[0].metadata["retried"] is True
-    assert document.datasets[1].diagnostics[0].message == "bad-2"
+    assert document.datasets[1].diagnostics[0].message.startswith(
+        "harmonization failed: RuntimeError"
+    )
+    assert "bad-2" not in document.datasets[1].diagnostics[0].message
     assert store.get("harmonization", work_keys[0])["status"] == "available"
     assert store.get("harmonization", work_keys[1])["status"] == "terminal_error"
 

@@ -15,7 +15,14 @@ _SUBPROCESS_ERROR = (
 )
 _LIVE_ENV = "RUN_LIVE_API_TESTS"
 _LIVE_DIR = (Path(__file__).parent / "live_api").resolve()
-_LIVE_HOSTS = {"api.biorxiv.org", "eutils.ncbi.nlm.nih.gov", "www.biorxiv.org", "www.ebi.ac.uk", "www.medrxiv.org"}
+_LIVE_HOSTS = {
+    "api.biorxiv.org",
+    "eutils.ncbi.nlm.nih.gov",
+    "ftp.ebi.ac.uk",
+    "www.biorxiv.org",
+    "www.ebi.ac.uk",
+    "www.medrxiv.org",
+}
 
 
 def pytest_configure(config) -> None:

@@ -11,11 +11,8 @@ from ThematicAtlases.collector.resume import (
     TraceMetadataResumer,
     configure_default_collector_factory,
 )
+from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
 
-ARRAYEXPRESS_ACCESSION_PREFIXES = ("E-MTAB", "E-GEOD", "E-MEXP")
-DEFAULT_METADATA_REPOSITORIES = ("geo", "arrayexpress")
-GEO_ACCESSION_PREFIXES = ("GSE", "GSM", "GPL", "GDS")
-SUPPORTED_METADATA_REPOSITORIES = {"arrayexpress", "geo"}
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +23,7 @@ class AtlasCollector:
         metadata_handlers: dict | None = None,
         metadata_repositories: list[str] | tuple[str, ...] | set[str] | None = None,
         metadata_resume_orchestrator_factory=None,
+        capability_registry: RepositoryCapabilityRegistry | None = None,
     ):
         self._epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
         self._metadata_handlers = (
@@ -35,6 +33,9 @@ class AtlasCollector:
             }
             if metadata_handlers is None
             else metadata_handlers
+        )
+        self._capability_registry = (
+            capability_registry or RepositoryCapabilityRegistry()
         )
         self._metadata_repositories = self._normalized_metadata_repositories(
             metadata_repositories
@@ -351,19 +352,13 @@ class AtlasCollector:
             metadata_repositories=metadata_repositories
         )
 
-        if (
-            "geo" in selected_repositories
-            and self._handler_status("geo") == "supported"
-            and self._is_geo_accession(record=record)
-        ):
-            return "geo"
-
-        if (
-            "arrayexpress" in selected_repositories
-            and self._handler_status("arrayexpress") == "supported"
-            and self._is_arrayexpress_accession(record=record)
-        ):
-            return "arrayexpress"
+        accession = record.get("datalink_id")
+        for repository in selected_repositories:
+            if self._handler_status(repository) != "supported":
+                continue
+            capability = self._capability_registry.require(repository)
+            if capability.matches(accession):
+                return repository
 
         return None
 
@@ -391,19 +386,13 @@ class AtlasCollector:
         ).lower()
 
     def _is_geo_accession(self, record: dict) -> bool:
-        datalink_id_scheme = str(record.get("datalink_id_scheme", "")).upper()
-        datalink_id = str(record.get("datalink_id", "")).upper()
-
-        return datalink_id_scheme == "GEO" or datalink_id.startswith(
-            GEO_ACCESSION_PREFIXES
+        return self._capability_registry.require("geo").matches(
+            record.get("datalink_id")
         )
 
     def _is_arrayexpress_accession(self, record: dict) -> bool:
-        datalink_id_scheme = str(record.get("datalink_id_scheme", "")).lower()
-        datalink_id = str(record.get("datalink_id", "")).upper()
-
-        return datalink_id_scheme == "arrayexpress" or datalink_id.startswith(
-            ARRAYEXPRESS_ACCESSION_PREFIXES
+        return self._capability_registry.require("arrayexpress").matches(
+            record.get("datalink_id")
         )
 
     def metadata_handler(self, repository: str) -> Any:
@@ -432,7 +421,7 @@ class AtlasCollector:
         metadata_repositories: list[str] | tuple[str, ...] | set[str] | None,
     ) -> tuple[str, ...]:
         if metadata_repositories is None:
-            metadata_repositories = DEFAULT_METADATA_REPOSITORIES
+            metadata_repositories = self._capability_registry.repository_ids
 
         normalized = tuple(
             dict.fromkeys(str(repository).strip().lower() for repository in metadata_repositories)
@@ -440,7 +429,7 @@ class AtlasCollector:
         unsupported = sorted(
             repository
             for repository in normalized
-            if repository not in SUPPORTED_METADATA_REPOSITORIES
+            if repository not in self._capability_registry.capabilities
         )
 
         if unsupported:
@@ -448,7 +437,7 @@ class AtlasCollector:
                 "Unsupported metadata repositories: "
                 f"{', '.join(unsupported)}. "
                 "Expected one or more of: "
-                f"{', '.join(sorted(SUPPORTED_METADATA_REPOSITORIES))}."
+                f"{', '.join(sorted(self._capability_registry.repository_ids))}."
             )
 
         return normalized

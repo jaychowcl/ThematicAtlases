@@ -5,9 +5,12 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
 import requests
+from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
+from meta_standards_converter.xml_safety import parse_xml
 
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
+from ThematicAtlases.runtime_contracts import safe_error_json
 from ThematicAtlases.accession_extraction import (
     extract_accessions_from_links,
     extract_accessions_from_text,
@@ -43,15 +46,31 @@ class EuropePMCWrapper:
         self,
         page_limit: int = 5,
         page_size: int = 1000,
-        timeout: int = 30,
+        timeout: int | float | tuple[int | float, int | float] | None = None,
         request_delay: float = 0.5,
         max_retries: int = 3,
         request_policy: RequestPolicy | None = None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides=None,
     ):
+        self.resource_profile = (
+            resource_profile.with_overrides(resource_overrides)
+            if isinstance(resource_profile, ResourceProfile) and resource_overrides
+            else resource_profile
+            if isinstance(resource_profile, ResourceProfile)
+            else get_resource_profile(
+                resource_profile,
+                overrides=resource_overrides,
+            )
+        )
+        effective_timeout = timeout or (
+            self.resource_profile.connect_timeout_seconds,
+            self.resource_profile.read_timeout_seconds,
+        )
         self._request_settings = {
             "page_limit": page_limit,
             "page_size": page_size,
-            "timeout": timeout,
+            "timeout": effective_timeout,
             "request_delay": request_delay,
             "max_retries": max_retries,
         }
@@ -64,12 +83,13 @@ class EuropePMCWrapper:
         )
         self._retry_statuses = {403, 429, 500, 502, 503, 504}
         self._request_policy = request_policy or RequestPolicy(
-            timeout=timeout,
+            timeout=effective_timeout,
             max_retries=max_retries,
             retry_statuses=self._retry_statuses,
             sleep=time.sleep,
             logger=logger,
             name="EuropePMC",
+            resource_profile=self.resource_profile,
         )
 
     def collect_accessions(
@@ -490,7 +510,13 @@ class EuropePMCWrapper:
                                 "next_cursor": cursor,
                                 "collected_hits": collected_hits,
                             },
-                            error=str(error),
+                            error=safe_error_json(
+                                error,
+                                provider="Europe PMC",
+                                stage="search_queries",
+                                item_id=query_hash,
+                                retryable=is_retryable_error(error),
+                            ),
                             error_type=type(error).__name__,
                             failure_category=failure_category(error),
                         )
@@ -802,21 +828,39 @@ class EuropePMCWrapper:
                     full_text_status=full_text_status,
                 )
                 checkpoint_status = "retryable_error"
-                checkpoint_error = str(error)
+                checkpoint_error = safe_error_json(
+                    error,
+                    provider="Europe PMC",
+                    stage="publication_text",
+                    item_id=checkpoint_key,
+                    retryable=True,
+                )
             except requests.RequestException as error:
                 enriched_publication = self._publication_with_fallback_text(
                     publication=publication,
                     full_text_status="error",
                 )
                 checkpoint_status = "retryable_error"
-                checkpoint_error = str(error)
+                checkpoint_error = safe_error_json(
+                    error,
+                    provider="Europe PMC",
+                    stage="publication_text",
+                    item_id=checkpoint_key,
+                    retryable=True,
+                )
             except (ET.ParseError, ValueError) as error:
                 enriched_publication = self._publication_with_fallback_text(
                     publication=publication,
                     full_text_status="error",
                 )
                 checkpoint_status = "terminal_error"
-                checkpoint_error = str(error)
+                checkpoint_error = safe_error_json(
+                    error,
+                    provider="Europe PMC",
+                    stage="publication_text",
+                    item_id=checkpoint_key,
+                    retryable=False,
+                )
 
             if enriched_publication["full_text_status"] == "available":
                 full_text_available += 1
@@ -914,15 +958,21 @@ class EuropePMCWrapper:
                         "retryable_error"
                         if is_retryable_error(error)
                         else "terminal_error",
-                        error=str(error),
+                        error=safe_error_json(
+                            error,
+                            provider="Europe PMC",
+                            stage="datalinks",
+                            item_id=checkpoint_key,
+                            retryable=is_retryable_error(error),
+                        ),
                         error_type=type(error).__name__,
                         failure_category=failure_category(error),
                     )
                 logger.warning(
-                    "EuropePMC datalinks skipped publication source=%r epmc_id=%r error=%r",
+                    "EuropePMC datalinks skipped publication source=%r epmc_id=%r error_type=%s",
                     source,
                     epmc_id,
-                    error,
+                    type(error).__name__,
                 )
                 continue
             logger.debug(
@@ -1055,8 +1105,8 @@ class EuropePMCWrapper:
             )
         except requests.RequestException as error:
             logger.debug(
-                "EuropePMC datalinks XML fallback error=%r source=%r epmc_id=%r",
-                error,
+                "EuropePMC datalinks XML fallback error_type=%s source=%r epmc_id=%r",
+                type(error).__name__,
                 source,
                 epmc_id,
             )
@@ -1079,7 +1129,7 @@ class EuropePMCWrapper:
         return self._datalinks_xml_to_json(response.text)
 
     def _datalinks_xml_to_json(self, text: str) -> dict:
-        root = ET.fromstring(text)
+        root = parse_xml(text, max_bytes=self.resource_profile.max_xml_bytes)
         categories = []
 
         for category_element in root.findall(".//{*}Category"):
@@ -1311,7 +1361,10 @@ class EuropePMCWrapper:
         return self._text_and_links_from_xml(full_text_xml)[0]
 
     def _text_and_links_from_xml(self, full_text_xml: str) -> tuple[str, list[str]]:
-        root = ET.fromstring(full_text_xml)
+        root = parse_xml(
+            full_text_xml,
+            max_bytes=self.resource_profile.max_xml_bytes,
+        )
         sections = []
         front = root.find(".//front")
 

@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone
 import hashlib
 import inspect
+from functools import partial
 from pathlib import Path
 import secrets
 
@@ -19,6 +20,12 @@ from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.filterer.review import REVIEW_CONTRACT_VERSION
 from ThematicAtlases.harmonizer import AtlasHarmonizer
+from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
+from ThematicAtlases.runtime_contracts import safe_error_json
+from meta_standards_converter.runtime_contracts import (
+    ResourceProfile,
+    get_resource_profile,
+)
 from ThematicAtlases.summary import build_atlas_summary
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.trace_fork import fork_metadata_trace
@@ -35,6 +42,21 @@ from ThematicAtlases.wrappers.geo import GEOWrapper
 from ThematicAtlases.run_archive import archive_existing_runs
 
 logger = logging.getLogger(__name__)
+
+
+def _configured_factory(factory, **configuration):
+    parameters = inspect.signature(factory).parameters.values()
+    if not any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    ):
+        accepted = {parameter.name for parameter in parameters}
+        configuration = {
+            key: value
+            for key, value in configuration.items()
+            if key in accepted
+        }
+    return partial(factory, **configuration)
 
 
 class Atlas:
@@ -54,21 +76,50 @@ class Atlas:
         credential_checker=None,
         document_adapter: AtlasDocumentAdapter | None = None,
         artifact_publisher: JsonArtifactBundlePublisher | None = None,
+        capability_registry: RepositoryCapabilityRegistry | None = None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides: dict[str, int | float] | None = None,
     ):
         self.metadata = metadata
-        epmc_wrapper_factory = epmc_wrapper_factory or EuropePMCWrapper
+        self._resource_profile = (
+            resource_profile.with_overrides(resource_overrides)
+            if isinstance(resource_profile, ResourceProfile) and resource_overrides
+            else resource_profile
+            if isinstance(resource_profile, ResourceProfile)
+            else get_resource_profile(
+                resource_profile,
+                overrides=resource_overrides,
+            )
+        )
+        self._capability_registry = (
+            capability_registry or RepositoryCapabilityRegistry()
+        )
+        epmc_wrapper_factory = epmc_wrapper_factory or _configured_factory(
+            EuropePMCWrapper,
+            resource_profile=self._resource_profile,
+        )
         if metadata_handlers is None:
             metadata_handlers = {
-                "arrayexpress": ArrayExpressWrapper,
-                "geo": GEOWrapper,
+                "arrayexpress": _configured_factory(
+                    ArrayExpressWrapper,
+                    resource_profile=self._resource_profile,
+                ),
+                "geo": _configured_factory(
+                    GEOWrapper,
+                    resource_profile=self._resource_profile,
+                ),
             }
         publication_text_reviewer = (
-            publication_text_reviewer or PublicationTextReviewer()
+            publication_text_reviewer
+            or PublicationTextReviewer(
+                capability_registry=self._capability_registry
+            )
         )
         self._collector = collector or AtlasCollector(
             epmc_wrapper_factory=epmc_wrapper_factory,
             metadata_handlers=metadata_handlers,
             metadata_repositories=metadata_repositories,
+            capability_registry=self._capability_registry,
         )
         self._filterer = filterer or AtlasFilterer(
             epmc_wrapper_factory=epmc_wrapper_factory,
@@ -81,7 +132,7 @@ class Atlas:
         if cache_ontologies and ontostore is None:
             from agentic_curator.curators.ontology_harmonizer import OntoStore
 
-            ontostore = OntoStore()
+            ontostore = OntoStore(resource_profile=self._resource_profile)
         self._ontostore = ontostore
         self._cache_ontologies = cache_ontologies
         self._ontologies_cached = False
@@ -89,6 +140,9 @@ class Atlas:
         self._harmonizer = harmonizer or AtlasHarmonizer(
             ontostore=ontostore,
             credential_checker=credential_checker,
+            capability_registry=self._capability_registry,
+            max_workers=self._resource_profile.network_workers,
+            resource_profile=self._resource_profile,
         )
         self._query_generator_instance = query_generator
         self._credential_checker = credential_checker
@@ -1051,7 +1105,13 @@ class Atlas:
                             "retryable_error"
                             if is_retryable_error(error)
                             else "terminal_error",
-                            error=str(error),
+                            error=safe_error_json(
+                                error,
+                                provider="agentic_curator",
+                                stage="query_generation",
+                                item_id=generation_key,
+                                retryable=is_retryable_error(error),
+                            ),
                             error_type=type(error).__name__,
                             failure_category=failure_category(error),
                         )
@@ -1480,8 +1540,13 @@ class Atlas:
     def _final_run_status(result: dict, checkpoint_store=None) -> RunStatus:
         failed = any(
             record.get("ontology_harmonization_run_status") == "error"
+            or (
+                isinstance(record.get("ontology_harmonization_status"), dict)
+                and record["ontology_harmonization_status"].get("execution")
+                in {"degraded", "failed"}
+            )
             or str(record.get("metadata_status") or "").lower()
-            in {"error", "failed"}
+            in {"error", "failed", "partial"}
             for record in result.get("accessions", [])
             if isinstance(record, dict)
         )

@@ -7,6 +7,24 @@ from ThematicAtlases.document_adapter import AtlasDocumentAdapter
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer import PublicationTextReviewer
 from ThematicAtlases.harmonizer import AtlasHarmonizer
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    ValidationStatus,
+)
+
+
+SUCCESS_STATUS = OperationStatusV2(
+    execution=ExecutionStatus.SUCCEEDED,
+    completeness=CompletenessStatus.COMPLETE,
+    evidence_confidence=EvidenceConfidence.HIGH,
+    validation=ValidationStatus.VALID,
+    publication=PublicationDisposition.PUBLISHABLE,
+    terminal_reason="harmonization_complete",
+).to_dict()
 
 
 class FakeEPMC:
@@ -64,6 +82,8 @@ class FakeReviewer:
 class FakeOntologyHarmonizer:
     def harmonize_miniml_json(self, **kwargs):
         return {
+            "contract_version": "2.0",
+            "status": SUCCESS_STATUS,
             "miniml_json": {**kwargs["miniml_json"], "hz_organism": "Mus musculus"},
             "harmonization_targets": [{"path": "/organism"}],
             "workflow": "offline-fake",
@@ -127,8 +147,7 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
             "harmonization_targets": [{"path": "/organism"}],
             "workflow": "offline-fake",
             "target_paths": [{"path": "/organism"}],
-            "quality_status": "healthy",
-            "degraded_stages": [],
+            "status": SUCCESS_STATUS,
             "controls": {"target_checker": True},
         }
     ]
@@ -205,6 +224,6 @@ def test_harmonize_cli_creates_nested_output_and_details_parents(tmp_path) -> No
         ]
     ) == 0
     assert AtlasDocument.load(output).datasets[0].status.value == "discovered"
-    assert json.loads(details.read_text(encoding="utf-8")) == [
-        {"datalink_id": "GSE0", "run_status": "not_run"}
-    ]
+    written = json.loads(details.read_text(encoding="utf-8"))
+    assert written[0]["datalink_id"] == "GSE0"
+    assert written[0]["status"]["execution"] == "not_run"

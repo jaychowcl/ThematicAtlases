@@ -24,11 +24,24 @@ def build_atlas_summary(atlas: dict, atlas_path: str | None = None) -> dict:
         str(item.get("ontology_harmonization_run_status") or "unknown")
         for item in accessions
     )
-    harmonization_quality = Counter(
-        str(item.get("ontology_harmonization_quality_status") or "unknown")
-        for item in accessions
-        if item.get("ontology_harmonization_run_status") == "completed"
-    )
+    status_axes = {
+        "harmonization_execution_statuses": Counter(),
+        "harmonization_completeness_statuses": Counter(),
+        "harmonization_evidence_confidence_statuses": Counter(),
+        "harmonization_validation_statuses": Counter(),
+        "harmonization_publication_dispositions": Counter(),
+    }
+    for item in accessions:
+        status = item.get("ontology_harmonization_status")
+        status = status if isinstance(status, dict) else {}
+        for output_name, field_name in (
+            ("harmonization_execution_statuses", "execution"),
+            ("harmonization_completeness_statuses", "completeness"),
+            ("harmonization_evidence_confidence_statuses", "evidence_confidence"),
+            ("harmonization_validation_statuses", "validation"),
+            ("harmonization_publication_dispositions", "publication"),
+        ):
+            status_axes[output_name][str(status.get(field_name) or "unknown")] += 1
     reviews = Counter()
     for item in publication_texts.values():
         review = item.get("agentic_curator", {}) if isinstance(item, dict) else {}
@@ -58,9 +71,10 @@ def build_atlas_summary(atlas: dict, atlas_path: str | None = None) -> dict:
         "repositories": dict(sorted(repositories.items())),
         "review_judgements": dict(sorted(reviews.items())),
         "harmonization_run_statuses": dict(sorted(harmonization.items())),
-        "harmonization_quality_statuses": dict(
-            sorted(harmonization_quality.items())
-        ),
+        **{
+            name: dict(sorted(counter.items()))
+            for name, counter in status_axes.items()
+        },
         "scientific_profile": scientific,
     }
 

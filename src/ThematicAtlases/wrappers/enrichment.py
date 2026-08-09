@@ -11,8 +11,11 @@ from pathlib import Path
 
 from meta_standards_converter.insdc_handlers.insdc_webfetcher import INSDCWebfetcher
 from meta_standards_converter.pubmed_handlers.pubmed_webfetcher import PubmedWebFetcher
+from meta_standards_converter.runtime_contracts import ResourceProfile
+from meta_standards_converter.xml_safety import parse_xml
 
 from ThematicAtlases.checkpoint import is_retryable_error
+from ThematicAtlases.runtime_contracts import safe_error_json
 
 
 logger = logging.getLogger(__name__)
@@ -109,9 +112,14 @@ class CheckpointedPubmedFetcher:
         fetcher=None,
         forced_identifiers=(),
         tag_id: str | None = None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides=None,
     ):
         self.store = checkpoint_store
-        self.fetcher = fetcher or PubmedWebFetcher()
+        self.fetcher = fetcher or PubmedWebFetcher(
+            resource_profile=resource_profile,
+            resource_overrides=resource_overrides,
+        )
         self.forced_identifiers = {str(item).strip() for item in forced_identifiers}
         self.tag_id = tag_id
 
@@ -140,7 +148,13 @@ class CheckpointedPubmedFetcher:
                     0,
                     "retryable_error" if is_retryable_error(error) else "terminal_error",
                     payload=payload,
-                    error=str(error),
+                    error=safe_error_json(
+                        error,
+                        provider="NCBI PubMed",
+                        stage=self.stage,
+                        item_id=identifier,
+                        retryable=is_retryable_error(error),
+                    ),
                 )
                 raise
 
@@ -161,10 +175,18 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
         forced_ena=(),
         ena_identifiers=None,
         tag_id: str | None = None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides=None,
     ):
-        super().__init__()
+        super().__init__(
+            resource_profile=resource_profile,
+            resource_overrides=resource_overrides,
+        )
         self.store = checkpoint_store
-        self.fetcher = fetcher or INSDCWebfetcher()
+        self.fetcher = fetcher or INSDCWebfetcher(
+            resource_profile=resource_profile,
+            resource_overrides=resource_overrides,
+        )
         self.forced_sra = {str(item).strip().upper() for item in forced_sra}
         self.forced_ena = {str(item).strip().upper() for item in forced_ena}
         self.ena_identifiers = (
@@ -194,9 +216,14 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
             )
             if item and (not forced or tag_applied):
                 if item["status"] in {"available", "no_data"}:
-                    return ET.fromstring((item.get("payload") or {}).get("xml") or "<root/>")
+                    return parse_xml(
+                        (item.get("payload") or {}).get("xml") or "<root/>",
+                        max_bytes=self.resource_profile.max_xml_bytes,
+                    )
                 if item["status"] == "terminal_error" or tag_applied:
-                    return ET.fromstring("<root/>")
+                    return parse_xml(
+                        "<root/>", max_bytes=self.resource_profile.max_xml_bytes
+                    )
             try:
                 root = self.fetcher._ncbi_nrx(nrx=identifier)
             except Exception as error:
@@ -206,7 +233,13 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
                     0,
                     "retryable_error" if is_retryable_error(error) else "terminal_error",
                     payload=_with_tag({}, self.tag_id if forced else None),
-                    error=str(error),
+                    error=safe_error_json(
+                        error,
+                        provider="NCBI SRA",
+                        stage=stage,
+                        item_id=identifier,
+                        retryable=is_retryable_error(error),
+                    ),
                 )
                 raise
             xml = ET.tostring(root, encoding="unicode")
@@ -243,7 +276,13 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
                     0,
                     "retryable_error" if is_retryable_error(error) else "terminal_error",
                     payload=_with_tag({}, self.tag_id if forced else None),
-                    error=str(error),
+                    error=safe_error_json(
+                        error,
+                        provider="ENA",
+                        stage=stage,
+                        item_id=identifier,
+                        retryable=is_retryable_error(error),
+                    ),
                 )
                 raise
             rows = rows if isinstance(rows, list) else []

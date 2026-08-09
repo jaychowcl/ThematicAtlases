@@ -21,7 +21,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [System Context And Boundaries](codebase.md#system-context-and-boundaries)
   anchor: system-context-and-boundaries
   purpose: External actors, delegated packages, persistence, network, trust, privacy, and failure ownership.
-  keywords: Europe PMC, NCBI, ENA, Google ADC, agentic-curator 2.x, meta-standards-converter 3.x, MSC MINiML 2.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy
+  keywords: Europe PMC, NCBI, ENA, BioStudies, Google ADC, agentic-curator 2.x, meta-standards-converter 3.x, MSC MINiML 2.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy, safe errors
 
 - id: architectural-decisions
   title: [Architectural Decisions](codebase.md#architectural-decisions)
@@ -72,6 +72,24 @@ Use `--query <keyword>` when the id is unknown.
   keywords: extension points, repository adapter, CLI option, checkpoint stage, provider, schema, tests
 
 ## Individual interface, decision, type, and workflow routes
+
+- id: repository-capabilities-v1
+  title: [Repository capability contract 1.0](codebase.md#repository-capabilities-v1)
+  anchor: repository-capabilities-v1
+  purpose: Canonical immutable GEO/ArrayExpress grammar, review identity, adapter/provider, harmonization, and end-to-end capability rules.
+  keywords: RepositoryCapabilityRegistry, GEO, ArrayExpress, accession grammar, review identity, harmonization support, capability contract 1.0
+
+- id: runtime-contracts-v2
+  title: [Runtime status and safe-error contracts](codebase.md#runtime-contracts-v2)
+  anchor: runtime-contracts-v2
+  purpose: Authoritative status 2.0 axes and persistence-safe error envelope semantics.
+  keywords: OperationStatusV2, execution, completeness, evidence confidence, validation, publication disposition, SafeErrorEnvelope, correlation ID
+
+- id: request-policy
+  title: [Typed resource and request policy](codebase.md#request-policy)
+  anchor: request-policy
+  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/response/aggregate boundaries, worker limits, and delegated disk preflight.
+  keywords: ResourceProfile, standard, large, resource override, 10% headroom, RequestPolicy, HTTPS, redirects, max_xml_bytes, aggregate download, ontology file, not RAM
 
 - id: interface-thematic-atlas-cli
   title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)
@@ -221,7 +239,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Harmonization workflow](codebase.md#workflow-harmonization)
   anchor: workflow-harmonization
   purpose: Eligible work selection, memoization, adapter controls, checkpoint replay, ontology calls, fallback, and details.
-  keywords: harmonization, work key, ontology, controls, terminal, retryable, not_run, degraded, error
+  keywords: harmonization, work key, ontology, controls, terminal, retryable, status 2.0, not_run, degraded, failed, safe error
 
 - id: workflow-resume-and-retry
   title: [Resume and retry workflow](codebase.md#workflow-resume-and-retry)
@@ -245,7 +263,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Metadata resume, audit, and repair workflow](codebase.md#workflow-metadata-repair)
   anchor: workflow-metadata-repair
   purpose: Default metadata resume, offline audit, explicit tag repair, and checkpoint reuse.
-  keywords: metadata worker, audit-enrichment-only, retry-tags, GEO
+  keywords: metadata worker, audit-enrichment-only, retry-tags, GEO, repair summary, partial, safe error
 
 - id: workflow-fixed-runners
   title: [Archived fixed fibrosis runners](codebase.md#workflow-fixed-runners)
@@ -319,7 +337,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
   purpose: Current automated coverage and verification commands.
-  keywords: pytest, 499 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
+  keywords: pytest, 526 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
   title: [Atlas Workflow](codebase.md#atlas-workflow)
@@ -343,7 +361,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Harmonizer](codebase.md#harmonizer)
   anchor: harmonizer
   purpose: Ontology workflow controls, work-key caching, degradation, concurrency, and fallback detail.
-  keywords: AtlasHarmonizer, local_rag_ols, quality_status, degraded_stages, preferred ontology
+  keywords: AtlasHarmonizer, local_rag_ols, OperationStatusV2, degraded_stages, preferred ontology
 
 - id: epmc-wrapper
   title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
@@ -360,8 +378,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: rate-handling
   title: [Rate Handling](codebase.md#rate-handling)
   anchor: rate-handling
-  purpose: Shared injectable HTTP request policy, endpoint cadence, bounded retry, timeout, and Retry-After behavior.
-  keywords: RequestPolicy, retry, Retry-After, HTTP-date, bounded delay, timeout, request_policy, request_delay, EuropePMCWrapper, GEOWrapper
+  purpose: Shared injectable HTTP policy for profile timeouts, egress/redirect/body/aggregate ceilings, endpoint cadence, bounded retry, and Retry-After behavior.
+  keywords: RequestPolicy, ResourceProfile, HTTPS, host allowlist, redirects, aggregate bytes, retry, Retry-After, HTTP-date, bounded delay, timeout, EuropePMCWrapper, GEOWrapper
 
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)

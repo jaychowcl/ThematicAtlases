@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import logging
 import sys
@@ -21,6 +22,38 @@ def _positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError("must be a positive integer")
 
     return integer
+
+
+def _resource_override(value: str) -> tuple[str, int | float]:
+    name, separator, raw_value = value.partition("=")
+    if not separator or not name.strip() or not raw_value.strip():
+        raise argparse.ArgumentTypeError("resource override must use FIELD=VALUE")
+    try:
+        parsed: int | float = (
+            float(raw_value)
+            if name.strip() == "disk_headroom_fraction"
+            else int(raw_value)
+        )
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "resource override VALUE must be numeric"
+        ) from error
+    return name.strip(), parsed
+
+
+def _add_resource_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--resource-profile",
+        choices=("standard", "large"),
+        default="standard",
+    )
+    parser.add_argument(
+        "--resource-override",
+        action="append",
+        default=[],
+        type=_resource_override,
+        metavar="FIELD=VALUE",
+    )
 
 
 def _add_logging_options(
@@ -82,6 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
         verbose_dest="command_verbose",
         log_file_dest="command_log_file",
     )
+    _add_resource_options(collect)
     collect.add_argument("--query", action="append", default=None)
     collect.add_argument("--file", default=None)
     collect.add_argument("--out", default=None)
@@ -128,6 +162,7 @@ def _build_parser() -> argparse.ArgumentParser:
         verbose_dest="command_verbose",
         log_file_dest="command_log_file",
     )
+    _add_resource_options(create)
     create.add_argument("--query", action="append", default=None)
     create.add_argument("--file", default=None)
     create.add_argument("--out", default=None)
@@ -188,6 +223,7 @@ def _build_parser() -> argparse.ArgumentParser:
         verbose_dest="command_verbose",
         log_file_dest="command_log_file",
     )
+    _add_resource_options(harmonize)
     harmonize.add_argument("--file", required=True)
     harmonize.add_argument("--out", required=True)
     harmonize.add_argument("--harmonization-details-out", default=None)
@@ -204,6 +240,7 @@ def _build_parser() -> argparse.ArgumentParser:
         verbose_dest="command_verbose",
         log_file_dest="command_log_file",
     )
+    _add_resource_options(resume)
     resume.add_argument("--dev-out-dir", default=".dev")
     resume.add_argument("--run-id", default=None)
     resume.add_argument("--out", default=None)
@@ -216,6 +253,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "fork-run",
         help="Fork a paused metadata trace for independent downstream work.",
     )
+    _add_resource_options(fork)
     _add_logging_options(
         fork,
         verbose_dest="command_verbose",
@@ -292,7 +330,21 @@ def main(argv: list[str] | None = None) -> int:
     verbosity, log_file = _resolved_logging_options(args)
     _configure_logging(verbosity=verbosity, log_file=log_file)
 
-    atlas = Atlas(metadata={})
+    atlas_kwargs = {
+        "metadata": {},
+        "resource_profile": args.resource_profile,
+        "resource_overrides": dict(args.resource_override),
+    }
+    constructor_parameters = inspect.signature(Atlas).parameters.values()
+    if not any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in constructor_parameters
+    ):
+        accepted = {parameter.name for parameter in constructor_parameters}
+        atlas_kwargs = {
+            key: value for key, value in atlas_kwargs.items() if key in accepted
+        }
+    atlas = Atlas(**atlas_kwargs)
 
     if args.command == "collect-datasets":
         theme = _input_value(value=args.theme, file=args.theme_file)

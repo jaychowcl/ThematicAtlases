@@ -7,11 +7,31 @@ from ThematicAtlases.cli_atlas import _configure_logging, main
 from ThematicAtlases import atlas as atlas_module
 from ThematicAtlases import cli_atlas as cli_module
 from ThematicAtlases.domain import AtlasDocument
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    ValidationStatus,
+)
+
+
+SUCCESS_STATUS = OperationStatusV2(
+    execution=ExecutionStatus.SUCCEEDED,
+    completeness=CompletenessStatus.COMPLETE,
+    evidence_confidence=EvidenceConfidence.HIGH,
+    validation=ValidationStatus.VALID,
+    publication=PublicationDisposition.PUBLISHABLE,
+    terminal_reason="harmonization_complete",
+).to_dict()
 
 
 class FakeOntologyHarmonizer:
     def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
         return {
+            "contract_version": "2.0",
+            "status": SUCCESS_STATUS,
             "miniml_json": miniml_json,
             "harmonization_targets": [],
             "workflow": "local_rag_ols",
@@ -37,7 +57,10 @@ class FakeEuropePMCWrapper:
         logging.getLogger("ThematicAtlases.test").debug("fake debug")
         return [
             {
-                "datalink_id": f"GSE_{query}",
+                "datalink_id": {
+                    "fibrosis": "GSE1001",
+                    "transcriptomics": "GSE1002",
+                }.get(query, "GSE1099"),
                 "datalink_id_scheme": "GEO",
                 "publications": [],
             }
@@ -107,6 +130,40 @@ def test_accession_pruning_cli_defaults_off_for_collection(monkeypatch) -> None:
     ]) == 0
 
     assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is False
+
+
+def test_cli_forwards_typed_resource_profile_and_explicit_overrides(monkeypatch) -> None:
+    constructed = []
+
+    class ResourceAtlas:
+        def __init__(self, **kwargs):
+            constructed.append(kwargs)
+
+        def collect_datasets(self, **_kwargs):
+            return {}
+
+    monkeypatch.setattr(cli_module, "Atlas", ResourceAtlas)
+
+    assert main([
+        "collect-datasets",
+        "--query",
+        "fibrosis",
+        "--resource-profile",
+        "large",
+        "--resource-override",
+        "max_xml_bytes=4096",
+        "--resource-override",
+        "disk_headroom_fraction=0.2",
+    ]) == 0
+
+    assert constructed == [{
+        "metadata": {},
+        "resource_profile": "large",
+        "resource_overrides": {
+            "max_xml_bytes": 4096,
+            "disk_headroom_fraction": 0.2,
+        },
+    }]
 
 
 def test_accession_pruning_cli_can_be_explicitly_enabled_for_creation(monkeypatch) -> None:
@@ -333,10 +390,10 @@ def test_collect_datasets_writes_outfile(
     assert output.out == ""
     assert output.err == ""
     document = AtlasDocument.load(outfile)
-    assert document.datasets[0].dataset_id == "GSE_FIBROSIS"
+    assert document.datasets[0].dataset_id == "GSE1001"
     assert document.datasets[0].source_repository == "geo"
     assert document.datasets[0].metadata == {
-        "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
+        "series": {"accession": [{"value": "GSE1001"}]}
     }
 
 
@@ -377,9 +434,9 @@ def test_create_atlas_writes_final_filtered_object(
     assert output.out == ""
     assert output.err == ""
     result = AtlasDocument.load(outfile)
-    assert result.datasets[0].dataset_id == "GSE_FIBROSIS"
+    assert result.datasets[0].dataset_id == "GSE1001"
     assert result.datasets[0].metadata == {
-        "series": {"accession": [{"value": "GSE_FIBROSIS"}]}
+        "series": {"accession": [{"value": "GSE1001"}]}
     }
     assert result.datasets[0].status.value == "harmonized"
     assert result.publications == ()

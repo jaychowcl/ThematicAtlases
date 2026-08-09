@@ -157,6 +157,25 @@ Global logging options may appear before or after a command:
 | `-v`, `--verbose` | Repeatable verbosity: once enables INFO progress/statistics; twice (`-vv`) enables DEBUG request/retry/routing logs. Default: warnings only. |
 | `--log-file LOG_FILE` | Write UTF-8 logs to the file instead of stdout. A command-local value overrides a global value. |
 
+Every command also accepts the shared resource controls:
+
+| Option | Behavior |
+| --- | --- |
+| `--resource-profile {standard,large}` | Select typed network, file, cache, and worker ceilings. Default: `standard`. |
+| `--resource-override FIELD=VALUE` | Override one numeric profile field explicitly; repeat for multiple fields. Unknown fields and non-positive values fail before workflow work. |
+
+The standard profile allows 3 redirects, 10-second connect/60-second read
+timeouts, 128 MiB XML, 256 MiB compressed archives, 1 GiB expanded archives,
+3 GiB per ontology file, 100 GiB matrices/H5AD, 200 GiB aggregate downloads,
+250 GiB cache, four network workers, and one ontology-build worker. The large
+profile allows 5 redirects, 30/300-second timeouts, 512 MiB XML, 1 GiB
+compressed archives, 4 GiB expanded archives, 5 GiB per ontology file,
+500 GiB matrices/H5AD, 1 TiB aggregate downloads, 500 GiB cache, eight network
+workers, and two ontology-build workers. Byte ceilings limit stored objects,
+files, decoded payloads, or transfer totals at the component that consumes
+them; they do not reserve that amount of RAM. Disk-writing delegated
+components preflight the required capacity with at least 10% headroom.
+
 `collect-datasets` searches, filters, optionally enriches/reviews, and writes an atlas object:
 
 ```bash
@@ -195,7 +214,9 @@ Atlas v1 datasets until a supported metadata handler is added.
 The default ArrayExpress wrapper downloads BioStudies MAGE-TAB content into
 memory through MSC `ae2json`, checkpoints the parsed package, and passes the
 common and enriched metadata into harmonization. It creates no temporary IDF,
-SDRF, or JSON files.
+SDRF, or JSON files. The selected typed resource profile is propagated into
+MSC, whose fetcher enforces HTTPS/public-host egress, bounded redirects,
+per-file and aggregate transfer ceilings, and bounded parsing.
 
 `create-atlas` requires a non-empty theme, defaults theme-derived query
 generation and thematic review on, then harmonizes the result. Explicit
@@ -294,10 +315,13 @@ Atlas(
     credential_checker=None,
     document_adapter=None,
     artifact_publisher=None,
+    capability_registry=None,
+    resource_profile="standard",
+    resource_overrides=None,
 )
 ```
 
-`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_handlers=None` selects the built-in handlers, while an explicit empty mapping disables all handlers. `metadata_repositories` sets the collector default. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_handlers=None` selects the built-in handlers, while an explicit empty mapping disables all handlers. `metadata_repositories` sets the collector default. `capability_registry` supplies the immutable GEO/ArrayExpress routing and review-identity contract. `resource_profile` selects the typed `standard`/`large` ceiling set and `resource_overrides` applies explicit numeric changes before the same profile object is propagated to default wrappers, the harmonizer, and ontology store. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. These collaborators implement the protocols in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
 
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v1 wire
@@ -394,7 +418,15 @@ Atlas.harmonize_datasets(
 )
 ```
 
-Unsupported/null metadata is retained with status `not_run`; per-accession failures retain original metadata with status `error` while later items continue.
+Every accession receives `ontology_harmonization_status`, a status contract
+2.0 envelope with independent `execution`, `completeness`,
+`evidence_confidence`, `validation`, and `publication` axes. Unsupported or
+null metadata is retained with execution `not_run`; per-accession failures
+retain original metadata with execution `failed` and a persistence-safe error
+envelope while later items continue. The legacy
+`ontology_harmonization_run_status` projection remains `not_run`, `error`, or
+`completed` for compatibility, but it is not the authoritative quality or
+publication decision.
 
 `Atlas.resume(...)` selects a traced workflow and reuses its latest valid stage:
 
@@ -418,7 +450,8 @@ snapshot. A trace without authoritative `atlas_run.sqlite3` is incompatible
 and must be handled explicitly rather than silently migrated.
 `retry_stages` requeues complete registered boundaries, `retry_items` maps
 stage names to item IDs, and `retry_degraded_stages` requeues harmonization
-items whose recorded quality status names the selected internal stage.
+items whose status 2.0 execution is `degraded` and whose recorded workflow
+names the selected internal stage.
 
 `Atlas.fork_run(...)` safely branches a metadata-paused trace for alternate
 downstream processing:
@@ -502,11 +535,15 @@ Important defaults and configuration sources:
 
 - Omitting `metadata_repositories` or `--metadata-repository` selects both GEO
   and ArrayExpress. Pass an explicit list to restrict collection.
+- `resource_profile`/`--resource-profile` selects `standard` or `large` typed
+  ceilings. `resource_overrides`/repeatable `--resource-override FIELD=VALUE`
+  changes only named numeric fields and is fingerprinted through constructed
+  dependencies. Delegated disk consumers enforce the profile's 10% headroom.
 - Publication review defaults to strategy `direct` and filter `none`. A
   non-`none` filter and `review_before_metadata` require a theme.
-- Query generation is opt-in and defaults to at most three generated queries.
-  Explicit queries come first, query-file entries follow, and generated queries
-  are appended.
+- Query generation is opt-in for collection and default-on for atlas creation;
+  both modes allow at most three generated queries. Explicit queries come
+  first, query-file entries follow, and generated queries are appended.
 - `docs/theme_fibrosis.txt` is a retained fibrosis reference theme.
   `config/fibrosis_discovery_queries.json` is the ordered, versioned static
   query catalog retained from the archived discovery workflow. All four per-query caps are
@@ -562,8 +599,8 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 
 ## Testing
 
-The deterministic, network-blocked suite was last verified on 2026-08-04:
-`499 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+The deterministic, network-blocked suite was last verified on 2026-08-09:
+`526 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 

@@ -8,6 +8,24 @@ from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
 from ThematicAtlases.domain import AtlasDocument
 from ThematicAtlases.run_store import AtlasRunStore
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    ValidationStatus,
+)
+
+
+SUCCESS_STATUS = OperationStatusV2(
+    execution=ExecutionStatus.SUCCEEDED,
+    completeness=CompletenessStatus.COMPLETE,
+    evidence_confidence=EvidenceConfidence.HIGH,
+    validation=ValidationStatus.VALID,
+    publication=PublicationDisposition.PUBLISHABLE,
+    terminal_reason="harmonization_complete",
+).to_dict()
 
 
 class Collector:
@@ -44,7 +62,7 @@ class Harmonizer:
                         "harmonized": True,
                     },
                     "ontology_harmonization_run_status": "completed",
-                    "ontology_harmonization_quality_status": "healthy",
+                    "ontology_harmonization_status": SUCCESS_STATUS,
                 }
             )
             details.append(
@@ -52,7 +70,7 @@ class Harmonizer:
                     "datalink_id": record["datalink_id"],
                     "run_status": "completed",
                     "harmonization_targets": [],
-                    "degraded_stages": [],
+                    "status": SUCCESS_STATUS,
                 }
             )
         return {**datasets, "accessions": records}, details

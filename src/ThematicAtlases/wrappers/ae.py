@@ -5,9 +5,12 @@ from contextlib import nullcontext
 from collections.abc import Mapping
 
 from meta_standards_converter.converters.ae2json import ae2json
+from meta_standards_converter.ae_handlers.ae_webfetcher import AEWebFetcher
+from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.miniml_boundary import checkpoint_packages, checkpoint_payload, canonicalize_miniml_package
+from ThematicAtlases.runtime_contracts import safe_error_json
 
 
 logger = logging.getLogger(__name__)
@@ -20,8 +23,23 @@ class ArrayExpressWrapper:
     STAGE = "arrayexpress_metadata"
     PREFIXES = ("E-MTAB-", "E-GEOD-", "E-MEXP-")
 
-    def __init__(self, converter_factory=None):
-        self._converter_factory = converter_factory or ae2json
+    def __init__(
+        self,
+        converter_factory=None,
+        resource_profile: str | ResourceProfile = "standard",
+        resource_overrides=None,
+    ):
+        self._converter_factory = converter_factory
+        self.resource_profile = (
+            resource_profile.with_overrides(resource_overrides)
+            if isinstance(resource_profile, ResourceProfile) and resource_overrides
+            else resource_profile
+            if isinstance(resource_profile, ResourceProfile)
+            else get_resource_profile(
+                resource_profile,
+                overrides=resource_overrides,
+            )
+        )
 
     def collect_accession_metadata(
         self,
@@ -52,7 +70,7 @@ class ArrayExpressWrapper:
                     records.append(self._record_from_checkpoint(record, checkpoint))
                     continue
                 try:
-                    converted = self._converter_factory().convert(
+                    converted = self._converter().convert(
                         source=accession,
                         out=None,
                         sdrf_sources=None,
@@ -79,7 +97,13 @@ class ArrayExpressWrapper:
                             index,
                             status,
                             payload=checkpoint_payload([], checkpoint_version=2),
-                            error=str(error),
+                            error=safe_error_json(
+                                error,
+                                provider="BioStudies ArrayExpress",
+                                stage=self.STAGE,
+                                item_id=accession,
+                                retryable=is_retryable_error(error),
+                            ),
                         )
                     records.append(self._error_record(record))
                     continue
@@ -98,6 +122,13 @@ class ArrayExpressWrapper:
                     else self._unavailable_record(record)
                 )
         return records
+
+    def _converter(self):
+        if self._converter_factory is not None:
+            return self._converter_factory()
+        return ae2json(
+            fetcher=AEWebFetcher(resource_profile=self.resource_profile)
+        )
 
     def available_accession_metadata(
         self,

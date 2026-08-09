@@ -2,7 +2,6 @@ import json
 import logging
 import hashlib
 import inspect
-import re
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from agentic_curator.curators.ontology_harmonizer import (
     build_miniml_metadata_context,
 )
 from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
+from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
 
 ACCESSIONS = "accessions"
 AGENTIC_CURATOR = "agentic_curator"
@@ -29,10 +29,18 @@ logger = logging.getLogger(__name__)
 
 
 class PublicationTextReviewer:
-    def __init__(self, reviewer_factory=None, resume_orchestrator_factory=None):
+    def __init__(
+        self,
+        reviewer_factory=None,
+        resume_orchestrator_factory=None,
+        capability_registry: RepositoryCapabilityRegistry | None = None,
+    ):
         self._reviewer_factory = reviewer_factory
         self._resume_orchestrator_factory = resume_orchestrator_factory
         self._resume_orchestrator_instance = None
+        self._capability_registry = (
+            capability_registry or RepositoryCapabilityRegistry()
+        )
 
     def resume(
         self,
@@ -120,13 +128,12 @@ class PublicationTextReviewer:
                 )
                 if not context["title"] and publication.get("title"):
                     context["title"] = publication.get("title", "")
-                accession = str(record.get("datalink_id", "")).strip()
-                if re.fullmatch(r"GSE\d+", accession, flags=re.IGNORECASE):
-                    accession = accession.upper()
+                accession = self._capability_registry.review_identity(
+                    record.get("datalink_id", "")
+                )
+                if accession:
                     if accession not in context["accessions"]:
                         context["accessions"].append(accession)
-                else:
-                    accession = ""
                 metadata = build_miniml_metadata_context(
                     record.get("accession_metadata")
                 )
@@ -307,16 +314,24 @@ class PublicationTextReviewer:
                 **review_options
             )
         except Exception as error:
-            logger.exception(
-                "Atlas thematic review failed publication_ref=%s; retaining publication as unreviewed",
+            logger.error(
+                "Atlas thematic review failed publication_ref=%s error_type=%s; retaining publication as unreviewed",
                 publication_ref,
+                type(error).__name__,
+            )
+            safe_error = safe_error_mapping(
+                error,
+                provider="agentic_curator",
+                stage="thematic_review",
+                item_id=publication_ref,
+                retryable=is_retryable_error(error),
             )
             failed_review = {
                 "theme": theme,
                 "strategy": strategy,
                 "review_status": "failed",
                 "error_type": type(error).__name__,
-                "error": str(error),
+                "error": safe_error,
             }
             if coverage_context is not None:
                 failed_review.update(
@@ -343,7 +358,13 @@ class PublicationTextReviewer:
                         "strategy": strategy,
                         "publication_ref": publication_ref,
                     },
-                    error=str(error),
+                    error=safe_error_json(
+                        error,
+                        provider="agentic_curator",
+                        stage="thematic_review",
+                        item_id=publication_ref,
+                        retryable=is_retryable_error(error),
+                    ),
                     error_type=type(error).__name__,
                     failure_category=failure_category(error),
                 )
@@ -655,3 +676,4 @@ class PublicationTextReviewer:
         self._resume_orchestrator_instance = TracePublicationReviewResumer(self)
         return self._resume_orchestrator_instance
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+from ThematicAtlases.runtime_contracts import safe_error_json, safe_error_mapping

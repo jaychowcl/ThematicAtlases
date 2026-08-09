@@ -3,6 +3,7 @@ from __future__ import annotations
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from meta_standards_converter.miniml import MINiMLCodec
+from meta_standards_converter.runtime_contracts import get_resource_profile
 
 
 def record(accession="E-MTAB-1"):
@@ -37,6 +38,19 @@ class FakeConverter:
     def convert(self, **kwargs):
         self.__class__.calls.append(kwargs)
         return [MINiMLCodec().decode(package(kwargs["source"]), strict=True).package]
+
+
+def test_arrayexpress_default_converter_preserves_typed_resource_overrides() -> None:
+    profile = get_resource_profile(
+        "standard",
+        overrides={"max_xml_bytes": 4096, "network_workers": 2},
+    )
+
+    converter = ArrayExpressWrapper(resource_profile=profile)._converter()
+
+    assert converter.fetcher.resource_profile is profile
+    assert converter.fetcher.requester.settings.timeout == (10, 60)
+    assert converter.fetcher.requester.settings.max_in_flight == 2
 
 
 def test_arrayexpress_canonicalizes_typed_magetab_package_into_memory() -> None:

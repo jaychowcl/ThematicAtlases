@@ -273,15 +273,13 @@ def test_collect_jsons_can_skip_metadata_collection(monkeypatch) -> None:
     assert FakeGEOWrapper.jsons is None
 
 
-def test_filter_accessions_keeps_handled_geo_scheme() -> None:
+def test_filter_accessions_does_not_treat_scheme_as_accession_capability() -> None:
     records = [
         {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"},
         {"datalink_id": "ERR2", "datalink_id_scheme": "ENA"},
     ]
 
-    assert AtlasCollector().filter_accessions(records) == [
-        {"datalink_id": "ERR1", "datalink_id_scheme": "GEO"}
-    ]
+    assert AtlasCollector().filter_accessions(records) == []
 
 
 def test_filter_accessions_keeps_handled_geo_prefixes() -> None:
@@ -408,7 +406,7 @@ def test_filter_accessions_is_case_insensitive() -> None:
         {"datalink_id": "ERR1", "datalink_id_scheme": "geo"},
     ]
 
-    assert AtlasCollector().filter_accessions(records) == records
+    assert AtlasCollector().filter_accessions(records) == [records[0]]
 
 
 def test_is_handled_accession_uses_current_geo_rules() -> None:

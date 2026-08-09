@@ -17,6 +17,14 @@ from ThematicAtlases.domain import (
     Publication,
     RunStatus,
 )
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    ValidationStatus,
+)
 
 
 def _document() -> AtlasDocument:
@@ -105,6 +113,39 @@ def test_document_rejects_unknown_top_level_fields():
     payload["fragmented_legacy_payload"] = {}
 
     with pytest.raises(ValueError, match="unknown AtlasDocument fields"):
+        AtlasDocument.from_mapping(payload)
+
+
+def test_harmonization_uses_clean_operation_status_v2_contract() -> None:
+    payload = _document().to_mapping()
+    payload["datasets"][0]["harmonization"] = {
+        "targets": [],
+        "status": OperationStatusV2(
+            execution=ExecutionStatus.DEGRADED,
+            completeness=CompletenessStatus.COMPLETE,
+            evidence_confidence=EvidenceConfidence.INSUFFICIENT,
+            validation=ValidationStatus.VALID,
+            publication=PublicationDisposition.REVIEW_REQUIRED,
+            terminal_reason="provider_degraded_no_match",
+        ).to_dict(),
+    }
+
+    document = AtlasDocument.from_mapping(payload)
+
+    assert document.datasets[0].harmonization.status.execution.value == "degraded"
+    assert document.to_mapping()["datasets"][0]["harmonization"] == payload[
+        "datasets"
+    ][0]["harmonization"]
+
+
+def test_harmonization_rejects_removed_legacy_quality_shape() -> None:
+    payload = _document().to_mapping()
+    payload["datasets"][0]["harmonization"] = {
+        "targets": [],
+        "degraded_stages": ["target_checker"],
+    }
+
+    with pytest.raises(ValueError, match="unknown .*harmonization fields"):
         AtlasDocument.from_mapping(payload)
 
 

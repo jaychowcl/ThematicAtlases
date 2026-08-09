@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    ValidationStatus,
+)
+
 from ThematicAtlases.miniml_boundary import canonicalize_atlas_metadata
 
 
@@ -96,7 +105,16 @@ class HarmonizationTarget:
 @dataclass(frozen=True)
 class HarmonizationResult:
     targets: tuple[HarmonizationTarget, ...] = ()
-    degraded_stages: tuple[str, ...] = ()
+    status: OperationStatusV2 = field(
+        default_factory=lambda: OperationStatusV2(
+            execution=ExecutionStatus.NOT_RUN,
+            completeness=CompletenessStatus.EMPTY,
+            evidence_confidence=EvidenceConfidence.NOT_ASSESSED,
+            validation=ValidationStatus.NOT_RUN,
+            publication=PublicationDisposition.NOT_REQUESTED,
+            terminal_reason="harmonization_not_run",
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -256,7 +274,7 @@ def _harmonization(
     if value is None:
         return None
     data = _mapping(value, name)
-    _only(data, {"targets", "degraded_stages"}, name)
+    _only(data, {"targets", "status"}, name)
     targets = []
     for index, raw in enumerate(_list(data.get("targets"), f"{name}.targets")):
         item_name = f"{name}.targets[{index}]"
@@ -287,12 +305,11 @@ def _harmonization(
         targets.append(
             HarmonizationTarget(raw_value=raw_value, path=path, match=match)
         )
-    degraded_stages = _string_list(
-        data.get("degraded_stages"), f"{name}.degraded_stages"
-    )
+    raw_status = _mapping(data.get("status"), f"{name}.status")
+    status = OperationStatusV2.from_dict(raw_status)
     return HarmonizationResult(
         targets=tuple(targets),
-        degraded_stages=tuple(degraded_stages),
+        status=status,
     )
 
 

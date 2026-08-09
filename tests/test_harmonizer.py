@@ -5,6 +5,43 @@ import pytest
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 from agentic_curator.contracts import MINiMLAnnotationPatch
+from meta_standards_converter.runtime_contracts import (
+    CompletenessStatus,
+    EvidenceConfidence,
+    ExecutionStatus,
+    OperationStatusV2,
+    PublicationDisposition,
+    SafeErrorEnvelope,
+    ValidationStatus,
+)
+
+
+def operation_status(
+    execution: ExecutionStatus = ExecutionStatus.SUCCEEDED,
+    *,
+    evidence: EvidenceConfidence = EvidenceConfidence.HIGH,
+    publication: PublicationDisposition = PublicationDisposition.PUBLISHABLE,
+    terminal_reason: str = "harmonization_complete",
+    errors: tuple[SafeErrorEnvelope, ...] = (),
+) -> dict:
+    return OperationStatusV2(
+        execution=execution,
+        completeness=CompletenessStatus.COMPLETE,
+        evidence_confidence=evidence,
+        validation=ValidationStatus.VALID,
+        publication=publication,
+        terminal_reason=terminal_reason,
+        errors=errors,
+    ).to_dict()
+
+
+def harmonization_result(miniml_json, **extra) -> dict:
+    return {
+        "contract_version": "2.0",
+        "status": operation_status(),
+        "miniml_json": miniml_json,
+        **extra,
+    }
 
 
 class RecordingOntologyHarmonizer:
@@ -17,13 +54,13 @@ class RecordingOntologyHarmonizer:
                 "miniml_json": miniml_json,
             }
         )
-        return {
-            "miniml_json": {**miniml_json, "hz_organism": "mus musculus"},
-            "harmonization_targets": [{"id": "target-1"}],
-            "workflow": "local_rag_ols",
-            "target_paths": [{"path": "/samples"}],
-            "controls": {"direct_lookup_judge": True},
-        }
+        return harmonization_result(
+            {**miniml_json, "hz_organism": "mus musculus"},
+            harmonization_targets=[{"id": "target-1"}],
+            workflow="local_rag_ols",
+            target_paths=[{"path": "/samples"}],
+            controls={"direct_lookup_judge": True},
+        )
 
 
 def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
@@ -51,8 +88,9 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
                 }],
             }
             return {
+                "contract_version": "2.0",
+                "status": operation_status(),
                 "workflow": "local_exact",
-                "quality_status": "healthy",
                 "harmonization_targets": [target],
                 "annotation_patch": MINiMLAnnotationPatch.from_targets(
                     kwargs["miniml_json"], [target]
@@ -97,7 +135,8 @@ def test_explicit_legacy_harmonizer_output_is_strictly_validated() -> None:
     )
 
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "error"
-    assert "unsupported MINiML package field" in details[0]["error"]
+    assert details[0]["error"]["error_type"] == "MINiMLModelError"
+    assert "unsupported MINiML package field" not in json.dumps(details[0])
 
 
 def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -> None:
@@ -133,11 +172,8 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
         "hz_organism": "mus musculus",
     }
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
-    assert (
-        result["accessions"][0]["ontology_harmonization_quality_status"]
-        == "healthy"
-    )
-    assert "ontology_harmonization_status" not in result["accessions"][0]
+    assert result["accessions"][0]["ontology_harmonization_status"] == operation_status()
+    assert "ontology_harmonization_quality_status" not in result["accessions"][0]
     assert details == [
         {
             "datalink_id": "GSE1",
@@ -145,8 +181,7 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
             "harmonization_targets": [{"id": "target-1"}],
             "workflow": "local_rag_ols",
             "target_paths": [{"path": "/samples"}],
-            "quality_status": "healthy",
-            "degraded_stages": [],
+            "status": operation_status(),
             "controls": {"direct_lookup_judge": True},
         }
     ]
@@ -159,7 +194,18 @@ def test_harmonize_datasets_marks_unsupported_metadata_unavailable() -> None:
 
     assert result["accessions"][0]["accession_metadata"] is None
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
-    assert details == [{"datalink_id": "GSE1", "run_status": "not_run"}]
+    assert details == [{
+        "datalink_id": "GSE1",
+        "run_status": "not_run",
+        "status": OperationStatusV2(
+            execution=ExecutionStatus.NOT_RUN,
+            completeness=CompletenessStatus.EMPTY,
+            evidence_confidence=EvidenceConfidence.NOT_ASSESSED,
+            validation=ValidationStatus.NOT_RUN,
+            publication=PublicationDisposition.NOT_REQUESTED,
+            terminal_reason="metadata_unavailable",
+        ).to_dict(),
+    }]
 
 
 def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> None:
@@ -170,12 +216,12 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
             self.__class__.calls += 1
             if self.calls == 1:
                 raise RuntimeError("provider unavailable")
-            return {
-                "miniml_json": {**miniml_json, "harmonized": True},
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": [],
-            }
+            return harmonization_result(
+                {**miniml_json, "harmonized": True},
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=[],
+            )
 
     datasets = {
         "accessions": [
@@ -192,13 +238,17 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
         "datalink_id": "GSE1",
         "accession_metadata": {"value": "one"},
         "ontology_harmonization_run_status": "error",
-        "ontology_harmonization_error": "provider unavailable",
+        "ontology_harmonization_status": details[0]["status"],
+        "ontology_harmonization_error": details[0]["error"],
     }
+    assert details[0]["error"]["error_type"] == "RuntimeError"
+    assert "provider unavailable" not in json.dumps(details[0])
     assert result["accessions"][1]["accession_metadata"]["harmonized"] is True
     assert details[0] == {
         "datalink_id": "GSE1",
         "run_status": "error",
-        "error": "provider unavailable",
+        "status": details[0]["status"],
+        "error": details[0]["error"],
     }
     assert details[1]["run_status"] == "completed"
 
@@ -213,12 +263,12 @@ def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
             self.__class__.calls.append(miniml_json["value"])
             if miniml_json["value"] == "two":
                 raise KeyboardInterrupt()
-            return {
-                "miniml_json": {**miniml_json, "harmonized": True},
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": [],
-            }
+            return harmonization_result(
+                {**miniml_json, "harmonized": True},
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=[],
+            )
 
     datasets = {
         "accessions": [
@@ -242,12 +292,12 @@ def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
 
         def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
             self.__class__.calls.append(miniml_json["value"])
-            return {
-                "miniml_json": {**miniml_json, "harmonized": True},
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": [],
-            }
+            return harmonization_result(
+                {**miniml_json, "harmonized": True},
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=[],
+            )
 
     result, _ = AtlasHarmonizer(
         ontology_harmonizer=CompletingHarmonizer()
@@ -269,9 +319,9 @@ def test_harmonize_datasets_writes_optional_details_file(tmp_path) -> None:
         details_out=str(details_out),
     )
 
-    assert json.loads(details_out.read_text(encoding="utf-8")) == [
-        {"datalink_id": "GSE1", "run_status": "not_run"}
-    ]
+    written = json.loads(details_out.read_text(encoding="utf-8"))
+    assert written[0]["datalink_id"] == "GSE1"
+    assert written[0]["status"]["execution"] == "not_run"
 
 
 def test_harmonizer_accepts_injected_instance_and_forwards_options() -> None:
@@ -280,12 +330,12 @@ def test_harmonizer_accepts_injected_instance_and_forwards_options() -> None:
 
         def harmonize_miniml_json(self, **kwargs):
             self.__class__.calls.append(kwargs)
-            return {
-                "miniml_json": kwargs["miniml_json"],
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": kwargs["target_paths"],
-            }
+            return harmonization_result(
+                kwargs["miniml_json"],
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=kwargs["target_paths"],
+            )
 
     upstream = RecordingHarmonizer()
     AtlasHarmonizer(ontology_harmonizer=upstream).harmonize_datasets(
@@ -374,13 +424,13 @@ def test_harmonizer_work_key_includes_ordered_preferred_ontologies() -> None:
 def test_harmonizer_details_include_preferred_ontology_trace() -> None:
     class PreferenceTracingHarmonizer:
         def harmonize_miniml_json(self, **kwargs):
-            return {
-                "miniml_json": kwargs["miniml_json"],
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": [],
-                "preferred_ontology_ids": ["custom", "efo"],
-            }
+            return harmonization_result(
+                kwargs["miniml_json"],
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=[],
+                preferred_ontology_ids=["custom", "efo"],
+            )
 
     _, details = AtlasHarmonizer(
         ontology_harmonizer=PreferenceTracingHarmonizer()
@@ -403,14 +453,20 @@ def test_harmonizer_surfaces_degraded_upstream_result() -> None:
                 "harmonization_targets": [],
                 "workflow": "local_rag_ols",
                 "target_paths": [],
-                "quality_status": "degraded",
-                "degraded_stages": [
-                    {
-                        "stage": "target_checker",
-                        "reason": "invalid_output_after_retry",
-                        "attempts": 2,
-                    }
-                ],
+                "contract_version": "2.0",
+                "status": operation_status(
+                    ExecutionStatus.DEGRADED,
+                    evidence=EvidenceConfidence.INSUFFICIENT,
+                    publication=PublicationDisposition.REVIEW_REQUIRED,
+                    terminal_reason="provider_degraded_no_match",
+                    errors=(
+                        SafeErrorEnvelope(
+                            error_type="InvalidModelOutputError",
+                            provider="llm",
+                            stage="target_checker",
+                        ),
+                    ),
+                ),
             }
 
     result, details = AtlasHarmonizer(
@@ -419,11 +475,14 @@ def test_harmonizer_surfaces_degraded_upstream_result() -> None:
         {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {}}]}
     )
 
-    assert (
-        result["accessions"][0]["ontology_harmonization_quality_status"]
-        == "degraded"
-    )
-    assert details[0]["quality_status"] == "degraded"
+    status = result["accessions"][0]["ontology_harmonization_status"]
+    assert status["execution"] == "degraded"
+    assert status["publication"] == "review_required"
+    assert status["errors"][0]["stage"] == "target_checker"
+    assert "ontology_harmonization_quality_status" not in result["accessions"][0]
+    assert details[0]["status"] == status
+    assert "quality_status" not in details[0]
+    assert "degraded_stages" not in details[0]
 
 
 def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
@@ -446,6 +505,24 @@ def test_null_metadata_never_constructs_ontology_harmonizer() -> None:
     )
 
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
+
+
+def test_unsupported_repository_never_constructs_ontology_harmonizer() -> None:
+    def unexpected_factory():
+        raise AssertionError("unsupported repositories must stop before construction")
+
+    result, details = AtlasHarmonizer(
+        ontology_harmonizer_factory=unexpected_factory
+    ).harmonize_datasets({
+        "accessions": [{
+            "datalink_id": "SCP259",
+            "metadata_repository": "single_cell_portal",
+            "accession_metadata": {"value": "x"},
+        }]
+    })
+
+    assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
+    assert details[0]["status"]["terminal_reason"] == "unsupported_repository"
 
 
 def test_harmonizer_preflights_once_only_when_metadata_is_eligible() -> None:
@@ -494,32 +571,43 @@ def test_harmonizer_skips_credential_preflight_when_all_model_stages_are_off() -
 
 
 @pytest.mark.parametrize(
-    ("enabled_control", "upstream_status", "expected_quality"),
+    ("enabled_control", "execution"),
     [
-        ("target_checker", {}, "healthy"),
-        ("direct_lookup_judge", {"quality_status": "degraded"}, "degraded"),
-        ("rag_lookup", {}, "healthy"),
-        ("ols_lookup", {"target_checker": {"status": "failed"}}, "degraded"),
-        ("field_assignment_judge", {}, "healthy"),
+        ("target_checker", ExecutionStatus.SUCCEEDED),
+        ("direct_lookup_judge", ExecutionStatus.DEGRADED),
+        ("rag_lookup", ExecutionStatus.SUCCEEDED),
+        ("ols_lookup", ExecutionStatus.DEGRADED),
+        ("field_assignment_judge", ExecutionStatus.SUCCEEDED),
     ],
 )
 def test_harmonizer_adapter_forwards_controls_and_maps_upstream_status(
     enabled_control,
-    upstream_status,
-    expected_quality,
+    execution,
 ) -> None:
     class StatusHarmonizer:
         calls = []
 
         def harmonize_miniml_json(self, **kwargs):
             self.__class__.calls.append(kwargs)
-            return {
-                "miniml_json": kwargs["miniml_json"],
-                "harmonization_targets": [],
-                "workflow": "adapter-contract",
-                "target_paths": [],
-                **upstream_status,
-            }
+            return harmonization_result(
+                kwargs["miniml_json"],
+                harmonization_targets=[],
+                workflow="adapter-contract",
+                target_paths=[],
+                status=operation_status(
+                    execution,
+                    publication=(
+                        PublicationDisposition.REVIEW_REQUIRED
+                        if execution is ExecutionStatus.DEGRADED
+                        else PublicationDisposition.PUBLISHABLE
+                    ),
+                    terminal_reason=(
+                        "provider_degraded"
+                        if execution is ExecutionStatus.DEGRADED
+                        else "harmonization_complete"
+                    ),
+                ),
+            )
 
     StatusHarmonizer.calls = []
     controls = {
@@ -544,8 +632,8 @@ def test_harmonizer_adapter_forwards_controls_and_maps_upstream_status(
         {"publication_context": None, "miniml_json": {"value": "x"}, **controls}
     ]
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
-    assert result["accessions"][0]["ontology_harmonization_quality_status"] == expected_quality
-    assert details[0]["quality_status"] == expected_quality
+    assert result["accessions"][0]["ontology_harmonization_status"]["execution"] == execution.value
+    assert details[0]["status"]["execution"] == execution.value
 
 
 def test_harmonizer_memoizes_identical_metadata_and_context() -> None:
@@ -554,12 +642,12 @@ def test_harmonizer_memoizes_identical_metadata_and_context() -> None:
 
         def harmonize_miniml_json(self, **kwargs):
             self.__class__.calls += 1
-            return {
-                "miniml_json": {**kwargs["miniml_json"], "harmonized": True},
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": [],
-            }
+            return harmonization_result(
+                {**kwargs["miniml_json"], "harmonized": True},
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=[],
+            )
 
     CountingHarmonizer.calls = 0
     result, _ = AtlasHarmonizer(
@@ -583,12 +671,12 @@ def test_harmonizer_memoizes_identical_metadata_and_context() -> None:
 def test_harmonizer_parallel_workers_preserve_accession_order() -> None:
     class EchoHarmonizer:
         def harmonize_miniml_json(self, **kwargs):
-            return {
-                "miniml_json": kwargs["miniml_json"],
-                "harmonization_targets": [],
-                "workflow": "local_rag_ols",
-                "target_paths": [],
-            }
+            return harmonization_result(
+                kwargs["miniml_json"],
+                harmonization_targets=[],
+                workflow="local_rag_ols",
+                target_paths=[],
+            )
 
     result, _ = AtlasHarmonizer(
         ontology_harmonizer=EchoHarmonizer(),
@@ -637,10 +725,10 @@ def test_harmonizer_reuses_terminal_checkpoint_without_calling_adapter(tmp_path)
 
     result, details = harmonizer.harmonize_datasets(datasets, checkpoint_store=store)
 
-    assert result["accessions"][0]["ontology_harmonization_error"] == "invalid metadata"
-    assert details == [
-        {"datalink_id": "GSE1", "run_status": "error", "error": "invalid metadata"}
-    ]
+    assert result["accessions"][0]["ontology_harmonization_error"]["error_type"] == "RuntimeError"
+    assert details[0]["run_status"] == "error"
+    assert details[0]["status"]["execution"] == "failed"
+    assert "invalid metadata" not in json.dumps(details[0])
 
 
 def test_harmonizer_replays_retryable_checkpoint_and_records_recovery(tmp_path) -> None:
@@ -649,12 +737,12 @@ def test_harmonizer_replays_retryable_checkpoint_and_records_recovery(tmp_path) 
 
         def harmonize_miniml_json(self, **kwargs):
             self.__class__.calls += 1
-            return {
-                "miniml_json": {**kwargs["miniml_json"], "recovered": True},
-                "harmonization_targets": [],
-                "workflow": "recovery",
-                "target_paths": [],
-            }
+            return harmonization_result(
+                {**kwargs["miniml_json"], "recovered": True},
+                harmonization_targets=[],
+                workflow="recovery",
+                target_paths=[],
+            )
 
     datasets = {"accessions": [{"datalink_id": "GSE1", "accession_metadata": {"v": 1}}]}
     harmonizer = AtlasHarmonizer(ontology_harmonizer=RecoveringHarmonizer())
@@ -682,6 +770,6 @@ def test_harmonize_jsons_wrapper_returns_only_atlas_and_writes_details(tmp_path)
     )
 
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "not_run"
-    assert json.loads(details.read_text(encoding="utf-8")) == [
-        {"datalink_id": "GSE1", "run_status": "not_run"}
-    ]
+    written = json.loads(details.read_text(encoding="utf-8"))
+    assert written[0]["datalink_id"] == "GSE1"
+    assert written[0]["status"]["execution"] == "not_run"

@@ -9,7 +9,16 @@
       "dataset_id": "GSE100",
       "diagnostics": [],
       "harmonization": {
-        "degraded_stages": [],
+        "status": {
+          "completeness": "complete",
+          "contract_version": "2.0",
+          "errors": [],
+          "evidence_confidence": "high",
+          "execution": "succeeded",
+          "publication": "publishable",
+          "terminal_reason": "harmonization_complete",
+          "validation": "valid"
+        },
         "targets": []
       },
       "metadata": {

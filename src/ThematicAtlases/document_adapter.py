@@ -26,6 +26,10 @@ from ThematicAtlases.domain import (
     RunStatus,
 )
 from ThematicAtlases.miniml_boundary import canonicalize_atlas_metadata
+from meta_standards_converter.runtime_contracts import (
+    ExecutionStatus,
+    OperationStatusV2,
+)
 
 
 class AtlasDocumentAdapter:
@@ -145,19 +149,25 @@ class AtlasDocumentAdapter:
                     for publication_id in dataset.publication_ids
                 ],
             }
-            if dataset.status == DatasetStatus.HARMONIZED:
-                record["ontology_harmonization_run_status"] = "completed"
-            elif dataset.status == DatasetStatus.FAILED:
-                record["ontology_harmonization_run_status"] = "error"
-                errors = [
-                    item.message
-                    for item in dataset.diagnostics
-                    if item.severity == DiagnosticSeverity.ERROR
-                ]
-                if errors:
-                    record["ontology_harmonization_error"] = errors[0]
-            else:
+            if dataset.harmonization is None:
                 record["ontology_harmonization_run_status"] = "not_run"
+            else:
+                operation_status = dataset.harmonization.status
+                record["ontology_harmonization_status"] = operation_status.to_dict()
+                record["ontology_harmonization_run_status"] = (
+                    "completed"
+                    if operation_status.execution in {
+                        ExecutionStatus.SUCCEEDED,
+                        ExecutionStatus.DEGRADED,
+                    }
+                    else "error"
+                    if operation_status.execution is ExecutionStatus.FAILED
+                    else "not_run"
+                )
+                if operation_status.errors:
+                    record["ontology_harmonization_error"] = (
+                        operation_status.errors[0].to_dict()
+                    )
             records.append(record)
 
         publication_texts = {
@@ -200,13 +210,15 @@ class AtlasDocumentAdapter:
             if publication_id and publication_id not in publication_ids:
                 publication_ids.append(publication_id)
 
-        status = self._dataset_status(record, metadata, publication_ids)
-        diagnostics = self._diagnostics(record)
-        harmonization = (
-            self._harmonization(details)
-            if status == DatasetStatus.HARMONIZED
-            else None
+        operation_status = self._operation_status(record, details)
+        status = self._dataset_status(
+            record,
+            metadata,
+            publication_ids,
+            operation_status,
         )
+        diagnostics = self._diagnostics(record, operation_status)
+        harmonization = self._harmonization(details, operation_status)
         return Dataset(
             dataset_id=dataset_id,
             source_repository=repository,
@@ -223,12 +235,18 @@ class AtlasDocumentAdapter:
         record: Mapping[str, Any],
         metadata: Mapping[str, Any],
         publication_ids: list[str],
+        operation_status: OperationStatusV2 | None,
     ) -> DatasetStatus:
-        run_status = record.get("ontology_harmonization_run_status")
         metadata_status = str(record.get("metadata_status") or "").lower()
-        if run_status == "completed":
+        if operation_status and operation_status.execution in {
+            ExecutionStatus.SUCCEEDED,
+            ExecutionStatus.DEGRADED,
+        }:
             return DatasetStatus.HARMONIZED
-        if run_status == "error" or metadata_status in {"error", "failed"}:
+        if (
+            operation_status
+            and operation_status.execution is ExecutionStatus.FAILED
+        ) or metadata_status in {"error", "failed"}:
             return DatasetStatus.FAILED
         if metadata:
             return DatasetStatus.COLLECTED
@@ -237,29 +255,66 @@ class AtlasDocumentAdapter:
         return DatasetStatus.DISCOVERED
 
     @staticmethod
-    def _diagnostics(record: Mapping[str, Any]) -> tuple[Diagnostic, ...]:
+    def _diagnostics(
+        record: Mapping[str, Any],
+        operation_status: OperationStatusV2 | None,
+    ) -> tuple[Diagnostic, ...]:
         diagnostics = []
-        error = record.get("ontology_harmonization_error")
-        if error:
+        for error in operation_status.errors if operation_status else ():
+            location = f" at {error.stage}" if error.stage else ""
+            item = f" (item {error.item_id})" if error.item_id else ""
             diagnostics.append(
-                Diagnostic(code="harmonization_failed", message=str(error))
+                Diagnostic(
+                    code="harmonization_failed",
+                    message=(
+                        f"harmonization failed: {error.error_type}{location}{item}"
+                    ),
+                )
             )
         metadata_status = str(record.get("metadata_status") or "").lower()
         if metadata_status in {"error", "failed", "unsupported"}:
             diagnostics.append(
                 Diagnostic(
                     code="metadata_collection_status",
-                    message=str(
-                        record.get("metadata_error")
-                        or f"metadata status {metadata_status}"
-                    ),
+                    message=f"metadata status {metadata_status}",
                 )
             )
-        if record.get("ontology_harmonization_quality_status") == "degraded":
+        if metadata_status == "partial":
+            repair = record.get("metadata_repair_summary")
+            attempts = repair.get("attempt_count") if isinstance(repair, Mapping) else None
+            failures = repair.get("failed_count") if isinstance(repair, Mapping) else None
+            if (
+                isinstance(attempts, int)
+                and not isinstance(attempts, bool)
+                and attempts >= 0
+                and isinstance(failures, int)
+                and not isinstance(failures, bool)
+                and 0 <= failures <= attempts
+            ):
+                message = (
+                    "metadata enrichment repair completed partially: "
+                    f"{failures} of {attempts} attempts failed"
+                )
+            else:
+                message = "metadata enrichment repair completed partially"
+            diagnostics.append(
+                Diagnostic(
+                    code="metadata_repair_partial",
+                    message=message,
+                    severity=DiagnosticSeverity.WARNING,
+                )
+            )
+        if (
+            operation_status
+            and operation_status.execution is ExecutionStatus.DEGRADED
+        ):
             diagnostics.append(
                 Diagnostic(
                     code="harmonization_degraded",
-                    message="harmonization completed with degraded stages",
+                    message=(
+                        "harmonization completed with degraded execution; "
+                        f"reason={operation_status.terminal_reason}"
+                    ),
                     severity=DiagnosticSeverity.WARNING,
                 )
             )
@@ -361,11 +416,38 @@ class AtlasDocumentAdapter:
             evidence=tuple(evidence),
         )
 
+    @staticmethod
+    def _operation_status(
+        record: Mapping[str, Any], details: Mapping[str, Any] | None
+    ) -> OperationStatusV2 | None:
+        raw_record = record.get("ontology_harmonization_status")
+        raw_details = details.get("status") if isinstance(details, Mapping) else None
+        record_status = (
+            OperationStatusV2.from_dict(raw_record)
+            if isinstance(raw_record, Mapping)
+            else None
+        )
+        detail_status = (
+            OperationStatusV2.from_dict(raw_details)
+            if isinstance(raw_details, Mapping)
+            else None
+        )
+        if (
+            record_status is not None
+            and detail_status is not None
+            and record_status != detail_status
+        ):
+            raise ValueError("contradictory harmonization status payloads")
+        return record_status or detail_status
+
     def _harmonization(
-        self, details: Mapping[str, Any] | None
-    ) -> HarmonizationResult:
-        if not isinstance(details, Mapping):
-            return HarmonizationResult()
+        self,
+        details: Mapping[str, Any] | None,
+        operation_status: OperationStatusV2 | None,
+    ) -> HarmonizationResult | None:
+        if operation_status is None:
+            return None
+        details = details if isinstance(details, Mapping) else {}
         targets = []
         for raw in details.get("harmonization_targets", []) or []:
             if not isinstance(raw, Mapping):
@@ -392,7 +474,7 @@ class AtlasDocumentAdapter:
             )
         return HarmonizationResult(
             targets=tuple(targets),
-            degraded_stages=tuple(details.get("degraded_stages") or ()),
+            status=operation_status,
         )
 
     @staticmethod

@@ -57,6 +57,7 @@ and [project layout](#project-purpose-and-layout).
   and full-text APIs. `GEOWrapper` calls NCBI E-utilities and delegates MINiML,
   PubMed/SRA, and ENA retrieval through `meta-standards-converter`. Provider
   status and request failures remain item-local where checkpointing supports it.
+  `ArrayExpressWrapper` delegates BioStudies MAGE-TAB retrieval to MSC.
 - **Model/ontology boundary:** query generation, thematic review, and enabled
   ontology judgement stages are delegated to `agentic-curator`. Google ADC is
   checked before eligible model-backed work; this repository does not own model
@@ -75,12 +76,52 @@ and [project layout](#project-purpose-and-layout).
   migration; this repository transports those packages without weakening
   either boundary.
   `benchmark_ThematicAtlases` consumes outputs but never mutates production
-  traces. Repository metadata-handler status is explicit: GEO is supported;
-  ArrayExpress and scanner-only curated repositories are retained as terminal
-  inventory until a real supported handler is injected.
+  traces. Repository capabilities are explicit and immutable: GEO and
+  ArrayExpress are supported end to end; scanner-only curated repositories are
+  retained as terminal inventory until a supported capability and handler are
+  registered together.
 - **Privacy/trust boundary:** credentials, authorization headers, provider
   payloads, prompts, and responses must not be written to operational logs.
   Safe logs contain identifiers, status, duration, counts, and stage summaries.
+
+<a id="repository-capabilities-v1"></a>
+### Repository capability contract 1.0
+
+`RepositoryCapabilityRegistry` is the single immutable source of truth for
+repository accession grammar, review identity, provider/adapter name,
+harmonization eligibility, and required end-to-end contract categories. GEO
+accepts GSE/GSM/GPL/GDS discovery identities but only GSE review identities;
+ArrayExpress accepts and reviews E-MTAB/E-GEOD/E-MEXP experiment identities.
+The collector, reviewer, harmonizer, and document boundary share the registry,
+so a scheme label without a valid accession cannot manufacture support and a
+repository mismatch fails or becomes an explicit not-run reason.
+
+<a id="runtime-contracts-v2"></a>
+### Runtime status and safe-error contracts
+
+`OperationStatusV2` separates execution, completeness, evidence confidence,
+validation, and publication disposition. Harmonization persists that envelope
+under `ontology_harmonization_status`; the older run-status scalar is only a
+compatibility projection. `SafeErrorEnvelope` persists exception type,
+sanitized provider/location, HTTP status, retry category, stage/item identity,
+and correlation ID without raw exception messages, response bodies, prompts,
+credentials, or local absolute paths.
+
+<a id="request-policy"></a>
+### Typed resource and request policy
+
+`ResourceProfile` provides standard and large typed ceilings. Standard is 3
+redirects, 10/60-second connect/read timeouts, 128 MiB XML, 256 MiB compressed
+archive, 1 GiB expanded archive, 3 GiB ontology file, 100 GiB matrix/H5AD,
+200 GiB aggregate download, 250 GiB cache, four network workers, and one
+ontology-build worker. Large is 5 redirects, 30/300-second timeouts, 512 MiB
+XML, 1 GiB compressed archive, 4 GiB expanded archive, 5 GiB ontology file,
+500 GiB matrix/H5AD, 1 TiB aggregate download, 500 GiB cache, eight network
+workers, and two ontology-build workers. These are object/file/transfer
+ceilings, not RAM reservations. Delegated disk consumers preflight at least
+10% headroom; this package directly enforces HTTPS, allowed host suffixes,
+manual redirect ceilings, response-body limits, and aggregate transfer limits.
+MSC additionally validates public DNS for its ArrayExpress fetcher.
 
 <a id="architectural-decisions"></a>
 ## Architectural decisions
@@ -200,8 +241,12 @@ and [project layout](#project-purpose-and-layout).
   identities, dangling publication references, and inconsistent derived counts
   fail validation during both mapping ingestion and producer serialization. Legacy `accessions` and
   `publication_texts` mappings exist only between mature internal stages.
-- Metadata repository routing defaults to GEO. Unsupported, unresolved, or
+- Metadata repository routing defaults to GEO and ArrayExpress. Unsupported, unresolved, or
   failed metadata is represented explicitly rather than silently fabricated.
+- Repository classification, review identity, and harmonization eligibility
+  must resolve through the same immutable capability registry.
+- Persisted failures use safe error envelopes; raw exception text, payloads,
+  prompts, credentials, and local absolute paths are not durable state.
 - Review filtering requires a theme. `review_before_metadata` enriches only
   survivors; `stop_before_review` must not create reviewed/final markers.
 - Checkpoint fingerprints protect immutable run inputs. Query amendment is the
@@ -212,6 +257,8 @@ and [project layout](#project-purpose-and-layout).
   failures are retryable; one item failure must not discard unrelated successes.
 - Output order and schemas remain stable under bounded parallel harmonization.
   Original metadata is retained when an item cannot be harmonized.
+- Status 2.0 axes are authoritative. A degraded harmonization or partial
+  metadata repair keeps usable metadata but makes the aggregate run `partial`.
 - Related public Atlas/summary JSON is staged, parsed, copied to an immutable
   generation, fsynced, and selected by one atomically replaced pointer. A
   first-run failure leaves no final compatibility view or current pointer; an
@@ -261,7 +308,7 @@ validation when they modify a trace.
 
 - **Installed CLI:** `thematic-atlas` maps to
   `ThematicAtlases.cli_atlas:main` and dispatches `collect-datasets`,
-  `create-atlas`, `harmonize-datasets`, or `resume`. The parser is defined in
+  `create-atlas`, `harmonize-datasets`, `resume`, or `fork-run`. The parser is defined in
   [`cli_atlas.py`](../src/ThematicAtlases/cli_atlas.py).
 - **Python workflow API:** import `Atlas` from `ThematicAtlases.atlas`.
   Component packages export collector, filterer/reviewer, harmonizer, wrapper,
@@ -399,8 +446,9 @@ the Python API, or the canonical parent-adapter workflow documented in the
 
 - **Formal exports:** names in a package `__all__`. These are the declared
   reusable component surface.
-- **Supported workflow API:** `ThematicAtlases.atlas.Atlas`, the installed CLI,
-  and the six root runners. `ThematicAtlases.__init__` exports nothing.
+- **Supported workflow API:** `ThematicAtlases.atlas.Atlas` and the installed
+  CLI. The former repository-root runners are archived; `ThematicAtlases.__init__`
+  exports nothing.
 - **Supported importable production helpers:** public names used across live
   production modules or root runners, but not promised by a package `__all__`.
   They are documented so maintainers can reason about real coupling.
@@ -415,15 +463,18 @@ the Python API, or the canonical parent-adapter workflow documented in the
 metadata_repositories=None, publication_text_reviewer=None, collector=None,
 filterer=None, harmonizer=None, ontostore=None, cache_ontologies=False,
 query_generator=None, credential_checker=None, document_adapter=None,
-artifact_publisher=None)`](../src/ThematicAtlases/atlas.py)
+artifact_publisher=None, capability_registry=None, resource_profile="standard",
+resource_overrides=None)`](../src/ThematicAtlases/atlas.py)
 owns dependency injection. It raises `ValueError` when a supplied harmonizer is
-combined with Atlas-managed ontology-store/cache options.
+combined with Atlas-managed ontology-store/cache options. The capability
+registry and one resolved immutable resource profile are propagated to all
+Atlas-owned collaborators.
 
 | Member | Exact signature | Return, failure, and side effects |
 | --- | --- | --- |
 | [`Atlas.create_atlas`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=True, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, thematic_review=True, prune_accessions=False, stop_after=None) -> dict` | Requires a nonblank theme and normally returns a validated Atlas v1 mapping after collection and harmonization. `stop_after="metadata"` requires a metadata-first trace, publishes only a running collection snapshot, and leaves review/harmonization for resume. Generation and thematic review default on; destructive accession pruning is independently opt-in. Unsupported discoveries are terminal before review/harmonization. Complete output bundles remain rollback-safe. Invalid options/contracts, credentials, cache preparation, files, publication, or uncaught provider failures raise. |
 | [`Atlas.collect_datasets`](../src/ThematicAtlases/atlas.py) | `(query=None, file=None, out=None, theme=None, review_filter="none", review_strategy="direct", metadata_repositories=None, max_publications=None, max_publications_per_query=None, reviewer=None, collect_metadata=True, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, prune_accessions=False, _trace_writer=None) -> dict` | Returns a validated Atlas v1 mapping with run status `running`; `out` atomically receives the same mapping. Accession exclusions are retained unless the caller explicitly enables pruning; publication-level review filtering remains independent. An explicit unsupported path writes the separate inventory; a traced collection retains it and registers `collection_snapshot`, never `final_atlas`. Validates aligned positive limits, review/theme combinations, query generation, and trace fingerprints before eligible network/model work. `_trace_writer` is internal. |
-| [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Requires Atlas v1 input, projects it to the internal stage contract, and returns validated v1 with harmonized status/details. Legacy/unknown wire fields fail validation. Unsupported/null metadata is `not_run`; caught item failures retain original metadata as `error`. |
+| [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Requires Atlas v1 input, projects it to the internal stage contract, and returns validated v1 with status-2.0 harmonization details. Legacy/unknown wire fields fail validation. Unsupported/null/mismatched metadata receives a not-run envelope; caught item failures retain original metadata with failed/safe-error envelopes. |
 | [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects a v1 trace, requires authoritative `atlas_run.sqlite3`, optionally archives/requeues selected item-cache rows, reuses completed boundaries, and returns/publishes Atlas v1. Missing/ambiguous/incompatible runs, fingerprint mismatches, or invalid retry requests raise. |
 | [`Atlas.fork_run`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, new_run_id, overrides=None) -> Path` | Atomically clones a metadata-paused create trace with a new ledger identity. It preserves discovery/text/metadata checkpoints, records source provenance, accepts downstream-only overrides, and rejects discovery changes, existing destinations, incomplete sources, and traces containing downstream work. |
 | [`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | Archives the prior fingerprint and installs aligned normalized queries atomically. Empty/misaligned limits, active work, or unsafe state raise. |
@@ -451,7 +502,7 @@ otherwise.
 | [`ThematicAtlases.unsupported_accessions`](../src/ThematicAtlases/unsupported_accessions.py) | Formally exports report schema version `1.0`, `is_unsupported_accession(record)`, `partition_unsupported_accessions(records)`, and `build_unsupported_accessions_report(records, *, atlas_id, run_id)`. The report keeps sanitized discovery/publication attribution and aggregate repository counts outside Atlas v1. |
 | [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) | Formally exports runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and `ArtifactPublisherPort`. They specify callable inputs/outputs for injected application collaborators; concrete exceptions and side effects remain owned by each implementation. |
 | [`ThematicAtlases.run_store.AtlasRunStore`](../src/ThematicAtlases/run_store.py) and [`IncompatibleRunStoreError`](../src/ThematicAtlases/run_store.py) | Formally exported normalized Atlas v1 lifecycle/artifact store and fail-closed compatibility exception. Constructor accepts a path plus optional `event_emitter`, creates SQL schema version 2 for a new database, and rejects legacy/foreign/newer state. SQLite remains event authority; an emitter receives the same redacted event only after commit. Public methods are inventoried under supported helpers below. |
-| [`ThematicAtlases.infrastructure.RequestPolicy`](../src/ThematicAtlases/infrastructure/http.py) | `(*, timeout=30, max_retries=3, retry_statuses={429,500,502,503,504}, request_get=None, sleep=time.sleep, logger=None, name="HTTP")`; `get(url, *, params=None, retry_exceptions=False, raise_for_status=True) -> Response`. Retries are bounded, honor numeric or HTTP-date `Retry-After` within zero to eight seconds, otherwise use capped exponential delay, and propagate terminal request/status failures according to caller policy. |
+| [`ThematicAtlases.infrastructure.RequestPolicy`](../src/ThematicAtlases/infrastructure/http.py) | `(*, timeout=None, max_retries=3, retry_statuses={429,500,502,503,504}, request_get=None, sleep=time.sleep, logger=None, name="HTTP", resource_profile="standard", resource_overrides=None, allowed_hosts={}, allowed_host_suffixes=DEFAULT_ALLOWED_HOST_SUFFIXES)`; `get(url, *, params=None, retry_exceptions=False, raise_for_status=True) -> Response`. Uses profile timeouts by default; enforces HTTPS/host boundaries, manual redirects, response and aggregate byte ceilings; retries are bounded and honor numeric or HTTP-date `Retry-After` within zero to eight seconds. `RequestSecurityError` and `ResponseSizeLimitError` fail closed. |
 | [`ThematicAtlases.artifact_publisher.JsonArtifactBundlePublisher`](../src/ThematicAtlases/artifact_publisher.py), [`PublishedArtifactBundle`](../src/ThematicAtlases/artifact_publisher.py), [`resolve_current_bundle`](../src/ThematicAtlases/artifact_publisher.py), and [`ArtifactRollbackError`](../src/ThematicAtlases/artifact_publisher.py) | Formally exported immutable-generation publication boundary, verified resolver, and recovery-specific double-failure exception. `publish` makes one fsynced manifest pointer authoritative while maintaining direct compatibility views; failed restoration exposes the publication error, recovery errors, and preserved recovery paths. |
 | [`ThematicAtlases.collector.AtlasCollector`](../src/ThematicAtlases/collector/collector.py) | `(epmc_wrapper_factory=None, metadata_handlers=None, metadata_repositories=None, metadata_resume_orchestrator_factory=None)`. `None` selects built-in GEO/ArrayExpress handlers; `{}` deliberately disables all handlers. `collect_jsons(query=None, file=None, out=None, metadata_repositories=None, max_publications=None, max_publications_per_query=None, collect_metadata=True, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`; `filter_accessions`, `is_handled_accession`, `collect_accession_metadata`, `available_accession_metadata`, `metadata_repository`, and `metadata_handler(repository: str) -> Any` expose typed routing boundaries. Unsupported repositories and malformed files raise; remote item outcomes are represented/checkpointed where supported; `out` writes JSON. |
 | [`ThematicAtlases.collector.TraceMetadataResumer`](../src/ThematicAtlases/collector/resume.py) | `(collector_factory=None, epmc_wrapper_factory=None)`; `resume(trace_dir, *, audit_enrichment_only=False, retry_tags=None) -> dict`. Reads manifest/SQLite, writes progress or audit/template artifacts, performs network metadata work unless audit-only, and rejects malformed manifests or conflicting retry tags. |
@@ -463,10 +514,10 @@ otherwise.
 | [`ThematicAtlases.filterer.REVIEW_FILTERS`](../src/ThematicAtlases/filterer/review.py) | Mutable set `{"none", "not_relevant", "not_relevant_and_unsure"}`; callers should treat it as a supported-value registry, not mutate it. |
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, prune_accessions=False, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
-| [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Invalid worker/options or required credentials raise; caught item failures preserve input metadata; details may be written. |
-| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | Declares `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through MSC and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
-| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=30, request_delay=0.5, max_retries=3, request_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints; scans visible text plus hidden curated JATS links, uses abstract fallback, versions text/discovery checkpoints, and checkpoints item outcomes. |
-| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=30, request_delay=0.34, max_retries=3, request_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared policy and delegates MINiML/PubMed/SRA/ENA handlers; normalizes to GSE, drops unresolved/GPL-only records, deduplicates, and represents metadata errors/status. |
+| [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
+| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
+| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared policy; bounded XML parsing rejects DTD/entity declarations. |
+| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
 | [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
 
 Complete public-member signatures for the exported classes:
@@ -625,7 +676,7 @@ metadata, maps publication text, and optionally reviews/filter records.
 queries -> search -> datalinks + publication-text accession scan -> merge/dedupe
    |          |             | disabled                           |
  invalid    no hits         +----------> datalinks only           v
-   v          v                                      handler-status route
+   v          v                                      capability route
  error     empty atlas                               | unsupported
                                                     +--> terminal inventory
                                       |
@@ -781,7 +832,8 @@ dataset -> eligible? -- no --> not_run/original
    legacy unversioned accessions fields fail before delegated harmonization.
 2. `AtlasDocumentAdapter.to_legacy` projects the minimum stage mapping, then
    `AtlasHarmonizer` validates controls and computes work keys.
-3. Non-mapping/list metadata is retained with `not_run`; duplicate work keys
+3. Non-mapping/list metadata and unsupported repository identities retain the
+   original record with a status-v2 `not_run` envelope; duplicate work keys
    share one result without changing accession order.
 4. Model-enabled controls preflight credentials; invalid options or credentials
    fail the invocation before provider work.
@@ -790,7 +842,9 @@ dataset -> eligible? -- no --> not_run/original
    source-bound patch to a copy, and decodes the result again. Legacy injected
    test/adaptor harmonizers may still expose the mutating wrapper.
 6. Results and details are memoized/checkpointed; caught item failures remain
-   local and retain original metadata. The adapter retains every provider
+   local, retain original metadata, and persist only a safe error envelope.
+   Successful and degraded provider results must contain a valid status 2.0
+   envelope. The adapter retains every provider
    target that has a usable metadata path, including unmatched targets, and
    attaches an ontology match only when the provider supplied a complete
    label/accession/framework identity. It then validates the returned v1
@@ -1000,7 +1054,11 @@ trace -> mode?
 4. Normal/repair mode rebuilds the current datalink snapshot, reuses GEO
    resolution/metadata rows, and calls remote enrichment only for missing or
    explicitly tagged identifiers.
-5. A repeated identical tag is idempotent; a reused tag ID with different
+5. Every selected identifier records a typed succeeded/failed repair outcome.
+   Failed repairs persist safe error envelopes, retain the last usable package,
+   set `metadata_status="partial"`, and make the final Atlas run `partial`.
+   The public diagnostic exposes counts, not raw provider exception messages.
+6. A repeated identical tag is idempotent; a reused tag ID with different
    content raises. Progress/log output is persisted; invalid trace/files raise.
 
 #### Pseudocode
@@ -1230,7 +1288,7 @@ are not part of the tracked source tree.
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-09 this deterministic gate reported `499 passed, 4 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-09 this deterministic gate reported `526 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1348,7 +1406,7 @@ Reusable assets were deliberately not archived:
 
 Public methods:
 
-- `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None, document_adapter=None, artifact_publisher=None)`: wires component instances, one optional shared ontology store, eager-cache policy, query-generation/credential-preflight dependencies, the v1 boundary adapter, and the rollback-safe publisher.
+- `__init__(metadata: dict, ..., harmonizer=None, ontostore=None, cache_ontologies=False, query_generator=None, credential_checker=None, document_adapter=None, artifact_publisher=None, capability_registry=None, resource_profile="standard", resource_overrides=None)`: wires component instances, the shared immutable repository-capability registry, one resolved typed resource profile, one optional shared ontology store, eager-cache policy, query-generation/credential-preflight dependencies, the v1 boundary adapter, and the rollback-safe publisher.
 - `create_atlas(..., theme, review_strategy="direct", prune_accessions=False, dev_trace=False, dev_out_dir=".dev", harmonization_details_out=None, generate_queries=True, max_generated_queries=3, harmonization_options=None, review_before_metadata=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None, thematic_review=True)`: requires a nonblank theme, defaults query generation and thematic review on while keeping accession pruning off, runs collection/filtering and harmonization, returns Atlas v1, publishes the v1 document and derived summary as one bundle beside `out`, optionally publishes a separate unsupported inventory, and can write an opt-in trace bundle.
 - `_dev_run_id()` is internal run allocation policy. It returns
   `YYYYMMDDTHHMMSSffffffZ-xxxxxxxx`, combining UTC microseconds and 32 random
@@ -1356,7 +1414,7 @@ Public methods:
 - `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
 - `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.
-- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", prune_accessions=False, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v1 with run status `running`. Full-text and curated-link discovery are on by default; accession pruning requires explicit opt-in. Unsupported handler statuses are partitioned before review and can be written to the explicit sidecar. With review-before-metadata enabled, supported repository accessions are reviewed without metadata, filtered, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
+- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", prune_accessions=False, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v1 with run status `running`. Full-text and curated-link discovery are on by default; accession pruning requires explicit opt-in. Unsupported capabilities are partitioned before review and can be written to the explicit sidecar. With review-before-metadata enabled, supported GEO and ArrayExpress accessions use registry-defined review identity, are filtered without metadata, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: requires an Atlas v1 mapping, delegates its projected metadata to `AtlasHarmonizer`, returns validated Atlas v1, and optionally writes a details sidecar. Legacy unversioned mappings fail closed.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
@@ -1555,19 +1613,29 @@ MINiML input and are recorded with their evidence in the target-check trace.
 Rejected medium-confidence, unknown, or ambiguous prune requests are also
 retained in that trace for auditability.
 
-A successful call replaces `accession_metadata` with the returned
-`miniml_json` and sets `ontology_harmonization_run_status="completed"`. This
-means the workflow completed; it does not claim that every target matched.
-Null or unsupported metadata is retained with `not_run`. Exceptions are
-isolated per accession: original metadata is retained with run status `error`
-and `ontology_harmonization_error`, then later accessions continue. The summary
-aggregates these values under `harmonization_run_statuses`.
+A usable call replaces `accession_metadata` with the returned `miniml_json`,
+sets the compatibility `ontology_harmonization_run_status="completed"`, and
+copies the validated status 2.0 envelope to
+`ontology_harmonization_status`. That envelope independently states execution
+(`succeeded` or `degraded`), completeness, evidence confidence, validation,
+and publication disposition; completion alone does not claim that every
+target matched or that publication is safe. Null, unsupported, or
+repository-mismatched metadata is retained with an explicit status-v2
+`not_run`. Exceptions are isolated per accession: original metadata is
+retained with compatibility run status `error`, status-v2 execution `failed`,
+and a safe `ontology_harmonization_error` envelope, then later accessions
+continue.
 
-Completed accessions additionally expose
-`ontology_harmonization_quality_status="healthy"|"degraded"`. Target-checker
-and field-assignment invalid-output fallbacks are degraded available outcomes;
-provider failures propagate for retry classification. Details and summaries
-include the same quality signal.
+The former `ontology_harmonization_quality_status` scalar is removed. The
+summary aggregates the compatibility values plus all five authoritative
+status axes under `harmonization_execution_statuses`,
+`harmonization_completeness_statuses`,
+`harmonization_evidence_confidence_statuses`,
+`harmonization_validation_statuses`, and
+`harmonization_publication_dispositions`. A degraded or failed item makes the
+final run partial. Target-checker and field-assignment invalid-output fallbacks
+may still be usable degraded outcomes; provider failures remain classified for
+selective retry.
 
 The upstream ontology path is fixed:
 
@@ -1833,19 +1901,22 @@ Each accession deduplication pass logs one INFO-level stats message with input d
 
 - `page_limit=5`
 - `page_size=1000`
-- `timeout=30`
+- `timeout=None`, selecting the profile's 10/60-second connect/read pair
 - `request_delay=0.5`
 - `max_retries=3`
 
 These request tuning values are stored together in an internal settings
-dictionary. `EuropePMCWrapper` and `GEOWrapper` delegate GET retry mechanics to
-the same injectable `RequestPolicy`; endpoint adapters retain parsing and
-fallback decisions. The base delay can be overridden explicitly by a caller,
-including with zero for controlled tests. Transient response statuses `429`,
-`500`, `502`, `503`, and `504` are retried. Numeric and HTTP-date
-`Retry-After` values are honored within the bounded zero-to-eight-second delay;
-otherwise retry delay uses capped exponential backoff. Pagination is
-sequential, with no parallel requests.
+dictionary. `EuropePMCWrapper` and `GEOWrapper` delegate GET mechanics to the
+same injectable `RequestPolicy`; endpoint adapters retain parsing and fallback
+decisions. The policy requires HTTPS, exact or suffix-allowed hosts, disables
+automatic redirects and validates every redirect, bounds response XML/body
+and aggregate transfer bytes, and closes retried/redirected responses. The
+base delay can be overridden explicitly by a caller, including with zero for
+controlled tests. Transient response statuses `429`, `500`, `502`, `503`, and
+`504` are retried. Numeric and HTTP-date `Retry-After` values are honored within
+the bounded zero-to-eight-second delay; otherwise retry delay uses capped
+exponential backoff. Pagination is sequential; Atlas-owned harmonization uses
+the selected profile's network-worker ceiling.
 
 <a id="arrayexpress-wrapper"></a>
 ### ArrayExpress Wrapper
@@ -1868,6 +1939,9 @@ version 2.0. Unversioned/legacy available payloads are recomputed in an online
 run and reported pending by the offline availability overlay. Valid completed
 checkpoints are reused without constructing a converter or issuing network
 calls; current publications are rebuilt from the latest record snapshot.
+The Atlas-selected `ResourceProfile` is forwarded unchanged into MSC's
+`AEWebFetcher`, which separately enforces public-DNS egress, HTTPS redirects,
+bounded API/TSV reads, per-file limits, and aggregate remote-download limits.
 
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
@@ -1915,7 +1989,7 @@ https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi
 
 with `db=gds`, comma-separated UIDs in `id`, and `retmode=json`. When ESearch returns related records, the wrapper only accepts the ESummary record whose `accession` exactly matches the requested GEO accession.
 
-`GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in E-utilities parameters when present. Request settings default to `timeout=30`, `request_delay=0.34`, and `max_retries=3`; the delay keeps the default path below the no-key E-utilities guideline of 3 requests per second.
+`GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in E-utilities parameters when present. Request settings default to the selected profile's connect/read timeout pair, `request_delay=0.34`, and `max_retries=3`; the delay keeps the default path below the no-key E-utilities guideline of 3 requests per second.
 
 GEO emits INFO-level progress logs while resolving accessions and collecting metadata for each GSE. GEO emits INFO-level stats for resolved records, dropped records, metadata packages, related records, error/unavailable records, deduplicated output rows, publication links, and original datalink links. GEO DEBUG logs include ESearch/ESummary request details, retry status/attempt/delay, `geo2json` calls, and accession routing decisions.
 
@@ -1949,11 +2023,11 @@ change.
 Commands:
 
 - `[-v | --verbose] [--log-file LOG_FILE]`
-- `create-atlas [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--stop-after metadata] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
-- `fork-run --dev-out-dir DIR --run-id SOURCE --new-run-id DEST --config JSON`
-- `collect-datasets [--verbose] [--log-file LOG_FILE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
-- `harmonize-datasets [--verbose] [--log-file LOG_FILE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
-- `resume [--verbose] [--log-file LOG_FILE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`
+- `create-atlas [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--query QUERY] [--file FILE] [--query-generator|--no-query-generator] [--max-generated-queries N] [--thematic-review|--no-thematic-review] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--dev-trace] [--dev-out-dir DIR] [--stop-after metadata] (--theme THEME|--theme-file FILE) [--review-filter MODE] [--review-strategy direct|evidence_then_judgement] [--harmonization-details-out PATH]`
+- `fork-run [--resource-profile standard|large] [--resource-override FIELD=VALUE] --dev-out-dir DIR --run-id SOURCE --new-run-id DEST --config JSON`
+- `collect-datasets [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--query QUERY] [--file FILE] [--query-generator] [--max-generated-queries N] [--out OUT] [--metadata-repository REPO] [--max-publications N] [--skip-metadata] [--review-before-metadata] [--scrape-fulltext-accessions|--no-scrape-fulltext-accessions] [--theme THEME] [--theme-file FILE] [--review-filter MODE] [--review-strategy direct|evidence_then_judgement]`
+- `harmonize-datasets [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] --file INPUT --out OUTPUT [--harmonization-details-out PATH]`
+- `resume [--verbose] [--log-file LOG_FILE] [--resource-profile standard|large] [--resource-override FIELD=VALUE] [--dev-out-dir DIR] [--run-id ID] [--out OUT] [--stop-before-review] [--retry-stage STAGE] [--retry-item STAGE:KEY] [--retry-degraded-stage STAGE]`
 
 Logging options may appear before or after the subcommand. Default logging level is `WARNING`; `-v` or `--verbose` enables INFO progress and stats logs, and `-vv` enables DEBUG request, retry, and routing logs. Without `--log-file`, logs go to stdout. With `--log-file`, logs are written to that UTF-8 file only. If logging options are supplied both before and after the subcommand, the subcommand-local value is used.
 
@@ -1968,7 +2042,12 @@ query-generation LLM call occurs. Review-before-metadata requires a theme.
 `--dev-trace` is supported by `create-atlas` only; `--dev-out-dir` chooses its
 root directory.
 
-Each command instantiates `Atlas(metadata={})`, calls the matching method, and configures logging from CLI options. Successful commands do not print result data to stdout, though stdout may contain logs when verbose console logging is enabled. Use `--out` as the JSON result channel and logging as the stats channel.
+Each command instantiates `Atlas(metadata={}, resource_profile=...,
+resource_overrides=...)`, calls the matching method, and configures logging
+from CLI options. Unknown override fields and invalid numeric values fail
+before workflow work. Successful commands do not print result data to stdout,
+though stdout may contain logs when verbose console logging is enabled. Use
+`--out` as the JSON result channel and logging as the stats channel.
 
 `collect-datasets` and `create-atlas` share the mature collection and
 publication-text stage components. Supplying `--theme` or `--theme-file` opts
@@ -2001,7 +2080,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `499 passed, 4 skipped` on 2026-08-09. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit artifacts, grounded direct and non-destructive legacy strategy isolation, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/review/harmonization, method-owned query generation, credential preflight, repository selection and explicit empty handler configuration, GEO filtering, ArrayExpress behavior, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `526 passed, 4 skipped` on 2026-08-09. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct and non-destructive legacy strategy isolation, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded DTD-free XML parsing, response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

@@ -1,6 +1,11 @@
 import requests
+import pytest
 
 from ThematicAtlases.infrastructure import RequestPolicy
+from ThematicAtlases.infrastructure.http import (
+    RequestSecurityError,
+    ResponseSizeLimitError,
+)
 
 
 class Response:
@@ -11,6 +16,9 @@ class Response:
 
     def raise_for_status(self):
         self.raise_calls += 1
+
+    def close(self):
+        pass
 
 
 def test_request_policy_retries_declared_status_with_retry_after():
@@ -23,6 +31,7 @@ def test_request_policy_retries_declared_status_with_retry_after():
         max_retries=1,
         request_get=lambda **kwargs: calls.append(kwargs) or responses.pop(0),
         sleep=sleeps.append,
+        allowed_hosts={"example.test"},
     )
 
     response = policy.get("https://example.test", params={"q": "lung"})
@@ -30,8 +39,20 @@ def test_request_policy_retries_declared_status_with_retry_after():
     assert response.status_code == 200
     assert sleeps == [3.0]
     assert calls == [
-        {"url": "https://example.test", "params": {"q": "lung"}, "timeout": 12},
-        {"url": "https://example.test", "params": {"q": "lung"}, "timeout": 12},
+        {
+            "url": "https://example.test",
+            "params": {"q": "lung"},
+            "timeout": 12,
+            "allow_redirects": False,
+            "stream": True,
+        },
+        {
+            "url": "https://example.test",
+            "params": {"q": "lung"},
+            "timeout": 12,
+            "allow_redirects": False,
+            "stream": True,
+        },
     ]
 
 
@@ -49,6 +70,7 @@ def test_request_policy_exception_retry_and_final_status_are_caller_controlled()
         max_retries=1,
         request_get=request_get,
         sleep=sleeps.append,
+        allowed_hosts={"example.test"},
     ).get(
         "https://example.test",
         retry_exceptions=True,
@@ -68,3 +90,43 @@ def test_retry_after_http_date_is_parsed_and_bounded():
     assert RequestPolicy.retry_delay(
         Response(429, {"Retry-After": "Wed, 21 Oct 2099 07:28:00 GMT"}), 0
     ) == 8
+
+
+def test_request_policy_uses_typed_profile_timeouts_by_default():
+    calls = []
+    RequestPolicy(
+        max_retries=0,
+        request_get=lambda **kwargs: calls.append(kwargs) or Response(),
+        allowed_hosts={"example.test"},
+        resource_profile="large",
+    ).get("https://example.test")
+
+    assert calls[0]["timeout"] == (30, 300)
+
+
+def test_request_policy_rejects_unapproved_hosts_before_request():
+    with pytest.raises(RequestSecurityError, match="host is not allowed"):
+        RequestPolicy(
+            request_get=lambda **_kwargs: pytest.fail("must not request"),
+        ).get("https://127.0.0.1/private")
+
+
+def test_request_policy_rejects_cross_host_redirect():
+    response = Response(302, {"Location": "https://127.0.0.1/private"})
+    with pytest.raises(RequestSecurityError, match="host is not allowed"):
+        RequestPolicy(
+            max_retries=0,
+            request_get=lambda **_kwargs: response,
+            allowed_hosts={"example.test"},
+        ).get("https://example.test/start")
+
+
+def test_request_policy_rejects_declared_oversized_response():
+    response = Response(200, {"Content-Length": "65"})
+    with pytest.raises(ResponseSizeLimitError, match="exceeds"):
+        RequestPolicy(
+            max_retries=0,
+            request_get=lambda **_kwargs: response,
+            allowed_hosts={"example.test"},
+            resource_overrides={"max_xml_bytes": 64},
+        ).get("https://example.test/data")
