@@ -203,7 +203,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
   anchor: type-atlas-harmonizer
   purpose: Eligible metadata selection, work caching, provider delegation, and fallback behavior.
-  keywords: AtlasHarmonizer, ontology, work key, degraded, details
+  keywords: AtlasHarmonizer, ontology, work key, execution identity, model, prompt digest, embedding, ontology source, checkpoint invalidation, degraded, details
 
 - id: type-checkpoint-store
   title: [CheckpointStore](codebase.md#type-checkpoint-store)
@@ -245,7 +245,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Harmonization workflow](codebase.md#workflow-harmonization)
   anchor: workflow-harmonization
   purpose: Eligible work selection, memoization, adapter controls, checkpoint replay, ontology calls, fallback, and details.
-  keywords: harmonization, work key, ontology, controls, terminal, retryable, status 2.0, not_run, degraded, failed, safe error
+  keywords: harmonization, work key, execution identity, model, prompt digest, embedding, ontology source, checkpoint invalidation, controls, terminal, retryable, status 2.0, not_run, degraded, failed, safe error
 
 - id: workflow-resume-and-retry
   title: [Resume and retry workflow](codebase.md#workflow-resume-and-retry)
@@ -343,7 +343,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
   purpose: Current automated coverage and verification commands.
-  keywords: pytest, 532 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
+  keywords: pytest, 538 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
   title: [Atlas Workflow](codebase.md#atlas-workflow)

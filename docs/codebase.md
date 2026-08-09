@@ -852,7 +852,8 @@ dataset -> eligible? -- no --> not_run/original
 1. Public `Atlas.harmonize_datasets` parses and validates Atlas v1. Unknown or
    legacy unversioned accessions fields fail before delegated harmonization.
 2. `AtlasDocumentAdapter.to_legacy` projects the minimum stage mapping, then
-   `AtlasHarmonizer` validates controls and computes work keys.
+   `AtlasHarmonizer` validates controls and computes work keys from metadata,
+   context, options, and the complete harmonization execution identity.
 3. Non-mapping/list metadata and unsupported repository identities retain the
    original record with a status-v2 `not_run` envelope; duplicate work keys
    share one result without changing accession order.
@@ -862,8 +863,9 @@ dataset -> eligible? -- no --> not_run/original
    delegated patch-first `harmonize_miniml_annotations`, applies the
    source-bound patch to a copy, and decodes the result again. Legacy injected
    test/adaptor harmonizers may still expose the mutating wrapper.
-6. Results and details are memoized/checkpointed; caught item failures remain
-   local, retain original metadata, and persist only a safe error envelope.
+6. Results and details, including execution identity provenance, are
+   memoized/checkpointed; caught item failures remain local, retain original
+   metadata, and persist only a safe error envelope.
    Successful and degraded provider results must contain a valid status 2.0
    envelope. The adapter retains every provider
    target that has a usable metadata path, including unmatched targets, and
@@ -1312,7 +1314,7 @@ are not part of the tracked source tree.
   runtime dependency resolves through a sibling checkout or Git URL.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-09 this deterministic gate reported `536 passed, 4 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-10 this deterministic gate reported `538 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1692,7 +1694,8 @@ the original `pre_hz_label`. If no term matches, field harmonization uses the
 normalized input label; terminal skips are the exception.
 
 The details sidecar records targets, `workflow`, effective `controls`, paths,
-`run_status`, errors, and configured `preferred_ontology_ids` by `datalink_id`.
+`run_status`, errors, configured `preferred_ontology_ids`, and the complete
+`harmonization_execution_identity` by `datalink_id`.
 The current upstream wrapper reports `workflow="local_rag_ols"`. Per-run
 `harmonization_options` such as `target_paths`, `target_checker`,
 `direct_lookup_judge`, `rag_lookup`, `rag_lookup_judge`, `ols_lookup`,
@@ -1700,13 +1703,17 @@ The current upstream wrapper reports `workflow="local_rag_ols"`. Per-run
 The removed `llm`, `lookup_llm_judge`, and `search_llm_judge` keys fail fast
 before metadata iteration or upstream harmonizer construction.
 
-Identical metadata/context/options/preferences are memoized within a run.
-Configured preferred ontology IDs, including their order, participate in the
-work key so changing preferences invalidates prior harmonization checkpoints;
-an empty preference list retains the legacy key shape. `max_workers=1` is the
-safe default; higher values opt into bounded parallel work with stable output
-order. Unsupported/empty metadata never constructs the upstream harmonizer or
-performs LLM calls.
+Identical metadata/context/options and executor identity are memoized within a
+run. Before computing a work key, the adapter requests the upstream
+`harmonization_execution_identity`; the required contract binds model and
+generation settings, prompt digests, embedding model, ontology sources/indexes,
+strategy settings, and preprocessing revision. Incomplete declared identities
+fail closed. Legacy injected adapters without that method receive a best-effort
+identity derived from their implementation, model attribute, store type, and
+ordered preferred ontologies. Changing any identity input invalidates prior
+harmonization checkpoints. `max_workers=1` is the safe default; higher values
+opt into bounded parallel work with stable output order. Unsupported/empty
+metadata never constructs the upstream harmonizer or performs LLM calls.
 
 With a checkpoint store, each unique metadata/context/options work key is
 committed immediately after harmonization. Successful outcomes and terminal
@@ -2106,7 +2113,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `536 passed, 4 skipped` on 2026-08-09. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `538 passed, 4 skipped` on 2026-08-10. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, Europe PMC requests/retries/text/datalinks, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

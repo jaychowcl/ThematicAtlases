@@ -174,6 +174,11 @@ def test_harmonize_datasets_replaces_metadata_and_builds_publication_context() -
     assert result["accessions"][0]["ontology_harmonization_run_status"] == "completed"
     assert result["accessions"][0]["ontology_harmonization_status"] == operation_status()
     assert "ontology_harmonization_quality_status" not in result["accessions"][0]
+    execution_identity = details[0].pop("harmonization_execution_identity")
+    assert execution_identity["contract_version"] == "fallback-1.0"
+    assert execution_identity["model"]["provider"].endswith(
+        ".RecordingOntologyHarmonizer"
+    )
     assert details == [
         {
             "datalink_id": "GSE1",
@@ -256,8 +261,22 @@ def test_harmonize_datasets_keeps_metadata_and_annotates_individual_errors() -> 
 def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
     tmp_path,
 ) -> None:
+    execution_identity = {
+        "contract_version": "1.0",
+        "model": {"provider": "test", "model": "stable-v1"},
+        "generation": {"temperature": 0},
+        "prompt_sha256": {"test.md": "a" * 64},
+        "embedding": {"model": "embed-v1", "dimensions": 64},
+        "ontology": {"source_sha256": "b" * 64},
+        "strategy": {"revision": "1"},
+        "preprocessing": {"revision": "1"},
+    }
+
     class InterruptingHarmonizer:
         calls = []
+
+        def harmonization_execution_identity(self):
+            return execution_identity
 
         def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
             self.__class__.calls.append(miniml_json["value"])
@@ -289,6 +308,9 @@ def test_harmonizer_checkpoints_each_work_item_and_reuses_completed_items(
 
     class CompletingHarmonizer:
         calls = []
+
+        def harmonization_execution_identity(self):
+            return execution_identity
 
         def harmonize_miniml_json(self, publication_context=None, miniml_json=None):
             self.__class__.calls.append(miniml_json["value"])
@@ -419,6 +441,45 @@ def test_harmonizer_work_key_includes_ordered_preferred_ontologies() -> None:
     assert first != second
     assert json.loads(first)["preferred_ontology_ids"] == ["custom", "efo"]
     assert json.loads(second)["preferred_ontology_ids"] == ["efo", "custom"]
+
+
+def test_harmonizer_work_key_includes_declared_execution_identity() -> None:
+    class IdentityHarmonizer:
+        model = "judge-v1"
+
+        def harmonization_execution_identity(self):
+            return {
+                "contract_version": "1.0",
+                "model": {"provider": "test", "model": self.model},
+                "generation": {"temperature": 0},
+                "prompt_sha256": {"judge_lookup.md": "a" * 64},
+                "embedding": {"model": "embed-v1", "dimensions": 64},
+                "ontology": {"frameworks": {"efo": {"source_sha256": "b" * 64}}},
+                "strategy": {"revision": "1"},
+                "preprocessing": {"revision": "1"},
+            }
+
+    provider = IdentityHarmonizer()
+    harmonizer = AtlasHarmonizer(ontology_harmonizer=provider)
+    first = harmonizer._work_key({"value": "lung"}, None, {})
+    provider.model = "judge-v2"
+    second = harmonizer._work_key({"value": "lung"}, None, {})
+
+    assert first != second
+    assert json.loads(first)["harmonization_execution_identity"]["model"][
+        "model"
+    ] == "judge-v1"
+
+
+def test_harmonizer_rejects_incomplete_declared_execution_identity() -> None:
+    class InvalidIdentityHarmonizer:
+        def harmonization_execution_identity(self):
+            return {"contract_version": "1.0"}
+
+    with pytest.raises(ValueError, match="harmonization_execution_identity is missing"):
+        AtlasHarmonizer(
+            ontology_harmonizer=InvalidIdentityHarmonizer()
+        )._work_key({"value": "lung"}, None, {})
 
 
 def test_harmonizer_details_include_preferred_ontology_trace() -> None:

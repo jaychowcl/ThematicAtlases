@@ -140,7 +140,15 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
     assert document.datasets[0].status.value == "harmonized"
     assert document.publications[0].review.judgement.value == "relevant"
     assert json.loads(output.read_text(encoding="utf-8")) == result
-    assert json.loads(details.read_text(encoding="utf-8")) == [
+    harmonization_details = json.loads(details.read_text(encoding="utf-8"))
+    execution_identity = harmonization_details[0].pop(
+        "harmonization_execution_identity"
+    )
+    assert execution_identity["contract_version"] == "fallback-1.0"
+    assert execution_identity["model"]["provider"].endswith(
+        ".FakeOntologyHarmonizer"
+    )
+    assert harmonization_details == [
         {
             "datalink_id": "GSE101",
             "run_status": "completed",

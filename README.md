@@ -239,7 +239,7 @@ It additionally supports:
 | `--prune-accessions` | Explicitly apply grounded accession-level exclusions returned by thematic review. Destructive pruning is disabled by default. |
 | `--dev-trace` | Write a timestamped manifest, SQLite checkpoints, readable stage artifacts, final atlas, and summary. |
 | `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
-| `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, paths, and errors. |
+| `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, execution identity, paths, and errors. |
 | `--stop-after metadata` | Require a metadata-first development trace, publish a collection snapshot, and return before thematic review or harmonization. |
 
 `harmonize-datasets` transforms an existing Atlas v1 file without discovery or review:
@@ -434,6 +434,13 @@ envelope while later items continue. The legacy
 `completed` for compatibility, but it is not the authoritative quality or
 publication decision.
 
+Eligible harmonization work keys and completed details bind the upstream
+execution identity: model/generation configuration, prompt digests, embedding
+model, ontology sources and indexes, strategy settings, and preprocessing
+revision. A change to any of these scientifically material inputs invalidates
+the prior checkpoint. Injected legacy adapters receive a best-effort identity
+based on their implementation and declared store preferences.
+
 `Atlas.resume(...)` selects a traced workflow and reuses its latest valid stage:
 
 ```python
@@ -605,8 +612,8 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 
 ## Testing
 
-The deterministic, network-blocked suite was last verified on 2026-08-09:
-`536 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+The deterministic, network-blocked suite was last verified on 2026-08-10:
+`538 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 

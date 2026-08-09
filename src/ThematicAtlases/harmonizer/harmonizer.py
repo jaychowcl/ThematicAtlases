@@ -79,6 +79,8 @@ class AtlasHarmonizer:
         harmonization_options = dict(harmonization_options or {})
         self._validate_harmonization_options(harmonization_options)
         work_by_key = {}
+        ontology_harmonizer = None
+        execution_identity = None
 
         for index, record in enumerate(accessions):
             metadata = record.get("accession_metadata")
@@ -114,10 +116,18 @@ class AtlasHarmonizer:
                 continue
 
             context = self.publication_context(record)
+            if ontology_harmonizer is None:
+                if self._requires_model_credentials(harmonization_options):
+                    self._preflight_credentials()
+                ontology_harmonizer = self._ontology_harmonizer()
+                execution_identity = self._harmonization_execution_identity(
+                    ontology_harmonizer
+                )
             key = self._work_key(
                 metadata=metadata,
                 publication_context=context,
                 harmonization_options=harmonization_options,
+                execution_identity=execution_identity,
             )
             work_by_key.setdefault(
                 key,
@@ -125,14 +135,14 @@ class AtlasHarmonizer:
                     "work_key": hashlib.sha256(key.encode("utf-8")).hexdigest(),
                     "metadata": metadata,
                     "publication_context": context,
+                    "execution_identity": execution_identity,
                     "indices": [],
                 },
             )["indices"].append(index)
 
         if work_by_key:
-            if self._requires_model_credentials(harmonization_options):
-                self._preflight_credentials()
-            ontology_harmonizer = self._ontology_harmonizer()
+            if ontology_harmonizer is None:
+                raise RuntimeError("harmonization provider was not initialized")
             work_items = list(work_by_key.values())
             for position, item in enumerate(work_items, start=1):
                 item["position"] = position
@@ -202,6 +212,9 @@ class AtlasHarmonizer:
                         ),
                         "workflow": harmonization.get("workflow"),
                         "target_paths": harmonization.get("target_paths"),
+                        "harmonization_execution_identity": item[
+                            "execution_identity"
+                        ],
                         "status": status,
                     }
                     if "preferred_ontology_ids" in harmonization:
@@ -338,11 +351,15 @@ class AtlasHarmonizer:
         metadata,
         publication_context: str | None,
         harmonization_options: dict,
+        execution_identity: dict | None = None,
     ) -> str:
+        if execution_identity is None:
+            execution_identity = self._harmonization_execution_identity()
         key_data = {
             "metadata": metadata,
             "publication_context": publication_context,
             "harmonization_options": harmonization_options,
+            "harmonization_execution_identity": execution_identity,
         }
         preferred_ontology_ids = self._preferred_ontology_ids()
         if preferred_ontology_ids:
@@ -352,6 +369,110 @@ class AtlasHarmonizer:
             sort_keys=True,
             default=repr,
         )
+
+    def _harmonization_execution_identity(
+        self, ontology_harmonizer=None
+    ) -> dict:
+        provider = ontology_harmonizer or self._ontology_harmonizer()
+        identity_method = getattr(
+            provider, "harmonization_execution_identity", None
+        )
+        if not callable(identity_method):
+            return self._fallback_execution_identity(provider)
+
+        identity = identity_method()
+        if not isinstance(identity, dict):
+            raise ValueError(
+                "harmonization_execution_identity must return an object"
+            )
+        required_sections = {
+            "model",
+            "generation",
+            "prompt_sha256",
+            "embedding",
+            "ontology",
+            "strategy",
+            "preprocessing",
+        }
+        missing = sorted(
+            {"contract_version", *required_sections}.difference(identity)
+        )
+        if missing:
+            raise ValueError(
+                "harmonization_execution_identity is missing: "
+                + ", ".join(missing)
+            )
+        if not isinstance(identity["contract_version"], str) or not identity[
+            "contract_version"
+        ].strip():
+            raise ValueError(
+                "harmonization_execution_identity contract_version must be "
+                "a non-empty string"
+            )
+        invalid_sections = sorted(
+            section
+            for section in required_sections
+            if not isinstance(identity[section], dict) or not identity[section]
+        )
+        if invalid_sections:
+            raise ValueError(
+                "harmonization_execution_identity sections must be non-empty "
+                "objects: "
+                + ", ".join(invalid_sections)
+            )
+        try:
+            return json.loads(
+                json.dumps(
+                    identity,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "harmonization_execution_identity must be JSON serializable"
+            ) from error
+
+    def _fallback_execution_identity(self, provider) -> dict:
+        provider_type = type(provider)
+        provider_name = (
+            f"{provider_type.__module__}.{provider_type.__qualname__}"
+        )
+        implementation = getattr(
+            provider_type, "harmonize_miniml_json", provider_type
+        )
+        try:
+            implementation_source = inspect.getsource(implementation)
+        except (OSError, TypeError):
+            implementation_source = provider_name
+        implementation_sha256 = hashlib.sha256(
+            implementation_source.encode("utf-8")
+        ).hexdigest()
+        preferred_ontology_ids = self._preferred_ontology_ids()
+        return {
+            "contract_version": "fallback-1.0",
+            "model": {
+                "provider": provider_name,
+                "model": str(getattr(provider, "model", "provider-owned")),
+            },
+            "generation": {"provider_contract": "injected-adapter"},
+            "prompt_sha256": {
+                "provider_implementation": implementation_sha256
+            },
+            "embedding": {"configuration": "provider-owned"},
+            "ontology": {
+                "preferred_ontology_ids": preferred_ontology_ids,
+                "store_type": (
+                    f"{type(self._ontostore).__module__}."
+                    f"{type(self._ontostore).__qualname__}"
+                    if self._ontostore is not None
+                    else "provider-owned"
+                ),
+            },
+            "strategy": {"atlas_adapter_revision": "1"},
+            "preprocessing": {"miniml_boundary_revision": "2.0"},
+        }
 
     @staticmethod
     def _harmonize_metadata(
