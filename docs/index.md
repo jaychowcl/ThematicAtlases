@@ -142,8 +142,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas
   title: [Atlas orchestrator](codebase.md#type-atlas)
   anchor: type-atlas
-  purpose: Root workflow ownership, dependency injection, output, resume, and archive responsibilities.
-  keywords: Atlas, create_atlas, collect_datasets, resume, harmonize
+  purpose: Root workflow ownership and delegation to injected stage and run-lifecycle collaborators.
+  keywords: Atlas, create_atlas, collect_datasets, resume, harmonize, AtlasRunLifecycle, dependency injection
+
+- id: type-atlas-run-lifecycle
+  title: [AtlasRunLifecycle](codebase.md#type-atlas-run-lifecycle)
+  anchor: type-atlas-run-lifecycle
+  purpose: Run identity, status aggregation, resume selection, checkpoint-contract reconciliation, archival, and resumed publication.
+  keywords: AtlasRunLifecycle, run ID, resume directory, checkpoint contract, publication, archive
 
 - id: type-atlas-document
   title: [AtlasDocument v1](codebase.md#type-atlas-document)
@@ -208,14 +214,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
   anchor: type-europe-pmc-wrapper
-  purpose: Europe PMC search, datalink, text, retry, fallback, and normalization boundary.
-  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, abstract
+  purpose: Europe PMC network boundary with injected pure publication identity, limit, merge, deduplication, and projection policy.
+  keywords: EuropePMCWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, abstract, identity, deduplication
 
 - id: type-geo-wrapper
   title: [GEOWrapper](codebase.md#type-geo-wrapper)
   anchor: type-geo-wrapper
-  purpose: GEO resolution, MINiML metadata, enrichment, checkpoint, and repair boundary.
-  keywords: GEOWrapper, NCBI, GEO, MINiML, SRA, ENA
+  purpose: GEO network/enrichment boundary with injected canonical package projection and deterministic GSE record policy.
+  keywords: GEOWrapper, GEORecordPolicy, NCBI, GEO, MINiML, projection, deduplication, SRA, ENA
 
 - id: type-thematic-reviewer-benchmark
   title: [ThematicReviewerBenchmark](codebase.md#type-thematic-reviewer-benchmark)

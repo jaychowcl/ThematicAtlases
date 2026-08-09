@@ -354,9 +354,15 @@ the Python API, or the canonical parent-adapter workflow documented in the
 
 <a id="type-atlas"></a>
 - [`Atlas`](../src/ThematicAtlases/atlas.py) owns component wiring, query
-  resolution, credential/cache preflight, stage order, tracing, resume,
-  amendment, archival delegation, v1 boundary conversion, and bundle
-  publication.
+  resolution, credential/cache preflight, stage order, tracing, amendment, and
+  v1 boundary conversion. It delegates run identity, resume selection,
+  checkpoint-contract reconciliation, archival, and resumed bundle publication
+  to an injected `AtlasRunLifecycle`.
+<a id="type-atlas-run-lifecycle"></a>
+- [`AtlasRunLifecycle`](../src/ThematicAtlases/run_lifecycle.py) owns run IDs,
+  final status aggregation, resume-directory selection, stale-contract
+  requeueing, archive delegation, and resumed output publication. The `Atlas`
+  private facade methods remain stable and delegate to this collaborator.
 <a id="type-atlas-document-service"></a>
 - [`AtlasDocumentService`](../src/ThematicAtlases/application/atlas_documents.py)
   is the application use case for v1 assembly, internal projection, derived
@@ -435,7 +441,11 @@ the Python API, or the canonical parent-adapter workflow documented in the
 <a id="type-geo-wrapper"></a>
   [`GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py), and
   [`ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) isolate remote
-  or repository-specific behavior.
+  or repository-specific behavior. Europe PMC delegates publication identity,
+  limits, merge/deduplication, and record projection to
+  `PublicationRecordPolicy`; GEO delegates canonical package projection and GSE
+  record deduplication to `GEORecordPolicy`. Both collaborators are injectable
+  and perform no provider/network work.
 <a id="type-thematic-reviewer-benchmark"></a>
 - [`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py)
   owns offline exact DOI/PMID comparison and reference-set validation.
@@ -465,7 +475,7 @@ metadata_repositories=None, publication_text_reviewer=None, collector=None,
 filterer=None, harmonizer=None, ontostore=None, cache_ontologies=False,
 query_generator=None, credential_checker=None, document_adapter=None,
 artifact_publisher=None, capability_registry=None, resource_profile="standard",
-resource_overrides=None)`](../src/ThematicAtlases/atlas.py)
+resource_overrides=None, run_lifecycle=None)`](../src/ThematicAtlases/atlas.py)
 owns dependency injection. It raises `ValueError` when a supplied harmonizer is
 combined with Atlas-managed ontology-store/cache options. The capability
 registry and one resolved immutable resource profile are propagated to all
@@ -517,8 +527,8 @@ otherwise.
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
 | [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
-| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared policy; bounded XML parsing rejects DTD/entity declarations. |
-| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
+| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; bounded XML parsing rejects DTD/entity declarations. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
+| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared request policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; the injected/default record policy owns package projection and deterministic GSE deduplication. Partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
 | [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
 
 Complete public-member signatures for the exported classes:
@@ -1218,6 +1228,7 @@ src/ThematicAtlases/
 ├── credentials.py
 ├── query_catalog.py
 ├── run_archive.py
+├── run_lifecycle.py
 ├── summary.py
 ├── trace.py
 ├── collector/
@@ -1237,7 +1248,9 @@ src/ThematicAtlases/
     ├── __init__.py
     ├── enrichment.py
     ├── epmc.py
-    └── geo.py
+    ├── geo.py
+    ├── geo_records.py
+    └── publication_policy.py
 
 src/benchmark_ThematicAtlases/
 ├── __init__.py

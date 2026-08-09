@@ -70,6 +70,20 @@ class FakeGEOWrapper(GEOWrapper):
         return self.metadata_packages.get(gse_accession, [])
 
 
+def test_geo_wrapper_accepts_an_injected_record_policy() -> None:
+    class RecordPolicy:
+        @staticmethod
+        def deduplicate_gse_jsons(records):
+            assert records == [{"datalink_id": "GSE1"}]
+            return [{"datalink_id": "injected"}]
+
+    wrapper = GEOWrapper(record_policy=RecordPolicy())
+
+    assert wrapper._deduplicate_gse_jsons([{"datalink_id": "GSE1"}]) == [
+        {"datalink_id": "injected"}
+    ]
+
+
 def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
     records = [
         {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []},

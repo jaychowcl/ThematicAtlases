@@ -11,6 +11,7 @@ from meta_standards_converter.xml_safety import parse_xml
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.runtime_contracts import safe_error_json
+from ThematicAtlases.wrappers.publication_policy import PublicationRecordPolicy
 from ThematicAtlases.accession_extraction import (
     extract_accessions_from_links,
     extract_accessions_from_text,
@@ -52,6 +53,7 @@ class EuropePMCWrapper:
         request_policy: RequestPolicy | None = None,
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides=None,
+        publication_policy: PublicationRecordPolicy | None = None,
     ):
         self.resource_profile = (
             resource_profile.with_overrides(resource_overrides)
@@ -91,6 +93,7 @@ class EuropePMCWrapper:
             name="EuropePMC",
             resource_profile=self.resource_profile,
         )
+        self._publication_policy = publication_policy or PublicationRecordPolicy()
 
     def collect_accessions(
         self,
@@ -241,127 +244,31 @@ class EuropePMCWrapper:
         scraped_accessions: list[dict],
     ) -> list[dict]:
         """Merge datalink and full-text discoveries without losing provenance."""
-
-        merged: list[dict] = []
-        indexes: dict[str, int] = {}
-        for record, source in (
-            *((record, "europe_pmc_datalink") for record in datalink_accessions),
-            *((record, None) for record in scraped_accessions),
-        ):
-            accession = str(record.get("datalink_id", "")).strip()
-            if not accession:
-                continue
-            key = accession.upper()
-            record_sources = list(record.get("discovery_sources", []))
-            if source:
-                record_sources.append(source)
-            elif not record_sources:
-                record_sources.append("fulltext_regex")
-            normalized = {
-                **record,
-                "discovery_sources": self._ordered_unique(record_sources),
-                "publications": [
-                    {
-                        **publication,
-                        "accession_discovery_sources": self._ordered_unique(
-                            [
-                                *publication.get(
-                                    "accession_discovery_sources",
-                                    [],
-                                ),
-                                *(
-                                    [source]
-                                    if source
-                                    else (
-                                        []
-                                        if publication.get(
-                                            "accession_discovery_sources"
-                                        )
-                                        else ["fulltext_regex"]
-                                    )
-                                ),
-                            ]
-                        ),
-                    }
-                    for publication in record.get("publications", [])
-                ],
-            }
-            if key not in indexes:
-                indexes[key] = len(merged)
-                merged.append(normalized)
-                continue
-            current = merged[indexes[key]]
-            current["discovery_sources"] = self._ordered_unique(
-                [
-                    *current.get("discovery_sources", []),
-                    *normalized.get("discovery_sources", []),
-                ]
-            )
-            self._merge_accession_publications(current, normalized)
-        return merged
+        return self._publication_policy.merge_accessions(
+            datalink_accessions,
+            scraped_accessions,
+        )
 
     def _merge_accession_publications(
         self,
         current: dict,
         incoming: dict,
     ) -> None:
-        indexes = {
-            self._publication_key(publication): index
-            for index, publication in enumerate(current.get("publications", []))
-        }
-        for publication in incoming.get("publications", []):
-            key = self._publication_key(publication)
-            if key not in indexes:
-                indexes[key] = len(current.setdefault("publications", []))
-                current["publications"].append(publication)
-                continue
-            index = indexes[key]
-            existing = current["publications"][index]
-            sources = self._ordered_unique(
-                [
-                    *existing.get("accession_discovery_sources", []),
-                    *publication.get("accession_discovery_sources", []),
-                ]
-            )
-            current["publications"][index] = {
-                **existing,
-                **{
-                    name: value
-                    for name, value in publication.items()
-                    if value
-                },
-                "accession_discovery_sources": sources,
-            }
+        self._publication_policy.merge_accession_publications(current, incoming)
 
     def _accessions_with_enriched_publications(
         self,
         accessions: list[dict],
         publications: list[dict],
     ) -> list[dict]:
-        enriched = {
-            self._publication_key(publication): publication
-            for publication in publications
-        }
-        return [
-            {
-                **record,
-                "publications": [
-                    {
-                        **publication,
-                        **enriched.get(
-                            self._publication_key(publication),
-                            {},
-                        ),
-                    }
-                    for publication in record.get("publications", [])
-                ],
-            }
-            for record in accessions
-        ]
+        return self._publication_policy.accessions_with_enriched_publications(
+            accessions,
+            publications,
+        )
 
     @staticmethod
     def _ordered_unique(values: list[str]) -> list[str]:
-        return list(dict.fromkeys(value for value in values if value))
+        return PublicationRecordPolicy.ordered_unique(values)
 
     def collect_publications(
         self,
@@ -624,30 +531,17 @@ class EuropePMCWrapper:
         self,
         max_publications: int | None,
     ) -> int | None:
-        if max_publications is None:
-            return None
-
-        if max_publications < 1:
-            raise ValueError("max_publications must be a positive integer")
-
-        return max_publications
+        return self._publication_policy.normalized_max_publications(max_publications)
 
     def _normalized_query_limits(
         self,
         queries: list[str],
         max_publications_per_query: list[int | None] | None,
     ) -> list[int | None]:
-        if max_publications_per_query is None:
-            return [None] * len(queries)
-        if len(max_publications_per_query) != len(queries):
-            raise ValueError(
-                "max_publications_per_query must contain one limit per query"
-            )
-        if any(limit is not None and limit < 1 for limit in max_publications_per_query):
-            raise ValueError(
-                "max_publications_per_query limits must be positive integers or None"
-            )
-        return list(max_publications_per_query)
+        return self._publication_policy.normalized_query_limits(
+            queries,
+            max_publications_per_query,
+        )
 
     @staticmethod
     def _remaining_publications(
@@ -657,12 +551,12 @@ class EuropePMCWrapper:
         global_limit: int | None,
         global_collected: int,
     ) -> int | None:
-        remaining = []
-        if query_limit is not None:
-            remaining.append(max(0, query_limit - query_collected))
-        if global_limit is not None:
-            remaining.append(max(0, global_limit - global_collected))
-        return min(remaining) if remaining else None
+        return PublicationRecordPolicy.remaining_publications(
+            query_limit=query_limit,
+            query_collected=query_collected,
+            global_limit=global_limit,
+            global_collected=global_collected,
+        )
 
     @staticmethod
     def _limit_reached(
@@ -671,10 +565,11 @@ class EuropePMCWrapper:
         global_limit: int | None,
         global_collected: int,
     ) -> bool:
-        return (
-            query_limit is not None and query_collected >= query_limit
-        ) or (
-            global_limit is not None and global_collected >= global_limit
+        return PublicationRecordPolicy.limit_reached(
+            query_limit,
+            query_collected,
+            global_limit,
+            global_collected,
         )
 
     def _deduplicate_publications(
@@ -683,45 +578,14 @@ class EuropePMCWrapper:
         *,
         include_query_list: bool,
     ) -> list[dict]:
-        unique = []
-        aliases: dict[tuple[str, str], int] = {}
-        for publication in publications:
-            keys = self._publication_identity_keys(publication)
-            matched = next((aliases[key] for key in keys if key in aliases), None)
-            if matched is None:
-                merged = dict(publication)
-                if include_query_list:
-                    merged["queries"] = [publication.get("query")]
-                unique.append(merged)
-                matched = len(unique) - 1
-            else:
-                merged = unique[matched]
-                for key, value in publication.items():
-                    if key != "query" and value and not merged.get(key):
-                        merged[key] = value
-                if include_query_list:
-                    query = publication.get("query")
-                    if query and query not in merged["queries"]:
-                        merged["queries"].append(query)
-            for key in keys:
-                aliases[key] = matched
-        return unique
+        return self._publication_policy.deduplicate_publications(
+            publications,
+            include_query_list=include_query_list,
+        )
 
     @staticmethod
     def _publication_identity_keys(publication: dict) -> list[tuple[str, str]]:
-        keys = []
-        source = str(publication.get("source") or "").strip().upper()
-        epmc_id = str(publication.get("epmc_id") or "").strip().upper()
-        if source and epmc_id:
-            keys.append(("epmc", f"{source}:{epmc_id}"))
-        for field in ("pmid", "pmcid"):
-            value = str(publication.get(field) or "").strip().upper()
-            if value:
-                keys.append((field, value))
-        doi = str(publication.get("doi") or "").strip().lower()
-        if doi:
-            keys.append(("doi", doi.removeprefix("https://doi.org/")))
-        return keys
+        return PublicationRecordPolicy.publication_identity_keys(publication)
 
     def publication_text_sections(self, text: str) -> list[dict]:
         normalized_text = self._normalize_text(text)
@@ -1198,84 +1062,22 @@ class EuropePMCWrapper:
         return RequestPolicy.retry_delay(response, attempt)
 
     def _publication_from_hit(self, query: str, hit: dict) -> dict:
-        return {
-            "query": query,
-            "epmc_id": hit.get("id", ""),
-            "source": hit.get("source", ""),
-            "pmid": hit.get("pmid", ""),
-            "pmcid": hit.get("pmcid", ""),
-            "doi": hit.get("doi", ""),
-            "title": hit.get("title", ""),
-            "authorString": hit.get("authorString", ""),
-            "abstractText": hit.get("abstractText", ""),
-            "affiliation": hit.get("affiliation", ""),
-            "fullTextUrls": self._full_text_urls(hit=hit),
-            "firstPublicationDate": hit.get("firstPublicationDate", ""),
-        }
+        return self._publication_policy.publication_from_hit(query, hit)
 
     def _full_text_urls(self, hit: dict) -> list[str]:
-        full_text_urls = hit.get("fullTextUrlList", {}).get("fullTextUrl", [])
-        return [item.get("url", "") for item in full_text_urls if item.get("url")]
+        return self._publication_policy.full_text_urls(hit)
 
     def _datalinks_from_category(self, publication: dict, category: dict) -> list[dict]:
-        datalinks = []
-        category_name = category.get("Name", "")
-
-        for section in category.get("Section", []):
-            for link in section.get("Linklist", {}).get("Link", []):
-                identifier = link.get("Target", {}).get("Identifier", {})
-                datalink_id = identifier.get("ID", "")
-                datalink_id_scheme = identifier.get("IDScheme", "")
-                datalink_url = identifier.get("IDURL", "")
-
-                if not datalink_id:
-                    continue
-
-                datalinks.append(
-                    {
-                        "query": publication.get("query", ""),
-                        "epmc_id": publication.get("epmc_id", ""),
-                        "source": publication.get("source", ""),
-                        "pmid": publication.get("pmid", ""),
-                        "pmcid": publication.get("pmcid", ""),
-                        "doi": publication.get("doi", ""),
-                        "title": publication.get("title", ""),
-                        "abstractText": publication.get("abstractText", ""),
-                        "text": publication.get("text", ""),
-                        "text_source": publication.get("text_source", ""),
-                        "full_text_status": publication.get("full_text_status", ""),
-                        "datalink_id": datalink_id,
-                        "datalink_id_scheme": datalink_id_scheme,
-                        "datalink_url": datalink_url,
-                        "datalink_category": category_name,
-                    }
-                )
-
-        return datalinks
+        return self._publication_policy.datalinks_from_category(
+            publication,
+            category,
+        )
 
     def _publication_from_datalink(self, datalink: dict) -> dict:
-        return {
-            "query": datalink.get("query", ""),
-            "epmc_id": datalink.get("epmc_id", ""),
-            "source": datalink.get("source", ""),
-            "pmid": datalink.get("pmid", ""),
-            "pmcid": datalink.get("pmcid", ""),
-            "doi": datalink.get("doi", ""),
-            "title": datalink.get("title", ""),
-            "abstractText": datalink.get("abstractText", ""),
-            "text": datalink.get("text", ""),
-            "text_source": datalink.get("text_source", ""),
-            "full_text_status": datalink.get("full_text_status", ""),
-        }
+        return self._publication_policy.publication_from_datalink(datalink)
 
     def _publication_key(self, publication: dict) -> tuple:
-        return (
-            publication.get("source", ""),
-            publication.get("epmc_id", ""),
-            publication.get("pmid", ""),
-            publication.get("pmcid", ""),
-            publication.get("doi", ""),
-        )
+        return self._publication_policy.publication_key(publication)
 
     def _full_text_id(self, publication: dict) -> str:
         pmcid = str(publication.get("pmcid", "")).strip()

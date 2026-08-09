@@ -23,6 +23,7 @@ from ThematicAtlases.wrappers.enrichment import (
     CheckpointedPubmedFetcher,
     RetryTags,
 )
+from ThematicAtlases.wrappers.geo_records import GEORecordPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ class GEOWrapper:
         request_policy: RequestPolicy | None = None,
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides=None,
+        record_policy: GEORecordPolicy | None = None,
     ):
         self.resource_profile = (
             resource_profile.with_overrides(resource_overrides)
@@ -130,6 +132,7 @@ class GEOWrapper:
             name="GEO",
             resource_profile=self.resource_profile,
         )
+        self._record_policy = record_policy or GEORecordPolicy()
 
     def collect_accession_metadata(
         self,
@@ -850,15 +853,7 @@ class GEOWrapper:
         )
 
     def _metadata_records_from_packages(self, record: dict, packages: list[dict]) -> list[dict]:
-        return [
-            self._metadata_record(
-                record=record,
-                package=package,
-                package_gse=self._package_gse_accession(package)
-                or record.get("datalink_id", ""),
-            )
-            for package in packages
-        ]
+        return self._record_policy.metadata_records_from_packages(record, packages)
 
     def _records_from_metadata_checkpoint(self, record: dict, checkpoint: dict) -> list[dict]:
         payload = checkpoint.get("payload") or {}
@@ -892,150 +887,25 @@ class GEOWrapper:
         return [codec.encode(codec.decode(package, strict=True).package) for package in packages]
 
     def _package_gse_accession(self, package: dict) -> str:
-        series = package.get("series") or {}
-        accessions = series.get("accession") or []
-
-        if not isinstance(accessions, list):
-            accessions = [accessions]
-
-        for accession in accessions:
-            if isinstance(accession, dict):
-                accession = accession.get("value", "")
-
-            value = self._normalize_accession(accession=accession)
-
-            if value.startswith("GSE"):
-                return value
-
-        return ""
+        return self._record_policy.package_gse_accession(package)
 
     def _metadata_record(self, record: dict, package: dict, package_gse: str) -> dict:
-        metadata_record = {
-            **record,
-            "datalink_id": package_gse,
-            "metadata_repository": "geo",
-            "metadata_source": "geo2json",
-            "metadata_status": "available",
-            "accession_metadata": package,
-        }
-
-        if package_gse != record.get("datalink_id", ""):
-            metadata_record["source_datalink_id"] = record.get("datalink_id", "")
-
-        return metadata_record
+        return self._record_policy.metadata_record(record, package, package_gse)
 
     def _metadata_error_record(self, record: dict) -> dict:
-        return {
-            **record,
-            "metadata_repository": "geo",
-            "metadata_source": "geo2json",
-            "metadata_status": "error",
-            "accession_metadata": None,
-        }
+        return self._record_policy.metadata_error_record(record)
 
     def _metadata_unavailable_record(self, record: dict) -> dict:
-        return {
-            **record,
-            "metadata_repository": "geo",
-            "metadata_source": "geo2json",
-            "metadata_status": "unavailable",
-            "accession_metadata": None,
-        }
+        return self._record_policy.metadata_unavailable_record(record)
 
     def _gse_record(self, record: dict, gse_accession: str) -> dict:
-        return {
-            **record,
-            "datalink_id": gse_accession,
-            "original_datalinks": [
-                {
-                    "datalink_id": record.get("datalink_id", ""),
-                    "datalink_id_scheme": record.get("datalink_id_scheme", ""),
-                    "datalink_url": record.get("datalink_url", ""),
-                    "datalink_category": record.get("datalink_category", ""),
-                }
-            ],
-        }
+        return self._record_policy.gse_record(record, gse_accession)
 
     def _deduplicate_gse_jsons(self, jsons: list[dict]) -> list[dict]:
-        records = []
-        record_index = {}
-        publication_keys = {}
-        original_datalink_keys = {}
-        duplicate_rows = 0
-        publication_links = 0
-        original_datalink_links = 0
-
-        for record in jsons:
-            gse_accession = str(record.get("datalink_id", "")).strip().upper()
-
-            if not gse_accession:
-                continue
-
-            if gse_accession not in record_index:
-                record_index[gse_accession] = len(records)
-                publication_keys[gse_accession] = set()
-                original_datalink_keys[gse_accession] = set()
-                records.append({**record, "publications": [], "original_datalinks": []})
-            else:
-                duplicate_rows += 1
-
-            target_record = records[record_index[gse_accession]]
-
-            for original_datalink in record.get("original_datalinks", []):
-                original_datalink_key = self._original_datalink_key(
-                    original_datalink=original_datalink
-                )
-
-                if original_datalink_key not in original_datalink_keys[gse_accession]:
-                    original_datalink_keys[gse_accession].add(original_datalink_key)
-                    target_record["original_datalinks"].append(original_datalink)
-                    original_datalink_links += 1
-
-            for publication in record.get("publications", []):
-                publication_key = self._publication_key(publication=publication)
-
-                if publication_key not in publication_keys[gse_accession]:
-                    publication_keys[gse_accession].add(publication_key)
-                    target_record["publications"].append(publication)
-                    publication_links += 1
-
-            if (
-                target_record.get("metadata_status") != "available"
-                and record.get("metadata_status") == "available"
-            ):
-                target_record["metadata_repository"] = record.get(
-                    "metadata_repository", ""
-                )
-                target_record["metadata_source"] = record.get("metadata_source", "")
-                target_record["metadata_status"] = record.get("metadata_status", "")
-                target_record["accession_metadata"] = record.get("accession_metadata")
-
-                if "source_datalink_id" in record:
-                    target_record["source_datalink_id"] = record["source_datalink_id"]
-
-        logger.info(
-            "GEO GSE dedupe stats input_rows=%s output_rows=%s duplicate_rows_collapsed=%s publication_links=%s original_datalink_links=%s",
-            len(jsons),
-            len(records),
-            duplicate_rows,
-            publication_links,
-            original_datalink_links,
-        )
-        return records
+        return self._record_policy.deduplicate_gse_jsons(jsons)
 
     def _original_datalink_key(self, original_datalink: dict) -> tuple:
-        return (
-            original_datalink.get("datalink_id", ""),
-            original_datalink.get("datalink_id_scheme", ""),
-            original_datalink.get("datalink_url", ""),
-            original_datalink.get("datalink_category", ""),
-        )
+        return self._record_policy.original_datalink_key(original_datalink)
 
     def _publication_key(self, publication: dict) -> tuple:
-        return (
-            publication.get("source", ""),
-            publication.get("epmc_id", ""),
-            publication.get("pmid", ""),
-            publication.get("pmcid", ""),
-            publication.get("doi", ""),
-        )
+        return self._record_policy.publication_key(publication)

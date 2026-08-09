@@ -13,6 +13,21 @@ from ThematicAtlases.wrappers import epmc as epmc_module
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
 
+def test_epmc_wrapper_accepts_an_injected_publication_policy() -> None:
+    class PublicationPolicy:
+        @staticmethod
+        def merge_accessions(datalink_accessions, scraped_accessions):
+            assert datalink_accessions == [{"datalink_id": "GSE1"}]
+            assert scraped_accessions == []
+            return [{"datalink_id": "injected"}]
+
+    wrapper = EuropePMCWrapper(publication_policy=PublicationPolicy())
+
+    assert wrapper.merge_accessions([{"datalink_id": "GSE1"}], []) == [
+        {"datalink_id": "injected"}
+    ]
+
+
 class FakeResponse:
     def __init__(
         self,

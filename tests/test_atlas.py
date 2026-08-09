@@ -1176,6 +1176,17 @@ def test_atlas_shares_one_repository_capability_registry_across_stages() -> None
     assert atlas._harmonizer._capability_registry is registry
 
 
+def test_atlas_accepts_an_injected_run_lifecycle() -> None:
+    class RunLifecycle:
+        @staticmethod
+        def dev_run_id() -> str:
+            return "injected-run"
+
+    atlas = Atlas(metadata={}, run_lifecycle=RunLifecycle())
+
+    assert atlas._dev_run_id() == "injected-run"
+
+
 def test_atlas_applies_one_typed_resource_profile_across_default_stages() -> None:
     atlas = Atlas(
         metadata={},
