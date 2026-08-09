@@ -1203,6 +1203,11 @@ def test_atlas_applies_one_typed_resource_profile_across_default_stages() -> Non
     assert atlas._harmonizer._resource_profile is atlas._resource_profile
 
 
+def test_atlas_rejects_non_json_runtime_provenance() -> None:
+    with pytest.raises(ValueError, match="runtime_provenance must be JSON-compatible"):
+        Atlas(metadata={}, runtime_provenance={"invalid": object()})
+
+
 def test_resume_requeues_stale_review_contract(tmp_path) -> None:
     from ThematicAtlases.checkpoint import CheckpointStore
 

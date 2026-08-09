@@ -20,6 +20,44 @@ from ThematicAtlases.unsupported_accessions import (
 from ThematicAtlases.wrappers.epmc import PUBLICATION_TEXT_CONTRACT_VERSION
 
 
+def resolve_resume_run_directory(
+    dev_out_dir: str | Path,
+    run_id: str | None,
+) -> Path:
+    """Resolve an explicit trace or the latest incomplete valid trace."""
+
+    root = Path(dev_out_dir)
+    if run_id is not None:
+        candidate = Path(run_id)
+        run_dir = candidate if candidate.is_dir() else root / run_id
+        AtlasRunLifecycle.read_checkpoint(run_dir / "00_run_manifest.json")
+        return run_dir
+
+    candidates = []
+    for run_dir in root.iterdir() if root.is_dir() else []:
+        manifest_path = run_dir / "00_run_manifest.json"
+        final_path = run_dir / "06_final_atlas.json"
+        if not run_dir.is_dir() or not manifest_path.exists():
+            continue
+        if final_path.exists():
+            try:
+                checkpoint_store = DevTraceWriter.existing(
+                    run_dir
+                ).checkpoint_store
+            except (OSError, ValueError):
+                continue
+            if not checkpoint_store.has_incomplete():
+                continue
+        try:
+            AtlasRunLifecycle.read_checkpoint(manifest_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        candidates.append(run_dir)
+    if not candidates:
+        raise FileNotFoundError(f"No incomplete valid trace found under {root}")
+    return max(candidates, key=lambda path: path.name)
+
+
 class AtlasRunLifecycle:
     """Own run identity, resumption selection, and output publication policy."""
 
@@ -186,36 +224,7 @@ class AtlasRunLifecycle:
         return published
 
     def resume_run_directory(self, dev_out_dir: str, run_id: str | None) -> Path:
-        root = Path(dev_out_dir)
-        if run_id is not None:
-            candidate = Path(run_id)
-            run_dir = candidate if candidate.is_dir() else root / run_id
-            self.read_checkpoint(run_dir / "00_run_manifest.json")
-            return run_dir
-
-        candidates = []
-        for run_dir in root.iterdir() if root.is_dir() else []:
-            manifest_path = run_dir / "00_run_manifest.json"
-            final_path = run_dir / "06_final_atlas.json"
-            if not run_dir.is_dir() or not manifest_path.exists():
-                continue
-            if final_path.exists():
-                try:
-                    checkpoint_store = DevTraceWriter.existing(
-                        run_dir
-                    ).checkpoint_store
-                except (OSError, ValueError):
-                    continue
-                if not checkpoint_store.has_incomplete():
-                    continue
-            try:
-                self.read_checkpoint(manifest_path)
-            except (OSError, ValueError, json.JSONDecodeError):
-                continue
-            candidates.append(run_dir)
-        if not candidates:
-            raise FileNotFoundError(f"No incomplete valid trace found under {root}")
-        return max(candidates, key=lambda path: path.name)
+        return resolve_resume_run_directory(dev_out_dir, run_id)
 
     @staticmethod
     def reconcile_checkpoint_contracts(checkpoint_store) -> None:

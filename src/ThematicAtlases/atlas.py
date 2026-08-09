@@ -2,6 +2,8 @@ import logging
 import json
 import hashlib
 import inspect
+from collections.abc import Mapping
+from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 
@@ -53,6 +55,26 @@ def _configured_factory(factory, **configuration):
     return partial(factory, **configuration)
 
 
+def _json_runtime_provenance(
+    value: Mapping[str, object] | None,
+) -> dict[str, object]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise TypeError("runtime_provenance must be a mapping or None")
+    try:
+        normalized = json.loads(
+            json.dumps(value, sort_keys=True, separators=(",", ":"))
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "runtime_provenance must be JSON-compatible"
+        ) from error
+    if not isinstance(normalized, dict):
+        raise TypeError("runtime_provenance must normalize to an object")
+    return normalized
+
+
 class Atlas:
     def __init__(
         self,
@@ -73,6 +95,7 @@ class Atlas:
         capability_registry: RepositoryCapabilityRegistry | None = None,
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides: dict[str, int | float] | None = None,
+        runtime_provenance: Mapping[str, object] | None = None,
         run_lifecycle: AtlasRunLifecycle | None = None,
     ):
         self.metadata = metadata
@@ -86,6 +109,7 @@ class Atlas:
                 overrides=resource_overrides,
             )
         )
+        self._runtime_provenance = _json_runtime_provenance(runtime_provenance)
         self._capability_registry = (
             capability_registry or RepositoryCapabilityRegistry()
         )
@@ -249,6 +273,8 @@ class Atlas:
                     "unsupported_accessions_out": unsupported_accessions_out,
                     "thematic_review": thematic_review,
                     "stop_after": stop_after,
+                    "resource_profile": asdict(self._resource_profile),
+                    "runtime_provenance": self._runtime_provenance,
                 },
             )
             trace.run_store.set_run_status(run_id, "running")
@@ -366,6 +392,8 @@ class Atlas:
                 "scrape_fulltext_accessions": scrape_fulltext_accessions,
                 "thematic_review": thematic_review,
                 "harmonization_options": dict(harmonization_options or {}),
+                "resource_profile": asdict(self._resource_profile),
+                "runtime_provenance": self._runtime_provenance,
             },
             run_status=self._final_run_status(
                 result,
@@ -899,6 +927,8 @@ class Atlas:
                 "review_before_metadata": review_before_metadata,
                 "stop_before_review": stop_before_review,
                 "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                "resource_profile": asdict(self._resource_profile),
+                "runtime_provenance": self._runtime_provenance,
             },
             run_status=RunStatus.RUNNING,
         )
@@ -1027,6 +1057,8 @@ class Atlas:
                     "stop_before_review": stop_before_review,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
                     "unsupported_accessions_out": unsupported_accessions_out,
+                    "resource_profile": asdict(self._resource_profile),
+                    "runtime_provenance": self._runtime_provenance,
                 },
             )
             _trace_writer.run_store.set_run_status(effective_run_id, "running")

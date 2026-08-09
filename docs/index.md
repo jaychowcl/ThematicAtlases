@@ -148,8 +148,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-run-lifecycle
   title: [AtlasRunLifecycle](codebase.md#type-atlas-run-lifecycle)
   anchor: type-atlas-run-lifecycle
-  purpose: Run identity, status aggregation, resume selection, checkpoint-contract reconciliation, archival, and resumed publication.
-  keywords: AtlasRunLifecycle, run ID, resume directory, checkpoint contract, publication, archive
+  purpose: Run identity, status aggregation, public exact resume selection, checkpoint-contract reconciliation, archival, and resumed publication.
+  keywords: AtlasRunLifecycle, resolve_resume_run_directory, run ID, resume directory, checkpoint contract, publication, archive
 
 - id: type-atlas-document
   title: [AtlasDocument v1](codebase.md#type-atlas-document)

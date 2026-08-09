@@ -4,6 +4,7 @@ import pytest
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases import cli_atlas
+from ThematicAtlases.run_lifecycle import resolve_resume_run_directory
 from ThematicAtlases.trace import DevTraceWriter
 
 
@@ -68,6 +69,60 @@ def test_create_atlas_can_pause_after_metadata_as_resumable_collection(tmp_path)
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["command"] == "create-atlas"
     assert manifest["stop_after"] == "metadata"
+
+
+def test_create_trace_and_document_record_runtime_provenance_and_resource_profile(
+    tmp_path,
+):
+    provenance = {
+        "workflow": "fibrosis_atlas_v1",
+        "script_sha256": "abc123",
+        "model_egress": {"thematic_review": "public"},
+    }
+    atlas = RecordingCollectionAtlas(
+        harmonizer=NoHarmonizer(),
+        resource_profile="large",
+        resource_overrides={"network_workers": 3},
+        runtime_provenance=provenance,
+    )
+
+    result = atlas.create_atlas(
+        query=["fibrosis"],
+        theme="human fibrosis",
+        generate_queries=False,
+        dev_trace=True,
+        dev_out_dir=str(tmp_path),
+        stop_after="metadata",
+    )
+
+    run_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
+    manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
+    assert manifest["runtime_provenance"] == provenance
+    assert manifest["resource_profile"]["name"] == "large"
+    assert manifest["resource_profile"]["network_workers"] == 3
+    options = result["run"]["config"]["options"]
+    assert options["runtime_provenance"] == provenance
+    assert options["resource_profile"] == manifest["resource_profile"]
+
+
+def test_public_resume_resolver_selects_latest_incomplete_valid_trace(tmp_path):
+    paused = DevTraceWriter(
+        root=str(tmp_path),
+        run_id="20260809T100000Z-paused",
+        manifest={"command": "create-atlas", "atlas_id": "fibrosis"},
+    )
+    complete = DevTraceWriter(
+        root=str(tmp_path),
+        run_id="20260809T110000Z-complete",
+        manifest={"command": "create-atlas", "atlas_id": "fibrosis"},
+    )
+    complete.write("06_final_atlas.json", {"schema_version": "1.0"})
+
+    assert resolve_resume_run_directory(tmp_path, None) == paused.directory
+    assert (
+        resolve_resume_run_directory(tmp_path, complete.directory.name)
+        == complete.directory
+    )
 
 
 def test_resume_continues_paused_create_run_without_recollecting_metadata(tmp_path):
