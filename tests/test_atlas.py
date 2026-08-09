@@ -478,7 +478,7 @@ def test_collect_datasets_collects_then_filters_and_returns_atlas_object() -> No
             "file": None,
             "theme": "fibrosis",
             "review_filter": "not_relevant",
-            "prune_accessions": True,
+                "prune_accessions": False,
             "reviewer": reviewer,
         }
     ]
@@ -627,7 +627,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "theme": "fibrosis",
                     "review_filter": "none",
                     "review_strategy": "direct",
-                    "prune_accessions": True,
+                        "prune_accessions": False,
                     "metadata_repositories": ["arrayexpress"],
                 "max_publications": 25,
                 "reviewer": None,

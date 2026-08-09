@@ -173,7 +173,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
   purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, exclusion_basis, accession evidence, accessions_to_remove, prune_accessions, review revision 2, contract version 6
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, exclusion_basis, grounded evidence, accessions_to_remove, prune_accessions, review revision 3, contract version 7
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
@@ -319,7 +319,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
   purpose: Current automated coverage and verification commands.
-  keywords: pytest, 486 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
+  keywords: pytest, 499 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
   title: [Atlas Workflow](codebase.md#atlas-workflow)

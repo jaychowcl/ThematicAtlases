@@ -121,7 +121,7 @@ class Atlas:
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
         thematic_review: bool = True,
-        prune_accessions: bool = True,
+        prune_accessions: bool = False,
         stop_after: str | None = None,
     ) -> dict:
         if theme is None or not theme.strip():
@@ -792,7 +792,7 @@ class Atlas:
         stop_before_review: bool = False,
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
-        prune_accessions: bool = True,
+        prune_accessions: bool = False,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
         """Collect datasets and expose the result as an Atlas v1 document."""
@@ -923,7 +923,7 @@ class Atlas:
         stop_before_review: bool = False,
         scrape_fulltext_accessions: bool = True,
         unsupported_accessions_out: str | None = None,
-        prune_accessions: bool = True,
+        prune_accessions: bool = False,
         _trace_writer: DevTraceWriter | None = None,
         _finalize_trace: bool = True,
         _resolution: dict[str, list[str]] | None = None,
@@ -1342,7 +1342,7 @@ class Atlas:
         review_filter: str = "none",
         review_strategy: str = "direct",
         reviewer=None,
-        prune_accessions: bool = True,
+        prune_accessions: bool = False,
         _review_progress_callback=None,
         _checkpoint_store=None,
     ) -> dict:

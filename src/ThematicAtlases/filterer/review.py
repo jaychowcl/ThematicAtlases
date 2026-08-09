@@ -23,7 +23,7 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct", "evidence_then_judgement"}
-REVIEW_CONTRACT_VERSION = 6
+REVIEW_CONTRACT_VERSION = 7
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class PublicationTextReviewer:
         review_filter: str,
         reviewer=None,
         strategy: str = "direct",
-        prune_accessions: bool = True,
+        prune_accessions: bool = False,
     ) -> tuple[list[dict], dict]:
         if theme is None:
             return accessions, publication_texts
@@ -431,7 +431,7 @@ class PublicationTextReviewer:
         accessions: list[dict],
         publication_texts: dict,
         review_filter: str,
-        prune_accessions: bool = True,
+        prune_accessions: bool = False,
     ) -> tuple[list[dict], dict]:
         removed_judgements = self.removed_review_judgements(review_filter=review_filter)
         filtered_accessions = []

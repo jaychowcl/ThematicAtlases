@@ -114,9 +114,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument(
         "--prune-accessions",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="apply accession exclusions from thematic review (enabled by default)",
+        action="store_true",
+        default=False,
+        help="explicitly apply grounded accession exclusions from thematic review",
     )
 
     create = subparsers.add_parser(
@@ -174,9 +174,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument(
         "--prune-accessions",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="apply accession exclusions from thematic review (enabled by default)",
+        action="store_true",
+        default=False,
+        help="explicitly apply grounded accession exclusions from thematic review",
     )
 
     harmonize = subparsers.add_parser(

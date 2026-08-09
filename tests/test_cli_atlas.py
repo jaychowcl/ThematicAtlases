@@ -94,7 +94,7 @@ class RecordingCollectionAtlas:
         return {"accessions": [], "publication_texts": {}}
 
 
-def test_accession_pruning_cli_defaults_on_for_collection(monkeypatch) -> None:
+def test_accession_pruning_cli_defaults_off_for_collection(monkeypatch) -> None:
     RecordingCollectionAtlas.calls = []
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
@@ -106,10 +106,10 @@ def test_accession_pruning_cli_defaults_on_for_collection(monkeypatch) -> None:
         "fibrosis theme",
     ]) == 0
 
-    assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is True
+    assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is False
 
 
-def test_accession_pruning_cli_can_be_disabled_for_creation(monkeypatch) -> None:
+def test_accession_pruning_cli_can_be_explicitly_enabled_for_creation(monkeypatch) -> None:
     RecordingCollectionAtlas.calls = []
     monkeypatch.setattr(cli_module, "Atlas", RecordingCollectionAtlas)
 
@@ -117,10 +117,10 @@ def test_accession_pruning_cli_can_be_disabled_for_creation(monkeypatch) -> None
         "create-atlas",
         "--theme",
         "fibrosis theme",
-        "--no-prune-accessions",
+        "--prune-accessions",
     ]) == 0
 
-    assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is False
+    assert RecordingCollectionAtlas.calls[0]["prune_accessions"] is True
 
 
 def test_query_generator_flag_is_forwarded_to_collect_method(
@@ -649,7 +649,7 @@ def test_collect_datasets_passes_options_to_atlas(
             "theme": "theme",
             "review_filter": "not_relevant",
             "review_strategy": "direct",
-            "prune_accessions": True,
+            "prune_accessions": False,
             "metadata_repositories": ["geo", "arrayexpress"],
             "max_publications": 25,
             "reviewer": None,
@@ -776,7 +776,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "theme": "fibrosis theme",
             "review_filter": "not_relevant",
             "review_strategy": "direct",
-            "prune_accessions": True,
+            "prune_accessions": False,
             "metadata_repositories": ["arrayexpress"],
             "max_publications": 25,
             "reviewer": None,

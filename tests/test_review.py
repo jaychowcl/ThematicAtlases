@@ -613,11 +613,12 @@ def test_direct_review_traces_and_applies_accession_removals(
         accessions=accessions,
         publication_texts=texts,
         review_filter="not_relevant",
+        prune_accessions=True,
     )
     assert [record["datalink_id"] for record in filtered] == ["GSE1"]
 
 
-def test_accession_pruning_can_be_disabled() -> None:
+def test_accession_pruning_defaults_to_non_destructive() -> None:
     accessions = [
         {
             "datalink_id": accession,
@@ -638,7 +639,6 @@ def test_accession_pruning_can_be_disabled() -> None:
         accessions=accessions,
         publication_texts=publication_texts,
         review_filter="none",
-        prune_accessions=False,
     )
 
     assert [record["datalink_id"] for record in filtered] == ["GSE1", "GSE2"]
@@ -675,6 +675,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
         accessions=accessions,
         publication_texts=publication_texts,
         review_filter="none",
+        prune_accessions=True,
     )
 
     assert filtered == [
@@ -687,7 +688,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
 
 
 def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
-    assert REVIEW_CONTRACT_VERSION == 6
+    assert REVIEW_CONTRACT_VERSION == 7
 
 
 def test_review_strategies_resume_independently_and_ignore_legacy_checkpoint(

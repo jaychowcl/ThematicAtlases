@@ -169,7 +169,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "scrape_fulltext_accessions"
     )
     assert python_guide.count("scrape_fulltext_accessions=True") >= 2
-    assert python_guide.count("prune_accessions=True") >= 2
+    assert python_guide.count("prune_accessions=False") >= 2
 
     required_symbols = [
         "`Atlas(...)`",
