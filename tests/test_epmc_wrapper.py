@@ -40,6 +40,7 @@ class FakeResponse:
         self.status_code = status_code
         self.headers = headers or {}
         self.text = text
+        self.close_calls = 0
 
     def json(self) -> dict:
         return self.payload
@@ -47,6 +48,9 @@ class FakeResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise requests.HTTPError(response=self)
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 def _geo_datalink_response(accession: str) -> dict:
@@ -118,6 +122,9 @@ def _datalinks_xml(
 def test_default_request_delay_is_gentle_and_can_be_overridden() -> None:
     assert EuropePMCWrapper()._request_settings["request_delay"] == 0.5
     assert EuropePMCWrapper(request_delay=0)._request_settings["request_delay"] == 0
+
+    with pytest.raises(ValueError, match="request_delay must not be negative"):
+        EuropePMCWrapper(request_delay=-0.1)
 
 
 def test_collect_publications_resumes_from_completed_search_page(tmp_path) -> None:
@@ -1068,7 +1075,9 @@ def test_collect_datalinks_deduplicates_flattened_rows(monkeypatch) -> None:
 
 def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
     calls = []
+    sleeps = []
     responses = [
+        FakeResponse({}, status_code=503),
         FakeResponse({}, status_code=503),
         FakeResponse(
             {},
@@ -1083,14 +1092,14 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
         return responses.pop(0)
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
-    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
 
-    result = EuropePMCWrapper(max_retries=1).collect_datalinks(
+    result = EuropePMCWrapper(max_retries=1, request_delay=0.25).collect_datalinks(
         publications=[{"query": "q", "source": "MED", "epmc_id": "1"}]
     )
 
-    assert len(calls) == 2
-    assert calls == [None, None]
+    assert calls == [None, {"format": "json"}, None]
+    assert sleeps == [0.25, 0.5, 0.25]
     assert result[0]["datalink_id"] == "PRJ1"
     assert result[0]["publications"] == [
         {
@@ -1113,6 +1122,7 @@ def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_fails(
     monkeypatch,
 ) -> None:
     calls = []
+    sleeps = []
     responses = [
         FakeResponse({}, status_code=500),
         FakeResponse(
@@ -1150,9 +1160,13 @@ def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_fails(
         return responses.pop(0)
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
-    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
 
-    result = EuropePMCWrapper(max_retries=0, timeout=12).collect_datalinks(
+    result = EuropePMCWrapper(
+        max_retries=3,
+        request_delay=0.25,
+        timeout=12,
+    ).collect_datalinks(
         publications=[{"query": "q", "source": "MED", "epmc_id": "123"}]
     )
 
@@ -1168,6 +1182,7 @@ def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_fails(
             12,
         ),
     ]
+    assert sleeps == [0.25, 0.25]
     assert result == [
         {
             "datalink_id": "E-MTAB-1",
@@ -1191,6 +1206,179 @@ def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_fails(
             ],
         }
     ]
+
+
+def test_collect_datalinks_honors_retry_after_before_json(monkeypatch) -> None:
+    calls = []
+    sleeps = []
+    responses = [
+        FakeResponse({}, status_code=429, headers={"Retry-After": "3"}),
+        FakeResponse(_geo_datalink_response("GSE1")),
+    ]
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
+
+    result = EuropePMCWrapper(max_retries=3).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "123"}]
+    )
+
+    assert calls == [None, {"format": "json"}]
+    assert sleeps == [3.0, 0.5]
+    assert result[0]["datalink_id"] == "GSE1"
+
+
+def test_datalinks_returns_to_xml_after_retryable_pair_with_malformed_json(
+    monkeypatch,
+) -> None:
+    calls = []
+    sleeps = []
+
+    class MalformedJSONResponse(FakeResponse):
+        def json(self) -> dict:
+            raise requests.JSONDecodeError("invalid JSON", "{", 1)
+
+    responses = [
+        FakeResponse({}, status_code=500),
+        MalformedJSONResponse({}),
+        FakeResponse({}, text=_datalinks_xml(("GEO", "GSE1", "GEO", ""))),
+    ]
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
+
+    result = EuropePMCWrapper(
+        max_retries=1,
+        request_delay=0,
+    )._datalinks(source="MED", epmc_id="123")
+
+    assert calls == [None, {"format": "json"}, None]
+    assert sleeps == [0.5]
+    assert result["dataLinkList"]["Category"][0]["Section"][0]["Linklist"][
+        "Link"
+    ][0]["Target"]["Identifier"]["ID"] == "GSE1"
+
+
+def test_valid_empty_datalinks_xml_is_authoritative(monkeypatch, tmp_path) -> None:
+    calls = []
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return FakeResponse({}, text=_datalinks_xml())
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda _delay: None)
+
+    result = EuropePMCWrapper(request_delay=0).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "123"}],
+        checkpoint_store=store,
+    )
+
+    assert result == []
+    assert calls == [None]
+    assert store.get("datalinks", "MED:123")["status"] == "no_data"
+
+
+def test_datalinks_closes_failed_and_successful_format_responses(monkeypatch) -> None:
+    xml_response = FakeResponse({}, status_code=500)
+    json_response = FakeResponse(_geo_datalink_response("GSE1"))
+    responses = [xml_response, json_response]
+
+    monkeypatch.setattr(
+        epmc_module.requests,
+        "get",
+        lambda url, params=None, timeout=None: responses.pop(0),
+    )
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda _delay: None)
+
+    result = EuropePMCWrapper(
+        max_retries=0,
+        request_delay=0,
+    )._datalinks(source="MED", epmc_id="123")
+
+    assert result == _geo_datalink_response("GSE1")
+    assert xml_response.close_calls == 1
+    assert json_response.close_calls == 1
+
+
+def test_datalinks_alternates_formats_until_bounded_retry_exhaustion(
+    monkeypatch,
+) -> None:
+    calls = []
+    sleeps = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return FakeResponse({}, status_code=500)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
+    wrapper = EuropePMCWrapper(max_retries=3)
+
+    with pytest.raises(requests.HTTPError) as error:
+        wrapper._datalinks(source="MED", epmc_id="123")
+
+    assert error.value.response.status_code == 500
+    assert calls == [None, {"format": "json"}] * 4
+    assert sleeps == [0.5, 0.5, 0.5, 1.0, 0.5, 2.0, 0.5]
+
+
+def test_datalinks_stops_after_one_permanent_failure_pair(monkeypatch) -> None:
+    calls = []
+    sleeps = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return FakeResponse({}, status_code=404)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
+    wrapper = EuropePMCWrapper(max_retries=3)
+
+    with pytest.raises(requests.HTTPError) as error:
+        wrapper._datalinks(source="MED", epmc_id="123")
+
+    assert error.value.response.status_code == 404
+    assert calls == [None, {"format": "json"}]
+    assert sleeps == [0.5]
+
+
+def test_collect_datalinks_preserves_retryable_pair_failure_for_resume(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    calls = []
+    store = CheckpointStore(tmp_path / "resume.sqlite")
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
+        return FakeResponse({}, status_code=404 if params else 500)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda _delay: None)
+
+    result = EuropePMCWrapper(
+        max_retries=1,
+        request_delay=0,
+    ).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "123"}],
+        checkpoint_store=store,
+    )
+
+    assert result == []
+    assert calls == [None, {"format": "json"}] * 2
+    checkpoint = store.get("datalinks", "MED:123")
+    assert checkpoint["status"] == "retryable_error"
+    assert checkpoint["failure_category"] == "transient"
 
 
 def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_times_out(
@@ -1234,6 +1422,7 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
     caplog,
 ) -> None:
     calls = []
+    sleeps = []
 
     def fake_get(url, params=None, timeout=None):
         calls.append((url, params, timeout))
@@ -1254,7 +1443,7 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
         )
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
-    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    monkeypatch.setattr(epmc_module.time, "sleep", sleeps.append)
     caplog.set_level(logging.INFO, logger=epmc_module.__name__)
 
     result = EuropePMCWrapper(max_retries=0, timeout=12).collect_datalinks(
@@ -1304,6 +1493,7 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
             12,
         ),
     ]
+    assert sleeps == [0.5, 0.5, 0.5]
     assert "EuropePMC datalinks skipped publication source='MED' epmc_id='failed'" in caplog.text
     assert "failed_publications=1" in caplog.text
 

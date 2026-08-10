@@ -100,15 +100,19 @@ class RequestPolicy:
         params: Mapping[str, Any] | None = None,
         retry_exceptions: bool = False,
         raise_for_status: bool = True,
+        max_retries: int | None = None,
     ) -> Any:
         """Return the final response or propagate its terminal failure."""
 
+        retry_limit = self.max_retries if max_retries is None else max_retries
+        if retry_limit < 0:
+            raise ValueError("max_retries must not be negative")
         self._validate_url(url)
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(retry_limit + 1):
             try:
                 response = self._request_with_redirects(url, params=params)
             except requests.RequestException as error:
-                if not retry_exceptions or attempt >= self.max_retries:
+                if not retry_exceptions or attempt >= retry_limit:
                     raise
                 delay = self.retry_delay(None, attempt)
                 self._logger.debug(
@@ -118,10 +122,10 @@ class RequestPolicy:
                     attempt + 1,
                     delay,
                 )
-                self._sleep(delay)
+                self.wait(delay)
                 continue
 
-            if response.status_code in self.retry_statuses and attempt < self.max_retries:
+            if response.status_code in self.retry_statuses and attempt < retry_limit:
                 delay = self.retry_delay(response, attempt)
                 self._logger.debug(
                     "%s retry status=%s attempt=%s delay=%s",
@@ -130,14 +134,21 @@ class RequestPolicy:
                     attempt + 1,
                     delay,
                 )
-                self._sleep(delay)
                 self._close(response)
+                self.wait(delay)
                 continue
             if raise_for_status:
                 response.raise_for_status()
             self._enforce_response_limit(response)
             return response
         raise RuntimeError("bounded HTTP retry loop terminated without a response")
+
+    def wait(self, delay: int | float) -> None:
+        """Wait through the injected sleeper before another provider request."""
+
+        if delay < 0:
+            raise ValueError("delay must not be negative")
+        self._sleep(float(delay))
 
     def _request_with_redirects(
         self,

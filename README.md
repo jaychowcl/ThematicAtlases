@@ -10,6 +10,13 @@ ThematicAtlases searches Europe PMC for publications, follows their dataset link
 
 The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall and labeled thematic-review classification.
 
+Europe PMC Datalinks discovery starts with the default XML representation. A
+failed XML attempt waits for the configured request interval before trying
+JSON; when both formats fail retryably, bounded backoff restarts the next round
+at XML. Provider `Retry-After` and throttle responses can lengthen, but never
+shorten, the configured interval. Valid empty XML is authoritative, while XML
+security and size failures remain fail closed.
+
 ## Installation
 
 From the repository root, create the project virtual environment and install the package:

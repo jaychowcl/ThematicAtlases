@@ -88,8 +88,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: request-policy
   title: [Typed resource and request policy](codebase.md#request-policy)
   anchor: request-policy
-  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/decoded-response/aggregate boundaries, compressed transport handling, worker limits, and delegated disk preflight.
-  keywords: ResourceProfile, standard, large, resource override, 10% headroom, RequestPolicy, HTTPS, redirects, Content-Encoding, Content-Length, compressed response, decoded body, max_xml_bytes, aggregate download, ontology file, not RAM
+  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/decoded-response/aggregate boundaries, per-call retry control, injected pacing, worker limits, and delegated disk preflight.
+  keywords: ResourceProfile, standard, large, resource override, 10% headroom, RequestPolicy, max_retries, wait, HTTPS, redirects, Content-Encoding, Content-Length, compressed response, decoded body, max_xml_bytes, aggregate download, ontology file, not RAM
 
 - id: interface-thematic-atlas-cli
   title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)
@@ -378,8 +378,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: epmc-wrapper
   title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
   anchor: epmc-wrapper
-  purpose: Search, pagination, deduplication, XML-primary datalinks with bounded JSON fallback, publication text, checkpoint, and endpoint detail.
-  keywords: EuropePMCWrapper, search, datalinks, XML primary, JSON fallback, Scholix, fail closed, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
+  purpose: Search, pagination, deduplication, paced alternating XML/JSON Datalinks retries, publication text, checkpoint, and endpoint detail.
+  keywords: EuropePMCWrapper, search, datalinks, XML primary, JSON fallback, alternating rounds, request_delay, Retry-After, Scholix, fail closed, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
 
 - id: fulltext-accession-discovery
   title: [Publication-text Accession Discovery](codebase.md#fulltext-accession-discovery)
@@ -390,8 +390,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: rate-handling
   title: [Rate Handling](codebase.md#rate-handling)
   anchor: rate-handling
-  purpose: Shared injectable HTTP policy for profile timeouts, egress/redirect/body/aggregate ceilings, endpoint cadence, bounded retry, and Retry-After behavior.
-  keywords: RequestPolicy, ResourceProfile, HTTPS, host allowlist, redirects, aggregate bytes, retry, Retry-After, HTTP-date, bounded delay, timeout, EuropePMCWrapper, GEOWrapper
+  purpose: Shared injectable HTTP policy for profile timeouts, egress/redirect/body/aggregate ceilings, per-call retry limits, endpoint cadence, and Retry-After behavior.
+  keywords: RequestPolicy, ResourceProfile, HTTPS, host allowlist, redirects, aggregate bytes, retry, per-call max_retries, wait, Retry-After, HTTP-date, bounded delay, timeout, EuropePMCWrapper, GEOWrapper
 
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)

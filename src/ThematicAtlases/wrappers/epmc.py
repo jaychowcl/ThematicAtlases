@@ -55,6 +55,8 @@ class EuropePMCWrapper:
         resource_overrides=None,
         publication_policy: PublicationRecordPolicy | None = None,
     ):
+        if request_delay < 0:
+            raise ValueError("request_delay must not be negative")
         self.resource_profile = (
             resource_profile.with_overrides(resource_overrides)
             if isinstance(resource_profile, ResourceProfile) and resource_overrides
@@ -838,6 +840,10 @@ class EuropePMCWrapper:
                     epmc_id,
                     type(error).__name__,
                 )
+                self._wait_before_datalink_request(
+                    error=error,
+                    attempt=self._request_policy.max_retries,
+                )
                 continue
             logger.debug(
                 "EuropePMC datalinks response source=%r epmc_id=%r categories=%s elapsed_seconds=%.3f",
@@ -874,7 +880,7 @@ class EuropePMCWrapper:
                     payload={"rows": publication_datalinks},
                 )
 
-            time.sleep(self._request_settings["request_delay"])
+            self._request_policy.wait(self._request_settings["request_delay"])
 
         logger.info(
             "EuropePMC datalink stats publications_checked=%s datalinks_collected=%s skipped_categories=%s failed_publications=%s",
@@ -958,29 +964,123 @@ class EuropePMCWrapper:
 
     def _datalinks(self, source: str, epmc_id: str) -> dict:
         url = self._datalinks_url.format(source=source, epmc_id=epmc_id)
+        retry_limit = self._request_policy.max_retries
 
-        try:
-            return self._datalinks_from_xml(url=url)
-        except (requests.RequestException, ET.ParseError) as error:
+        for attempt in range(retry_limit + 1):
+            failures: list[Exception] = []
+            try:
+                return self._datalinks_from_xml(url=url)
+            except (requests.RequestException, ET.ParseError) as error:
+                failures.append(error)
+                delay = self._wait_before_datalink_request(
+                    error=error,
+                    attempt=attempt,
+                )
+                logger.debug(
+                    "EuropePMC datalinks format fallback format=xml "
+                    "next_format=json round=%s/%s delay=%s error_type=%s "
+                    "source=%r epmc_id=%r",
+                    attempt + 1,
+                    retry_limit + 1,
+                    delay,
+                    type(error).__name__,
+                    source,
+                    epmc_id,
+                )
+
+            try:
+                return self._datalinks_from_json(url=url)
+            except requests.RequestException as error:
+                failures.append(error)
+                self._close_error_response(error)
+                logger.debug(
+                    "EuropePMC datalinks format failure format=json "
+                    "round=%s/%s error_type=%s source=%r epmc_id=%r",
+                    attempt + 1,
+                    retry_limit + 1,
+                    type(error).__name__,
+                    source,
+                    epmc_id,
+                )
+
+            retryable_failures = [
+                error for error in failures if is_retryable_error(error)
+            ]
+            selected_error = (
+                retryable_failures[-1] if retryable_failures else failures[-1]
+            )
+            if not retryable_failures or attempt >= retry_limit:
+                raise selected_error
+
+            delay = self._wait_before_datalink_request(
+                error=selected_error,
+                attempt=attempt,
+                retry_backoff=True,
+            )
             logger.debug(
-                "EuropePMC datalinks JSON fallback error_type=%s source=%r epmc_id=%r",
-                type(error).__name__,
+                "EuropePMC datalinks retry round=%s/%s next_format=xml "
+                "delay=%s error_type=%s source=%r epmc_id=%r",
+                attempt + 2,
+                retry_limit + 1,
+                delay,
+                type(selected_error).__name__,
                 source,
                 epmc_id,
             )
-            return self._datalinks_from_json(url=url)
+
+        raise RuntimeError("bounded Europe PMC Datalinks retry loop terminated")
 
     def _datalinks_from_xml(self, url: str) -> dict:
-        response = self._request_policy.get(url, retry_exceptions=True)
-        return self._datalinks_xml_to_json(response.text)
+        response = self._request_policy.get(
+            url,
+            retry_exceptions=True,
+            max_retries=0,
+        )
+        try:
+            return self._datalinks_xml_to_json(response.text)
+        finally:
+            self._close_response(response)
 
     def _datalinks_from_json(self, url: str) -> dict:
         response = self._request_policy.get(
             url,
             params={"format": "json"},
             retry_exceptions=True,
+            max_retries=0,
         )
-        return response.json()
+        try:
+            return response.json()
+        finally:
+            self._close_response(response)
+
+    def _wait_before_datalink_request(
+        self,
+        *,
+        error: Exception,
+        attempt: int,
+        retry_backoff: bool = False,
+    ) -> float:
+        response = getattr(error, "response", None)
+        delay = float(self._request_settings["request_delay"])
+        status = getattr(response, "status_code", None)
+        headers = getattr(response, "headers", {}) or {}
+        retry_after = headers.get("Retry-After")
+        if retry_backoff or status in {403, 429} or retry_after is not None:
+            delay = max(delay, self._request_policy.retry_delay(response, attempt))
+        self._close_response(response)
+        if delay > 0:
+            self._request_policy.wait(delay)
+        return delay
+
+    @staticmethod
+    def _close_error_response(error: Exception) -> None:
+        EuropePMCWrapper._close_response(getattr(error, "response", None))
+
+    @staticmethod
+    def _close_response(response) -> None:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
 
     def _datalinks_xml_to_json(self, text: str) -> dict:
         root = parse_xml(text, max_bytes=self.resource_profile.max_xml_bytes)

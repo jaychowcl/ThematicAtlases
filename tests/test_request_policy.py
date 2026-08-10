@@ -65,6 +65,58 @@ def test_request_policy_retries_declared_status_with_retry_after():
     ]
 
 
+def test_request_policy_per_call_retry_limit_does_not_mutate_default():
+    responses = [Response(503), Response(200)]
+    sleeps = []
+    calls = []
+    policy = RequestPolicy(
+        max_retries=3,
+        request_get=lambda **kwargs: calls.append(kwargs) or responses.pop(0),
+        sleep=sleeps.append,
+        allowed_hosts={"example.test"},
+    )
+
+    response = policy.get(
+        "https://example.test",
+        max_retries=0,
+        raise_for_status=False,
+    )
+
+    assert response.status_code == 503
+    assert len(calls) == 1
+    assert sleeps == []
+    assert policy.max_retries == 3
+
+
+def test_request_policy_rejects_negative_per_call_retry_limit():
+    policy = RequestPolicy(
+        request_get=lambda **_kwargs: pytest.fail("must not request"),
+        allowed_hosts={"example.test"},
+    )
+
+    with pytest.raises(ValueError, match="max_retries must not be negative"):
+        policy.get("https://example.test", max_retries=-1)
+
+
+def test_request_policy_wait_uses_injected_sleeper():
+    sleeps = []
+    policy = RequestPolicy(
+        sleep=sleeps.append,
+        allowed_hosts={"example.test"},
+    )
+
+    policy.wait(1.25)
+
+    assert sleeps == [1.25]
+
+
+def test_request_policy_rejects_negative_wait():
+    policy = RequestPolicy(allowed_hosts={"example.test"})
+
+    with pytest.raises(ValueError, match="delay must not be negative"):
+        policy.wait(-0.1)
+
+
 def test_request_policy_exception_retry_and_final_status_are_caller_controlled():
     outcomes = [requests.Timeout("slow"), Response(503)]
     sleeps = []
