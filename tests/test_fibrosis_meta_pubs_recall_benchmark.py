@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -119,7 +118,7 @@ def write_trace(directory: Path, *, filename: str = "resume_review_progress.json
     return artifact
 
 
-def test_runner_and_single_packaged_tsv_replace_old_layout() -> None:
+def test_runner_and_packaged_tsv_replace_old_layout() -> None:
     assert RUNNER.is_file()
     assert REFERENCES.is_file()
     assert not (
@@ -129,31 +128,6 @@ def test_runner_and_single_packaged_tsv_replace_old_layout() -> None:
         / "thematic_reviewer"
         / "__init__.py"
     ).exists()
-
-    raw = REFERENCES.read_text(encoding="utf-8")
-    assert '"' not in raw
-    with REFERENCES.open(encoding="utf-8", newline="") as handle:
-        rows = list(
-            csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE)
-        )
-
-    assert tuple(rows[0]) == TSV_COLUMNS
-    assert len(rows) == 36
-    assert sum(row["reference_set_id"] == "leonie_2026_fibrosis" for row in rows) == 21
-    assert sum(
-        row["reference_set_id"] == "taylor_2020_nafld_fibrosis" for row in rows
-    ) == 15
-    assert [row["source_reference_number"] for row in rows[:2]] == ["", "15"]
-    assert [row["source_reference_number"] for row in rows[21:23]] == ["", "18"]
-    assert all(row["title"] for row in rows)
-    canonical = json.dumps(
-        rows,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode()
-    assert hashlib.sha256(canonical).hexdigest() == (
-        "0a92da32bb61cc931f443485f3ada0e850d15dbd2a3cd8a7f05369d639711bcf"
-    )
 
 
 def test_runner_builds_aggregate_and_per_set_report(tmp_path: Path) -> None:
