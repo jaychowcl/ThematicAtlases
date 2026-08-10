@@ -223,11 +223,11 @@ Use `--query <keyword>` when the id is unknown.
   purpose: GEO network/enrichment boundary with injected canonical package projection and deterministic GSE record policy.
   keywords: GEOWrapper, GEORecordPolicy, NCBI, GEO, MINiML, projection, deduplication, SRA, ENA
 
-- id: type-thematic-reviewer-benchmark
-  title: [ThematicReviewerBenchmark](codebase.md#type-thematic-reviewer-benchmark)
-  anchor: type-thematic-reviewer-benchmark
-  purpose: Offline exact DOI/PMID comparison and reference-set validation.
-  keywords: ThematicReviewerBenchmark, DOI, PMID, recall, reference set
+- id: type-fibrosis-meta-pubs-recall-benchmark
+  title: [Fibrosis meta-publication recall benchmark](codebase.md#type-fibrosis-meta-pubs-recall-benchmark)
+  anchor: type-fibrosis-meta-pubs-recall-benchmark
+  purpose: Direct offline trace/CSV runner with aggregate and per-reference-set exact DOI/PMID recall.
+  keywords: benchmark_fibrosis_meta_pubs_recall, CSV, trace, DOI, PMID, aggregate, recall
 
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
@@ -280,8 +280,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-benchmarking
   title: [Benchmarking workflow](codebase.md#workflow-benchmarking)
   anchor: workflow-benchmarking
-  purpose: Offline exact recall through the importable benchmark API and packaged reference sets.
-  keywords: benchmark, offline, DOI, PMID, exact match, Python API
+  purpose: Offline exact recall from a trace directory and one combined packaged or custom CSV.
+  keywords: benchmark, offline, trace directory, CSV, DOI, PMID, exact match, report
 
 ## Detailed and legacy-stable routes
 
@@ -312,8 +312,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  purpose: Reference-set schemas, exact matching, reports, runners, and packaged fixtures.
-  keywords: ThematicReviewerBenchmark, DOI, PMID, reference set, recall, conflict, fixtures
+  purpose: Combined fibrosis reference CSV, direct runner, exact matching, aggregate/per-set reports, and generated output policy.
+  keywords: benchmark_fibrosis_meta_pubs_recall, CSV, DOI, PMID, reference set, aggregate, recall, conflict, benchmarks directory
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)

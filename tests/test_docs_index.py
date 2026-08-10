@@ -110,7 +110,6 @@ def test_public_api_reference_covers_exports_and_supported_methods() -> None:
         "ThematicAtlases.wrappers.ArrayExpressWrapper",
         "ThematicAtlases.wrappers.EuropePMCWrapper",
         "ThematicAtlases.wrappers.GEOWrapper",
-        "benchmark_ThematicAtlases.ThematicReviewerBenchmark",
     )
     supported_methods = (
         "Atlas.create_atlas",
@@ -166,7 +165,7 @@ def test_individual_contracts_have_stable_routes() -> None:
         "type-checkpoint-store",
         "type-europe-pmc-wrapper",
         "type-geo-wrapper",
-        "type-thematic-reviewer-benchmark",
+        "type-fibrosis-meta-pubs-recall-benchmark",
         "workflow-collection",
         "workflow-atlas-creation",
         "workflow-harmonization",

@@ -1,3 +1,3 @@
-from benchmark_ThematicAtlases.thematic_reviewer import ThematicReviewerBenchmark
+"""Benchmark assets shipped with ThematicAtlases."""
 
-__all__ = ["ThematicReviewerBenchmark"]
+__all__: list[str] = []

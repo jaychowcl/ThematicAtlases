@@ -182,7 +182,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "`Atlas.archive_existing_runs(...)`",
         "`PublicationTextReviewer.resume(...)`",
         "`AtlasCollector.resume_metadata(...)`",
-        "`ThematicReviewerBenchmark`",
+        "`benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIRECTORY]`",
         "`CheckpointStore`",
         "`EuropePMCWrapper`",
         "`GEOWrapper`",

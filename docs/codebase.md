@@ -299,7 +299,7 @@ MSC additionally validates public DNS for its ArrayExpress fetcher.
 | `Atlas` | `JsonArtifactBundlePublisher` | mapping of path to JSON value | publisher owns stage/backup/replace cleanup | any replacement failure restores the complete prior bundle |
 | traced orchestration | `AtlasRunStore` | normalized SQLite calls | store owns runs, stages, work, attempts, artifact roles, and events | incompatible schema/path-role conflict raises |
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
-| benchmark runner | `ThematicReviewerBenchmark` | saved JSON/trace input | benchmark owns an offline report only | invalid/ambiguous reference identities fail/report conflict |
+| fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom CSV | runner atomically owns one generated JSON report under caller-selected output | invalid CSV/trace fails without a partial report; ambiguous matches become conflicts |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -454,8 +454,11 @@ the Python API, or the canonical parent-adapter workflow documented in the
   record deduplication to `GEORecordPolicy`. Both collaborators are injectable
   and perform no provider/network work.
 <a id="type-thematic-reviewer-benchmark"></a>
-- [`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py)
-  owns offline exact DOI/PMID comparison and reference-set validation.
+<a id="type-fibrosis-meta-pubs-recall-benchmark"></a>
+- The direct [`benchmark_fibrosis_meta_pubs_recall.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py)
+  runner owns offline trace/CSV validation, exact DOI/PMID comparison, aggregate
+  and per-reference-set scoring, and atomic report publication. The preceding
+  anchor is retained only as a documentation alias for the removed class.
 
 <a id="public-api-reference"></a>
 ## Public API reference
@@ -536,7 +539,6 @@ otherwise.
 | [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
 | [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; bounded XML parsing strips one ordinary external DTD without resolving it and rejects entities, internal subsets, unsafe declarations, and oversized documents. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
 | [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared request policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; the injected/default record policy owns package projection and deterministic GSE deduplication. Partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
-| [`benchmark_ThematicAtlases.ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py) | `benchmark_reference_publication_recall(*, reference_set=None, reference_set_file=None, thematic_output) -> dict`; `available_reference_sets() -> tuple[str, ...]`; `load_reference_set(name) -> dict`. Reads package/file/trace JSON only, writes nothing, requires exactly one reference source, and raises on malformed or ambiguous reference identities. The identical class is formally re-exported as `benchmark_ThematicAtlases.thematic_reviewer.ThematicReviewerBenchmark`. |
 
 Complete public-member signatures for the exported classes:
 
@@ -610,12 +612,6 @@ Complete public-member signatures for the exported classes:
   retry_tags=None) -> list[dict]`;
   `available_accession_metadata(jsons, checkpoint_store) -> list[dict]`;
   `get_gse(accession) -> str | None`.
-- [`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py):
-  `benchmark_reference_publication_recall(*, reference_set=None,
-  reference_set_file=None, thematic_output) -> dict`;
-  `available_reference_sets() -> tuple[str, ...]`;
-  `load_reference_set(reference_set) -> dict`.
-
 ### Supported importable production helpers
 
 - [`ThematicAtlases.document_adapter.AtlasDocumentAdapter`](../src/ThematicAtlases/document_adapter.py):
@@ -1124,7 +1120,7 @@ supported reuse -----------> CLI / Python APIs / retained data
 1. Six non-canonical runner files and their runner-specific tests moved to the
    ignored local archive.
 2. `docs/theme_fibrosis.txt`, `config/fibrosis_discovery_queries.json`, the
-   benchmark package, and both packaged reference sets remain tracked.
+   benchmark runner, and its combined two-set reference CSV remain tracked.
 3. The installed CLI and reusable Python workflow APIs remain supported.
 4. Production fibrosis atlas creation routes to the parent adapter script.
 
@@ -1147,39 +1143,48 @@ Definitions/calls:
 <a id="workflow-benchmarking"></a>
 ### Workflow 8: Benchmarking
 
-Offline recall compares saved outputs with packaged or custom references
-through the importable benchmark API.
+Offline recall compares one saved trace directory with the combined packaged
+fibrosis reference CSV or a caller-supplied CSV through a directly executed
+script. There is no benchmark Python API or installed console entry point.
 
 ```text
-saved atlas/trace -> normalize identities -> exact DOI/PMID match -> report
-      | malformed/ambiguous -------------------------------> error
+trace directory + CSV -> validate -> normalize -> exact DOI/PMID match
+       | malformed -----------> exit 1, no partial report          |
+                                                                  v
+                         aggregate + per-set schema 1.0 JSON report
 ```
 
 #### Numbered stages
 
-1. `ThematicReviewerBenchmark` validates one reference source and saved output.
-2. Exact normalized DOI/PMID identities produce matched, missed, or conflict
-   rows; malformed or ambiguous reference data raises.
-3. `benchmark_reference_publication_recall` performs the pure offline
-   comparison and returns a schema `1.0` report.
-4. Callers may iterate `available_reference_sets()` or provide one validated
-   custom reference-set file.
+1. The runner requires `TRACE_DIR`; `--references` defaults to the adjacent
+   packaged CSV and `--out` defaults to the Git-ignored `benchmarks/` directory.
+2. CSV loading validates required columns, stable and consistent reference-set
+   metadata, integer fields, and at least one valid DOI or PMID per row.
+3. Trace loading prefers `resume_review_progress.json`, then
+   `02_reviewed_datasets.json`, then `06_final_atlas.json`.
+4. Exact normalized DOI/PMID identities produce matched, missed, or conflict
+   rows after duplicates are connected across identifiers and accessions.
+5. The runner computes one globally deduplicated aggregate plus independent
+   Leonie/Taylor summaries and details, then atomically replaces
+   `fibrosis_meta_pubs_recall_report.json` under `--out`.
 
 #### Pseudocode
 
 ```text
-ThematicReviewerBenchmark                       # Python interface
-  -> load_reference_set/output                  # package/file reads
-  -> benchmark_reference_publication_recall     # internal pure comparison
-  <- schema 1.0 report
+benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIR]
+  -> load/validate combined CSV and selected trace artifact
+  -> normalize/group references and discovered publications
+  -> score aggregate and each reference_set_id
+  -> atomic temp-file replacement
+  <- print report path and exit 0
 ```
 
 #### Evidence
 
 Definitions/calls:
-[`ThematicReviewerBenchmark`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py)
-and
-[`load_reference_set`](../src/benchmark_ThematicAtlases/thematic_reviewer/benchmark.py).
+[`run_benchmark`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py)
+and the direct
+[`main`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py).
 
 <a id="extension-and-change-guidance"></a>
 ## Extension and change guidance
@@ -1263,12 +1268,12 @@ src/ThematicAtlases/
 
 src/benchmark_ThematicAtlases/
 ├── __init__.py
+├── benchmark_fibrosis_meta_pubs_recall/
+│   ├── __init__.py
+│   ├── benchmark_fibrosis_meta_pubs_recall.py
+│   └── fibrosis_meta_publications.csv
 ├── ontology_harmonizer/
 │   └── __init__.py
-└── thematic_reviewer/
-    ├── __init__.py
-    ├── benchmark.py
-    └── data/*.json
 ```
 
 Root interfaces and configuration:
@@ -1292,11 +1297,10 @@ docs/memory.md
 docs/burndown.md
 docs/theme_fibrosis.txt
 tests/test_*.py
-tests/fixtures/benchmark/*.json
 ```
 
-Ignored runtime directories such as `.env/`, `.out/`, caches, and trace output
-are not part of the tracked source tree.
+Ignored runtime directories such as `.env/`, `.out/`, `benchmarks/`, caches,
+and trace output are not part of the tracked source tree.
 
 <a id="runtime-and-packaging"></a>
 ## Runtime And Packaging
@@ -1366,38 +1370,53 @@ from agentic_curator import ThematicReviewer
 <a id="benchmark-package"></a>
 ## Benchmark Package
 
-`src/benchmark_ThematicAtlases/` is a sibling import package in the existing `ThematicAtlases` distribution. Benchmark implementations are separated by concern: `thematic_reviewer/` contains publication-discovery and curation benchmarks, while `ontology_harmonizer/` is the reserved namespace for future ontology-harmonization benchmarks. `ThematicReviewerBenchmark` remains exported from the package root and its subpackage.
+`src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/` contains
+one directly executed script and one packaged CSV. The former
+`ThematicReviewerBenchmark`, its `thematic_reviewer/` namespace, and its two
+JSON files were deliberately removed as a breaking interface change. The
+package root exports no benchmark class; `ontology_harmonizer/` remains an
+empty reserved namespace.
 
-`load_reference_set(name)` is the public loader for validated packaged reference
-data. It returns a defensive copy so callers can build network-resolution or
-review workflows without mutating package state.
+Run the benchmark from the repository root:
 
-The named reference-publication recall workflow loads a version-controlled reference set from the thematic-reviewer package data and compares it with thematic-review output:
-
-```python
-from benchmark_ThematicAtlases import ThematicReviewerBenchmark
-
-report = ThematicReviewerBenchmark().benchmark_reference_publication_recall(
-    reference_set="leonie_2026_fibrosis",
-    thematic_output=atlas_dict_or_json_path_or_trace_directory,
-)
+```text
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIRECTORY]
 ```
 
-Two named sets are packaged: `leonie_2026_fibrosis` contains the Küchenhoff et al. 2026 source meta-study plus references 15-34 (21 targets), and `taylor_2020_nafld_fibrosis` contains the Taylor et al. 2020 NAFLD systematic review plus references 18-31 (15 targets). Each ordered publication records its source relationship, DOI, title, authors as cited, journal, year, and citation. `ThematicReviewerBenchmark.available_reference_sets()` returns packaged names in execution order. New collections are added as packaged JSON files and registered by stable name; setuptools includes `data/*.json` in distributions.
+`fibrosis_meta_publications.csv` contains 36 ordered records: the Küchenhoff
+2026 source meta-study plus references 15-34 under
+`leonie_2026_fibrosis`, and the Taylor 2020 systematic review plus references
+18-31 under `taylor_2020_nafld_fibrosis`. Each row repeats the set identity,
+description, and source-publication metadata so the single CSV is self-contained,
+then records source-reference number, relationship, DOI/PMID, title, cited
+authors, journal, year, and citation. Set metadata must be consistent across
+rows, and each row requires a valid DOI, PMID, or both.
 
-Each reference requires a DOI, PMID, or both; other fields are preserved in the per-publication report. DOI and PMID matching is normalized, offline, and exact. Duplicate reference rows and repeated publications across accessions collapse into single publication identities. If a reference DOI and PMID resolve to different thematic publications, the row is reported as a conflict rather than matched arbitrarily. Unknown names fail with available names. Callers select exactly one packaged `reference_set` or `reference_set_file`; custom files use the same single-set schema and are validated before benchmarking.
+`--references` defaults to that adjacent packaged CSV and accepts a custom CSV
+with the same required columns. `TRACE_DIR` must be a directory containing a
+supported review artifact. Selection prefers the pre-filter
+`resume_review_progress.json`, then `02_reviewed_datasets.json`, then
+`06_final_atlas.json`; post-filter reports retain the discovery limitation.
 
-The method accepts an atlas-shaped mapping, an explicit JSON path, or a development-trace directory. Trace loading prefers `resume_review_progress.json`, then `02_reviewed_datasets.json`, then `06_final_atlas.json`. The pre-filter progress artifact gives the strongest discovery-recall evidence. Reports from post-filter or unknown-stage data carry an explicit limitation because removed publications cannot be distinguished from publications that were never discovered.
+DOI and PMID matching is normalized, offline, and exact. Duplicate reference
+rows and repeated publications across accessions collapse through connected
+identities. Zero candidates produce `missed`, one produces `matched`, and
+multiple candidates produce `conflict` without arbitrary selection. Review
+outcomes come from `publication_texts[*].agentic_curator` and normalize to
+relevant, unsure, not relevant, other, failed, or unreviewed states.
 
-Schema `1.0` reports contain the benchmark method and reference-set provenance, thematic-output provenance, unique-reference and duplicate counts, matched/missed/conflict counts, discovery recall, review completion/failure counts, normalized judgement counts, relevant recall, relevant-or-unsure candidate recall, and one detailed row per unique reference. The benchmark makes no network calls and has no DOI/PMID resolution service or additional dependency.
+Schema `1.0` contains CSV and trace provenance, a globally deduplicated
+`aggregate` summary/details block, and ordered `reference_sets` blocks with
+independent summaries/details. Metrics include duplicate, matched, missed, and
+conflict counts; discovery, relevant, and relevant-or-unsure candidate recall;
+review completion/failure counts; and judgement counts.
 
-Callers that need an aggregate report can iterate
-`ThematicReviewerBenchmark.available_reference_sets()`, call the benchmark
-method for each set, and persist the returned mappings in their own application
-boundary. The benchmark package itself remains deliberately offline and does
-not own a live reference-resolution workflow.
-
-`tests/fixtures/benchmark/` contains complete mixed input/output examples for both sets. The Leonie fixture records a complete 21-row report with 6 matches and 15 misses; the Taylor fixture records a complete 15-row report with 6 matches and 9 misses. Both cover relevant, unsure, not-relevant, failed, unreviewed, and repeated-accession behavior. End-to-end method tests substitute only the machine-specific artifact path, independently verify summaries, then compare entire reports exactly.
+`--out` is a directory and defaults to Git-ignored `benchmarks/`. The runner
+creates it, atomically replaces `fibrosis_meta_pubs_recall_report.json`, prints
+the report path, and exits zero. Argument errors exit two. CSV, trace, JSON, or
+filesystem failures emit a concise stderr message, exit one, and leave no
+partial report. The runner makes no network, identifier-resolution, or model
+calls and has no installed console entry point or supported `python -m` form.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
@@ -1429,10 +1448,10 @@ Reusable assets were deliberately not archived:
 - `docs/theme_fibrosis.txt` remains a tracked policy reference.
 - `config/fibrosis_discovery_queries.json` remains a tracked, versioned query
   catalog; its four historical per-query caps permit 40,000 raw hits before cross-query deduplication.
-- `benchmark_ThematicAtlases` remains importable, with the Leonie and Taylor
-  packaged reference sets and their fixtures/tests.
+- The direct fibrosis meta-publication recall runner remains tracked with one
+  packaged CSV containing the Leonie and Taylor reference sets.
 - `PublicationTextReviewer.resume`, `AtlasCollector.resume_metadata`, and
-  `ThematicReviewerBenchmark` remain available to Python callers.
+  the installed `thematic-atlas` CLI remain available to callers.
 
 <a id="atlas-workflow"></a>
 ### Atlas Workflow

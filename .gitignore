@@ -59,6 +59,7 @@ env/
 *.log
 .logs/
 .out/
+benchmarks/
 results/
 results_*.csv
 PanGPA.log

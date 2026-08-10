@@ -27,7 +27,7 @@ thematic-atlas = "ThematicAtlases.cli_atlas:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"benchmark_ThematicAtlases.thematic_reviewer" = ["data/*.json"]
+"benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_recall" = ["*.csv"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

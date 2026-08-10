@@ -518,11 +518,11 @@ Atlas.archive_existing_runs(
 
 It returns ordered archive paths and rejects active workflows, unsafe names, symlinks, destination collisions, and archive roots nested inside the active trace root. Published directories and their parent are fsynced before sources are removed. If publication succeeds but durability or cleanup finalization fails, `ArchiveDurabilityError.destination` identifies the already-published archive and the original sources are retained whenever cleanup has not begun.
 
-Specialized public APIs are available when independently advancing or evaluating a trace:
+Specialized workflow surfaces are available when independently advancing or evaluating a trace:
 
 - `PublicationTextReviewer.resume(...)`: `resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict` reviews one stable datalink snapshot. See the [filterer flow](docs/codebase.md#filterer).
 - `AtlasCollector.resume_metadata(...)`: `resume_metadata(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict` collects, audits, or explicitly repairs GEO metadata enrichment for one stable snapshot. See the [collector flow](docs/codebase.md#collector).
-- `ThematicReviewerBenchmark`: `benchmark_reference_publication_recall(reference_set=None, reference_set_file=None, thematic_output=...) -> dict` requires exactly one packaged name or custom reference file; `available_reference_sets()` lists packaged sets and `load_reference_set(name)` returns a defensive copy. See the [benchmark package](docs/codebase.md#benchmark-package).
+- `benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIRECTORY]` runs the offline fibrosis meta-publication recall benchmark directly. It defaults to the packaged 36-row CSV and writes `fibrosis_meta_pubs_recall_report.json` under the Git-ignored `benchmarks/` directory. See the [benchmark package](docs/codebase.md#benchmark-package).
 
 Lower-level supported types are documented exhaustively in the
 [public API reference](docs/codebase.md#public-api-reference):
@@ -541,9 +541,10 @@ version control. The canonical production workflow is
 `gsk_ThematicAtlases_adapter/scripts/create_fibrosis_atlas.py` in the parent
 adapter repository.
 
-This repository continues to support the installed `thematic-atlas` CLI and
-the importable Python APIs. The retained fibrosis theme, discovery-query
-catalog, benchmark implementation, and reference sets remain available as
+This repository continues to support the installed `thematic-atlas` CLI,
+importable Python APIs, and the direct benchmark script. The retained
+fibrosis theme, discovery-query catalog, benchmark implementation, and combined
+reference CSV remain available as
 reusable inputs. See the [archived fibrosis runner record](docs/codebase.md#fibrosis-run-script).
 
 ### Configuration

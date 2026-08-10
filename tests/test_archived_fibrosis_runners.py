@@ -1,6 +1,5 @@
+import csv
 from pathlib import Path
-
-from benchmark_ThematicAtlases import ThematicReviewerBenchmark
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,20 +21,18 @@ def test_fibrosis_reference_assets_and_benchmark_data_remain_available() -> None
     assert (ROOT / "docs" / "theme_fibrosis.txt").is_file()
     assert (ROOT / "config" / "fibrosis_discovery_queries.json").is_file()
 
-    benchmark = ThematicReviewerBenchmark()
-    assert benchmark.available_reference_sets() == (
-        "leonie_2026_fibrosis",
-        "taylor_2020_nafld_fibrosis",
+    reference_csv = (
+        ROOT
+        / "src"
+        / "benchmark_ThematicAtlases"
+        / "benchmark_fibrosis_meta_pubs_recall"
+        / "fibrosis_meta_publications.csv"
     )
-    assert len(
-        benchmark.load_reference_set("leonie_2026_fibrosis")[
-            "reference_publications"
-        ]
-    ) == 21
-    assert len(
-        benchmark.load_reference_set("taylor_2020_nafld_fibrosis")[
-            "reference_publications"
-        ]
+    with reference_csv.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert sum(row["reference_set_id"] == "leonie_2026_fibrosis" for row in rows) == 21
+    assert sum(
+        row["reference_set_id"] == "taylor_2020_nafld_fibrosis" for row in rows
     ) == 15
 
 
