@@ -1384,13 +1384,17 @@ Run the benchmark from the repository root:
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
 ```
 
-`fibrosis_meta_publications.tsv` contains 36 ordered records: the Küchenhoff
-2026 source meta-study plus references 15-34 under
-`leonie_2026_fibrosis`, and the Taylor 2020 systematic review plus references
-18-31 under `taylor_2020_nafld_fibrosis`. It has exactly five columns:
-`reference_set_id`, `source_reference_number`, `doi`, `pmid`, and `title`.
-The two source-publication rows have blank reference numbers. The file is
-quote-free; tabs delimit fields, so commas in titles remain unmodified.
+`fibrosis_meta_publications.tsv` combines three ordered reference sets: the
+Küchenhoff 2026 source meta-study plus references 15-34 under
+`leonie_2026_fibrosis`; the Taylor 2020 systematic review plus references
+18-31 under `taylor_2020_nafld_fibrosis`; and the He 2025 interstitial-lung-
+disease systematic review plus its 35 lung-transcriptomics studies, references
+11-18 and 32-58, under `he_2025_ild_fibrosis`. The He set deliberately excludes
+the review's eight peripheral-transcriptomics studies at references 24-31. The
+TSV has exactly five columns: `reference_set_id`, `source_reference_number`,
+`doi`, `pmid`, and `title`. Each source-publication row has a blank reference
+number. The file is quote-free; tabs delimit fields, so commas in titles remain
+unmodified.
 
 `--references` defaults to that adjacent packaged TSV and accepts a custom
 quote-free TSV with the same exact columns and order. Each row requires a title

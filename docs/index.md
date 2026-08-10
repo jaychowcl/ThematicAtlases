@@ -226,8 +226,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-fibrosis-meta-pubs-recall-benchmark
   title: [Fibrosis meta-publication recall benchmark](codebase.md#type-fibrosis-meta-pubs-recall-benchmark)
   anchor: type-fibrosis-meta-pubs-recall-benchmark
-  purpose: Direct offline trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall.
-  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall
+  purpose: Direct offline trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall across the combined Leonie, Taylor, and He fibrosis references.
+  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall, Leonie, Taylor, He, ILD
 
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
@@ -313,7 +313,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
   purpose: Combined fibrosis reference TSV, direct runner, exact matching, aggregate/per-set reports, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, DOI, PMID, reference set, aggregate, recall, conflict, benchmarks directory
+  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, DOI, PMID, reference set, aggregate, recall, conflict, benchmarks directory, Leonie, Taylor, He, ILD
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)
