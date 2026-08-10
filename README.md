@@ -44,6 +44,16 @@ The editable install provides the `thematic-atlas` console command. The equivale
 - Google Application Default Credentials and a Google Cloud quota project for model-backed features.
 - `pytest>=8` only when installing the optional `dev` dependencies.
 
+`dependency-provenance/` contains the exact Python 3.12/Linux x86_64 PEP 751
+lock for external runtime distributions and its deterministic CycloneDX 1.6
+SBOM; every selected artifact has a real SHA-256. Internal Agentic Curator and
+MSC wheels remain separately revision/hash/signature governed. The composing
+adapter validates these artifacts and persists their digests in fibrosis-run
+provenance. Release policy requires a verified signed artifact manifest and an
+approved offline advisory snapshot no older than seven days; it remains
+fail-closed until a trusted operator supplies them. Security-update SLAs are
+2/7/30/90 days for critical/high/medium/low findings.
+
 The project is licensed under [GPL-3.0-or-later](LICENSE).
 
 ## Quickstart

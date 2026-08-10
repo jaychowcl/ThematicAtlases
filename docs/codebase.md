@@ -1312,6 +1312,15 @@ are not part of the tracked source tree.
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
+- `dependency-provenance/pylock.python312-linux-x86_64.toml` locks every
+  external Python 3.12/Linux x86_64 runtime artifact by exact version, index
+  URL, and SHA-256. Its deterministic CycloneDX 1.6 SBOM is derived from the
+  lock. Agentic Curator and MSC remain separately hashed/signed internal
+  distributions. `release-policy.json` requires a verified signed artifact
+  manifest and an approved offline advisory snapshot no older than seven days,
+  with critical/high/medium/low update SLAs of 2/7/30/90 days. Those trusted
+  operator artifacts are not fabricated in the repository, so the composing
+  release gate remains blocked until they are supplied.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
 - `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-10 this deterministic gate reported `538 passed, 4 skipped`.
