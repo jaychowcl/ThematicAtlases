@@ -62,7 +62,7 @@ def test_readme_and_handoff_record_current_contracts_and_test_evidence() -> None
         assert "Atlas document schema 1.0" in document
         assert "H5AD metadata schema 1.0" in document
         assert "2026-08-10" in document
-        assert "538 passed, 4 skipped" in document
+        assert "541 passed, 4 skipped" in document
     for stale in ("meta-standards-converter 3", "H5AD metadata schema 3.0"):
         assert stale not in index
         assert stale not in codebase

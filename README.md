@@ -623,7 +623,7 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 ## Testing
 
 The deterministic, network-blocked suite was last verified on 2026-08-10:
-`538 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+`541 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 
