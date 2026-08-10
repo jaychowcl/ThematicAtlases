@@ -226,8 +226,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-fibrosis-meta-pubs-recall-benchmark
   title: [Fibrosis meta-publication recall benchmark](codebase.md#type-fibrosis-meta-pubs-recall-benchmark)
   anchor: type-fibrosis-meta-pubs-recall-benchmark
-  purpose: Direct offline trace/CSV runner with aggregate and per-reference-set exact DOI/PMID recall.
-  keywords: benchmark_fibrosis_meta_pubs_recall, CSV, trace, DOI, PMID, aggregate, recall
+  purpose: Direct offline trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall.
+  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall
 
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
@@ -280,8 +280,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-benchmarking
   title: [Benchmarking workflow](codebase.md#workflow-benchmarking)
   anchor: workflow-benchmarking
-  purpose: Offline exact recall from a trace directory and one combined packaged or custom CSV.
-  keywords: benchmark, offline, trace directory, CSV, DOI, PMID, exact match, report
+  purpose: Offline exact recall from a trace directory and one combined packaged or custom TSV.
+  keywords: benchmark, offline, trace directory, TSV, DOI, PMID, exact match, report
 
 ## Detailed and legacy-stable routes
 
@@ -312,8 +312,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  purpose: Combined fibrosis reference CSV, direct runner, exact matching, aggregate/per-set reports, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_recall, CSV, DOI, PMID, reference set, aggregate, recall, conflict, benchmarks directory
+  purpose: Combined fibrosis reference TSV, direct runner, exact matching, aggregate/per-set reports, and generated output policy.
+  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, DOI, PMID, reference set, aggregate, recall, conflict, benchmarks directory
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)

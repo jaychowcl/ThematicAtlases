@@ -522,7 +522,7 @@ Specialized workflow surfaces are available when independently advancing or eval
 
 - `PublicationTextReviewer.resume(...)`: `resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict` reviews one stable datalink snapshot. See the [filterer flow](docs/codebase.md#filterer).
 - `AtlasCollector.resume_metadata(...)`: `resume_metadata(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict` collects, audits, or explicitly repairs GEO metadata enrichment for one stable snapshot. See the [collector flow](docs/codebase.md#collector).
-- `benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIRECTORY]` runs the offline fibrosis meta-publication recall benchmark directly. It defaults to the packaged 36-row CSV and writes `fibrosis_meta_pubs_recall_report.json` under the Git-ignored `benchmarks/` directory. See the [benchmark package](docs/codebase.md#benchmark-package).
+- `benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]` runs the offline fibrosis meta-publication recall benchmark directly. It defaults to the packaged 36-row TSV and writes `fibrosis_meta_pubs_recall_report.json` under the Git-ignored `benchmarks/` directory. See the [benchmark package](docs/codebase.md#benchmark-package).
 
 Lower-level supported types are documented exhaustively in the
 [public API reference](docs/codebase.md#public-api-reference):
@@ -544,7 +544,7 @@ adapter repository.
 This repository continues to support the installed `thematic-atlas` CLI,
 importable Python APIs, and the direct benchmark script. The retained
 fibrosis theme, discovery-query catalog, benchmark implementation, and combined
-reference CSV remain available as
+reference TSV remain available as
 reusable inputs. See the [archived fibrosis runner record](docs/codebase.md#fibrosis-run-script).
 
 ### Configuration

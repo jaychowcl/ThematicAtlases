@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Mapping
 import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -12,38 +13,15 @@ import tempfile
 
 
 REPORT_NAME = "fibrosis_meta_pubs_recall_report.json"
-DEFAULT_REFERENCES = Path(__file__).with_name("fibrosis_meta_publications.csv")
+DEFAULT_REFERENCES = Path(__file__).with_name("fibrosis_meta_publications.tsv")
 DEFAULT_OUTPUT_DIRECTORY = Path("benchmarks")
 
-CSV_COLUMNS = (
+TSV_COLUMNS = (
     "reference_set_id",
-    "reference_set_name",
-    "reference_set_description",
-    "source_doi",
-    "source_title",
-    "source_authors_as_cited",
-    "source_journal",
-    "source_year",
-    "source_citation",
     "source_reference_number",
-    "relationship",
     "doi",
     "pmid",
     "title",
-    "authors_as_cited",
-    "journal",
-    "year",
-    "citation",
-)
-SET_METADATA_COLUMNS = (
-    "reference_set_name",
-    "reference_set_description",
-    "source_doi",
-    "source_title",
-    "source_authors_as_cited",
-    "source_journal",
-    "source_year",
-    "source_citation",
 )
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", flags=re.IGNORECASE)
@@ -58,9 +36,9 @@ POST_FILTER_LIMITATION = (
 )
 
 
-def run_benchmark(*, trace_dir: str | Path, references_csv: str | Path) -> dict:
-    """Compare one TA trace with fibrosis meta-publication CSV references."""
-    reference_data = _load_reference_csv(Path(references_csv))
+def run_benchmark(*, trace_dir: str | Path, references_tsv: str | Path) -> dict:
+    """Compare one TA trace with fibrosis meta-publication TSV references."""
+    reference_data = _load_reference_tsv(Path(references_tsv))
     output, source = _load_trace(Path(trace_dir))
     reviewed_publications = _reviewed_publication_groups(output)
 
@@ -68,7 +46,7 @@ def run_benchmark(*, trace_dir: str | Path, references_csv: str | Path) -> dict:
         _reference_groups(reference_data["rows"]), reviewed_publications
     )
     reference_sets = []
-    for set_id, metadata in reference_data["sets"].items():
+    for set_id in reference_data["set_ids"]:
         set_rows = [
             row for row in reference_data["rows"] if row["reference_set_id"] == set_id
         ]
@@ -78,9 +56,6 @@ def run_benchmark(*, trace_dir: str | Path, references_csv: str | Path) -> dict:
         reference_sets.append(
             {
                 "id": set_id,
-                "name": metadata["name"],
-                "description": metadata["description"],
-                "source": metadata["source"],
                 "summary": _summary(len(set_rows), matched_rows),
                 "publications": matched_rows,
             }
@@ -91,10 +66,10 @@ def run_benchmark(*, trace_dir: str | Path, references_csv: str | Path) -> dict:
         "benchmark": {
             "method": "fibrosis_meta_publication_recall",
             "references": {
-                "format": "csv",
-                "artifact": str(Path(references_csv)),
+                "format": "tsv",
+                "artifact": str(Path(references_tsv)),
                 "input_record_count": len(reference_data["rows"]),
-                "reference_set_count": len(reference_data["sets"]),
+                "reference_set_count": len(reference_data["set_ids"]),
             },
         },
         "source": source,
@@ -106,63 +81,53 @@ def run_benchmark(*, trace_dir: str | Path, references_csv: str | Path) -> dict:
     }
 
 
-def _load_reference_csv(path: Path) -> dict:
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = tuple(reader.fieldnames or ())
-        missing = [column for column in CSV_COLUMNS if column not in fieldnames]
-        if missing:
-            raise ValueError(
-                "reference CSV is missing required columns: " + ", ".join(missing)
-            )
-        raw_rows = [dict(row) for row in reader]
+def _load_reference_tsv(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8-sig")
+    if '"' in text:
+        raise ValueError("reference TSV must not contain double quotes")
+    reader = csv.DictReader(
+        io.StringIO(text, newline=""),
+        delimiter="\t",
+        quoting=csv.QUOTE_NONE,
+    )
+    fieldnames = tuple(reader.fieldnames or ())
+    missing = [column for column in TSV_COLUMNS if column not in fieldnames]
+    if missing:
+        raise ValueError(
+            "reference TSV is missing required columns: " + ", ".join(missing)
+        )
+    unexpected = [column for column in fieldnames if column not in TSV_COLUMNS]
+    if unexpected:
+        raise ValueError(
+            "reference TSV has unexpected columns: " + ", ".join(unexpected)
+        )
+    if fieldnames != TSV_COLUMNS:
+        raise ValueError("reference TSV columns are not in the required order")
+    raw_rows = [dict(row) for row in reader]
 
     if not raw_rows:
-        raise ValueError("reference CSV must contain at least one publication")
+        raise ValueError("reference TSV must contain at least one publication")
 
     rows = []
-    sets: dict[str, dict] = {}
-    metadata_values: dict[str, tuple[str, ...]] = {}
+    set_ids: dict[str, None] = {}
     for index, raw in enumerate(raw_rows, start=2):
-        row = {column: str(raw.get(column, "") or "").strip() for column in CSV_COLUMNS}
+        if raw.get(None):
+            raise ValueError(f"reference TSV row {index} has unexpected fields")
+        row = {
+            column: str(raw.get(column, "") or "").strip()
+            for column in TSV_COLUMNS
+        }
         set_id = row["reference_set_id"]
         if not set_id:
-            raise ValueError(f"reference CSV row {index} requires reference_set_id")
-        if not row["reference_set_name"] or not row["reference_set_description"]:
-            raise ValueError(
-                f"reference CSV row {index} requires reference-set name and description"
-            )
-
-        metadata = tuple(row[column] for column in SET_METADATA_COLUMNS)
-        if set_id in metadata_values and metadata_values[set_id] != metadata:
-            raise ValueError(
-                f"reference set {set_id!r} has inconsistent metadata in row {index}"
-            )
-        metadata_values.setdefault(set_id, metadata)
-        sets.setdefault(
-            set_id,
-            {
-                "name": row["reference_set_name"],
-                "description": row["reference_set_description"],
-                "source": {
-                    "doi": row["source_doi"],
-                    "title": row["source_title"],
-                    "authors_as_cited": row["source_authors_as_cited"],
-                    "journal": row["source_journal"],
-                    "year": _optional_integer(
-                        row["source_year"], label=f"source_year in row {index}"
-                    ),
-                    "citation": row["source_citation"],
-                },
-            },
-        )
+            raise ValueError(f"reference TSV row {index} requires reference_set_id")
+        if not row["title"]:
+            raise ValueError(f"reference TSV row {index} requires title")
+        set_ids.setdefault(set_id, None)
 
         doi = _normalize_reference_doi(row["doi"], row=index)
         pmid = _normalize_reference_pmid(row["pmid"], row=index)
         if not doi and not pmid:
-            raise ValueError(
-                f"reference CSV row {index} requires a DOI or PMID"
-            )
+            raise ValueError(f"reference TSV row {index} requires a DOI or PMID")
         rows.append(
             {
                 "reference_set_id": set_id,
@@ -170,17 +135,12 @@ def _load_reference_csv(path: Path) -> dict:
                     row["source_reference_number"],
                     label=f"source_reference_number in row {index}",
                 ),
-                "relationship": row["relationship"],
                 "doi": doi,
                 "pmid": pmid,
                 "title": row["title"],
-                "authors_as_cited": row["authors_as_cited"],
-                "journal": row["journal"],
-                "year": _optional_integer(row["year"], label=f"year in row {index}"),
-                "citation": row["citation"],
             }
         )
-    return {"rows": rows, "sets": sets}
+    return {"rows": rows, "set_ids": tuple(set_ids)}
 
 
 def _optional_integer(value: str, *, label: str) -> int | None:
@@ -469,7 +429,7 @@ def _normalize_reference_doi(value: object, *, row: int) -> str:
     try:
         return _normalize_doi(value)
     except ValueError as error:
-        raise ValueError(f"invalid DOI in reference CSV row {row}: {value!r}") from error
+        raise ValueError(f"invalid DOI in reference TSV row {row}: {value!r}") from error
 
 
 def _normalize_reference_pmid(value: object, *, row: int) -> str:
@@ -478,7 +438,7 @@ def _normalize_reference_pmid(value: object, *, row: int) -> str:
     try:
         return _normalize_pmid(value)
     except ValueError as error:
-        raise ValueError(f"invalid PMID in reference CSV row {row}: {value!r}") from error
+        raise ValueError(f"invalid PMID in reference TSV row {row}: {value!r}") from error
 
 
 def _safe_doi(value: object) -> str:
@@ -581,7 +541,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_benchmark(
             trace_dir=args.trace_dir,
-            references_csv=args.references,
+            references_tsv=args.references,
         )
         report_path = _write_report(report, args.out.resolve())
     except (OSError, TypeError, ValueError) as error:

@@ -21,15 +21,17 @@ def test_fibrosis_reference_assets_and_benchmark_data_remain_available() -> None
     assert (ROOT / "docs" / "theme_fibrosis.txt").is_file()
     assert (ROOT / "config" / "fibrosis_discovery_queries.json").is_file()
 
-    reference_csv = (
+    reference_tsv = (
         ROOT
         / "src"
         / "benchmark_ThematicAtlases"
         / "benchmark_fibrosis_meta_pubs_recall"
-        / "fibrosis_meta_publications.csv"
+        / "fibrosis_meta_publications.tsv"
     )
-    with reference_csv.open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
+    with reference_tsv.open(encoding="utf-8", newline="") as handle:
+        rows = list(
+            csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE)
+        )
     assert sum(row["reference_set_id"] == "leonie_2026_fibrosis" for row in rows) == 21
     assert sum(
         row["reference_set_id"] == "taylor_2020_nafld_fibrosis" for row in rows

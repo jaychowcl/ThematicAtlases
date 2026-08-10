@@ -299,7 +299,7 @@ MSC additionally validates public DNS for its ArrayExpress fetcher.
 | `Atlas` | `JsonArtifactBundlePublisher` | mapping of path to JSON value | publisher owns stage/backup/replace cleanup | any replacement failure restores the complete prior bundle |
 | traced orchestration | `AtlasRunStore` | normalized SQLite calls | store owns runs, stages, work, attempts, artifact roles, and events | incompatible schema/path-role conflict raises |
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
-| fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom CSV | runner atomically owns one generated JSON report under caller-selected output | invalid CSV/trace fails without a partial report; ambiguous matches become conflicts |
+| fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -456,7 +456,7 @@ the Python API, or the canonical parent-adapter workflow documented in the
 <a id="type-thematic-reviewer-benchmark"></a>
 <a id="type-fibrosis-meta-pubs-recall-benchmark"></a>
 - The direct [`benchmark_fibrosis_meta_pubs_recall.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py)
-  runner owns offline trace/CSV validation, exact DOI/PMID comparison, aggregate
+  runner owns offline trace/TSV validation, exact DOI/PMID comparison, aggregate
   and per-reference-set scoring, and atomic report publication. The preceding
   anchor is retained only as a documentation alias for the removed class.
 
@@ -1120,7 +1120,7 @@ supported reuse -----------> CLI / Python APIs / retained data
 1. Six non-canonical runner files and their runner-specific tests moved to the
    ignored local archive.
 2. `docs/theme_fibrosis.txt`, `config/fibrosis_discovery_queries.json`, the
-   benchmark runner, and its combined two-set reference CSV remain tracked.
+   benchmark runner, and its combined two-set reference TSV remain tracked.
 3. The installed CLI and reusable Python workflow APIs remain supported.
 4. Production fibrosis atlas creation routes to the parent adapter script.
 
@@ -1144,11 +1144,11 @@ Definitions/calls:
 ### Workflow 8: Benchmarking
 
 Offline recall compares one saved trace directory with the combined packaged
-fibrosis reference CSV or a caller-supplied CSV through a directly executed
+fibrosis reference TSV or a caller-supplied TSV through a directly executed
 script. There is no benchmark Python API or installed console entry point.
 
 ```text
-trace directory + CSV -> validate -> normalize -> exact DOI/PMID match
+trace directory + TSV -> validate -> normalize -> exact DOI/PMID match
        | malformed -----------> exit 1, no partial report          |
                                                                   v
                          aggregate + per-set schema 1.0 JSON report
@@ -1157,9 +1157,10 @@ trace directory + CSV -> validate -> normalize -> exact DOI/PMID match
 #### Numbered stages
 
 1. The runner requires `TRACE_DIR`; `--references` defaults to the adjacent
-   packaged CSV and `--out` defaults to the Git-ignored `benchmarks/` directory.
-2. CSV loading validates required columns, stable and consistent reference-set
-   metadata, integer fields, and at least one valid DOI or PMID per row.
+   packaged TSV and `--out` defaults to the Git-ignored `benchmarks/` directory.
+2. TSV loading requires the exact ordered five-column header, no double quotes,
+   an optional integer reference number, a title, and at least one valid DOI or
+   PMID per row; missing, reordered, unexpected, or surplus fields fail.
 3. Trace loading prefers `resume_review_progress.json`, then
    `02_reviewed_datasets.json`, then `06_final_atlas.json`.
 4. Exact normalized DOI/PMID identities produce matched, missed, or conflict
@@ -1171,8 +1172,8 @@ trace directory + CSV -> validate -> normalize -> exact DOI/PMID match
 #### Pseudocode
 
 ```text
-benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIR]
-  -> load/validate combined CSV and selected trace artifact
+benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIR]
+  -> load/validate combined TSV and selected trace artifact
   -> normalize/group references and discovered publications
   -> score aggregate and each reference_set_id
   -> atomic temp-file replacement
@@ -1271,7 +1272,7 @@ src/benchmark_ThematicAtlases/
 ├── benchmark_fibrosis_meta_pubs_recall/
 │   ├── __init__.py
 │   ├── benchmark_fibrosis_meta_pubs_recall.py
-│   └── fibrosis_meta_publications.csv
+│   └── fibrosis_meta_publications.tsv
 ├── ontology_harmonizer/
 │   └── __init__.py
 ```
@@ -1371,7 +1372,7 @@ from agentic_curator import ThematicReviewer
 ## Benchmark Package
 
 `src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/` contains
-one directly executed script and one packaged CSV. The former
+one directly executed script and one packaged TSV. The former
 `ThematicReviewerBenchmark`, its `thematic_reviewer/` namespace, and its two
 JSON files were deliberately removed as a breaking interface change. The
 package root exports no benchmark class; `ontology_harmonizer/` remains an
@@ -1380,20 +1381,20 @@ empty reserved namespace.
 Run the benchmark from the repository root:
 
 ```text
-python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references CSV] [--out DIRECTORY]
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
 ```
 
-`fibrosis_meta_publications.csv` contains 36 ordered records: the Küchenhoff
+`fibrosis_meta_publications.tsv` contains 36 ordered records: the Küchenhoff
 2026 source meta-study plus references 15-34 under
 `leonie_2026_fibrosis`, and the Taylor 2020 systematic review plus references
-18-31 under `taylor_2020_nafld_fibrosis`. Each row repeats the set identity,
-description, and source-publication metadata so the single CSV is self-contained,
-then records source-reference number, relationship, DOI/PMID, title, cited
-authors, journal, year, and citation. Set metadata must be consistent across
-rows, and each row requires a valid DOI, PMID, or both.
+18-31 under `taylor_2020_nafld_fibrosis`. It has exactly five columns:
+`reference_set_id`, `source_reference_number`, `doi`, `pmid`, and `title`.
+The two source-publication rows have blank reference numbers. The file is
+quote-free; tabs delimit fields, so commas in titles remain unmodified.
 
-`--references` defaults to that adjacent packaged CSV and accepts a custom CSV
-with the same required columns. `TRACE_DIR` must be a directory containing a
+`--references` defaults to that adjacent packaged TSV and accepts a custom
+quote-free TSV with the same exact columns and order. Each row requires a title
+and a valid DOI, PMID, or both. `TRACE_DIR` must be a directory containing a
 supported review artifact. Selection prefers the pre-filter
 `resume_review_progress.json`, then `02_reviewed_datasets.json`, then
 `06_final_atlas.json`; post-filter reports retain the discovery limitation.
@@ -1405,15 +1406,17 @@ multiple candidates produce `conflict` without arbitrary selection. Review
 outcomes come from `publication_texts[*].agentic_curator` and normalize to
 relevant, unsure, not relevant, other, failed, or unreviewed states.
 
-Schema `1.0` contains CSV and trace provenance, a globally deduplicated
-`aggregate` summary/details block, and ordered `reference_sets` blocks with
-independent summaries/details. Metrics include duplicate, matched, missed, and
-conflict counts; discovery, relevant, and relevant-or-unsure candidate recall;
-review completion/failure counts; and judgement counts.
+Schema `1.0` contains TSV and trace provenance, a globally deduplicated
+`aggregate` summary/details block, and ordered `reference_sets` blocks. Each
+per-set block contains only its ID, summary, and publication details; the TSV
+and report deliberately omit descriptive source metadata. Metrics include
+duplicate, matched, missed, and conflict counts; discovery, relevant, and
+relevant-or-unsure candidate recall; review completion/failure counts; and
+judgement counts.
 
 `--out` is a directory and defaults to Git-ignored `benchmarks/`. The runner
 creates it, atomically replaces `fibrosis_meta_pubs_recall_report.json`, prints
-the report path, and exits zero. Argument errors exit two. CSV, trace, JSON, or
+the report path, and exits zero. Argument errors exit two. TSV, trace, JSON, or
 filesystem failures emit a concise stderr message, exit one, and leave no
 partial report. The runner makes no network, identifier-resolution, or model
 calls and has no installed console entry point or supported `python -m` form.
@@ -1449,7 +1452,7 @@ Reusable assets were deliberately not archived:
 - `config/fibrosis_discovery_queries.json` remains a tracked, versioned query
   catalog; its four historical per-query caps permit 40,000 raw hits before cross-query deduplication.
 - The direct fibrosis meta-publication recall runner remains tracked with one
-  packaged CSV containing the Leonie and Taylor reference sets.
+  packaged TSV containing the Leonie and Taylor reference sets.
 - `PublicationTextReviewer.resume`, `AtlasCollector.resume_metadata`, and
   the installed `thematic-atlas` CLI remain available to callers.
 

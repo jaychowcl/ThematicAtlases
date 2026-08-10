@@ -1,0 +1,37 @@
+reference_set_id	source_reference_number	doi	pmid	title
+leonie_2026_fibrosis		10.64898/2026.03.09.709232		Shared and organ-specific gene expression programs of fibrotic diseases
+leonie_2026_fibrosis	15	10.1038/s41467-024-55325-4		Spatial transcriptomics of healthy and fibrotic human liver at single-cell resolution
+leonie_2026_fibrosis	16	10.1126/science.abo1984		Pathogenic variants damage cell composition and single cell transcription in cardiomyopathies
+leonie_2026_fibrosis	17	10.1164/rccm.201712-2410oc		Single-Cell Transcriptomic Analysis of Human Lung Provides Insights into the Pathobiology of Pulmonary Fibrosis
+leonie_2026_fibrosis	18	10.1126/sciadv.aba1972		Single-cell RNA sequencing reveals profibrotic roles of distinct epithelial and mesenchymal lineages in pulmonary fibrosis
+leonie_2026_fibrosis	19	10.1038/s41467-020-17358-3		Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis
+leonie_2026_fibrosis	20	10.1126/sciadv.aba1983		Single-cell RNA-seq reveals ectopic and aberrant lung-resident cell populations in idiopathic pulmonary fibrosis
+leonie_2026_fibrosis	21	10.1038/s41467-020-15647-5		Collagen-producing lung cell atlas identifies multiple subsets with distinct localization and relevance to fibrosis
+leonie_2026_fibrosis	22	10.1016/j.celrep.2023.112086		Single-nucleus RNA sequencing in ischemic cardiomyopathy reveals common transcriptional profile underlying end-stage heart failure
+leonie_2026_fibrosis	23	10.1038/s41586-022-04817-8		Single-nucleus profiling of human dilated and hypertrophic cardiomyopathy
+leonie_2026_fibrosis	24	10.1038/s44161-022-00028-6		Single-cell transcriptomics reveals cell-type-specific diversification in human heart failure
+leonie_2026_fibrosis	25	10.1038/s41586-022-05060-x		Spatial multi-omic map of human myocardial infarction
+leonie_2026_fibrosis	26	10.1038/s41586-023-05769-3		An atlas of healthy and injured cell states and niches in the human kidney
+leonie_2026_fibrosis	27	10.1101/2025.09.12.25335572		A Human Glomerular Disease Atlas defines the APOL1-JAK-STAT feed forward loop in focal segmental glomerulosclerosis
+leonie_2026_fibrosis	28	10.1038/s41588-024-01802-x		Single-cell multi-omic and spatial profiling of human kidneys implicates the fibrotic microenvironment in kidney disease progression
+leonie_2026_fibrosis	29	10.1038/s41467-022-34255-z		Defining cellular complexity in human autosomal dominant polycystic kidney disease by multimodal single cell analysis
+leonie_2026_fibrosis	30	10.1016/j.cmet.2024.02.015		Transcriptomic, epigenomic, and spatial metabolomic cell profiling redefines regional human kidney anatomy
+leonie_2026_fibrosis	31	10.1038/s41467-022-32972-z		Multimodal single cell sequencing implicates chromatin accessibility and genetic background in diabetic kidney disease progression
+leonie_2026_fibrosis	32	10.1038/s41586-019-1631-3		Resolving the fibrotic niche of human liver cirrhosis at single-cell level
+leonie_2026_fibrosis	33	10.1038/s41586-024-07465-2		Acquisition of epithelial plasticity in human chronic liver disease
+leonie_2026_fibrosis	34	10.1016/j.jhep.2021.12.036		Liver stromal cells restrict macrophage maturation and stromal IL-6 limits the differentiation of cirrhosis-linked macrophages
+taylor_2020_nafld_fibrosis		10.1053/j.gastro.2020.01.043		Association Between Fibrosis Stage and Outcomes of Patients With Nonalcoholic Fatty Liver Disease: A Systematic Review and Meta-Analysis
+taylor_2020_nafld_fibrosis	18	10.1002/hep.24491		The natural history of nonalcoholic fatty liver disease with advanced fibrosis or cirrhosis: An international collaborative study
+taylor_2020_nafld_fibrosis	19	10.1002/hep.22868		Quality of life in adults with nonalcoholic fatty liver disease: Baseline data from the nonalcoholic steatohepatitis clinical research network
+taylor_2020_nafld_fibrosis	20	10.1016/j.jhep.2017.07.027		Fibrosis stage but not NASH predicts mortality and time to development of severe liver disease in biopsy-proven NAFLD
+taylor_2020_nafld_fibrosis	21	10.1002/hep4.1124		Risk for development of severe liver disease in lean patients with nonalcoholic fatty liver disease: A long-term follow-up study
+taylor_2020_nafld_fibrosis	22	10.1016/j.cgh.2018.12.016		Health-related Quality of Life in Nonalcoholic Fatty Liver Disease Associates With Hepatic Inflammation
+taylor_2020_nafld_fibrosis	23	10.1111/jgh.14448		Utility and limitations of noninvasive fibrosis markers for predicting prognosis in biopsy-proven Japanese non-alcoholic fatty liver disease patients
+taylor_2020_nafld_fibrosis	24	10.1002/hep.28697		Histological severity and clinical outcomes of nonalcoholic fatty liver disease in nonobese patients
+taylor_2020_nafld_fibrosis	25	10.1371/journal.pone.0202393		Noninvasive scoring systems predict hepatic and extra-hepatic cancers in patients with nonalcoholic fatty liver disease
+taylor_2020_nafld_fibrosis	26	10.1371/journal.pone.0128774		Prognostic Value of Non-Invasive Fibrosis and Steatosis Tools, Hepatic Venous Pressure Gradient (HVPG) and Histology in Nonalcoholic Steatohepatitis
+taylor_2020_nafld_fibrosis	27	10.1111/hepr.12407		Predictors of malignancies and overall mortality in Japanese patients with biopsy-proven non-alcoholic fatty liver disease
+taylor_2020_nafld_fibrosis	28	10.1053/j.gastro.2018.04.034		Fibrosis Severity as a Determinant of Cause-Specific Mortality in Patients With Advanced Nonalcoholic Fatty Liver Disease: A Multi-National Cohort Study
+taylor_2020_nafld_fibrosis	29	10.1002/hep.24268		Pathologic criteria for nonalcoholic steatohepatitis: Interprotocol agreement and ability to predict liver-related mortality
+taylor_2020_nafld_fibrosis	30	10.1002/hep4.1054		Nonalcoholic steatofibrosis independently predicts mortality in nonalcoholic fatty liver disease
+taylor_2020_nafld_fibrosis	31	10.1111/liv.13706		Improvement of hepatic fibrosis and patient-reported outcomes in non-alcoholic steatohepatitis treated with selonsertib
