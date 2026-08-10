@@ -28,6 +28,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_recall" = ["*.tsv"]
+"benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_review" = ["*.csv", "*.txt"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

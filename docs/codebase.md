@@ -75,8 +75,9 @@ and [project layout](#project-purpose-and-layout).
   Meta Standards Converter 3.x owns strict package decoding and explicit v1
   migration; this repository transports those packages without weakening
   either boundary.
-  `benchmark_ThematicAtlases` consumes outputs but never mutates production
-  traces. Repository capabilities are explicit and immutable: GEO and
+  `benchmark_ThematicAtlases` reads recall traces without mutation; its review
+  runner instead resolves public identifiers into a separate Git-ignored cache
+  and never reads or mutates a trace. Repository capabilities are explicit and immutable: GEO and
   ArrayExpress are supported end to end; scanner-only curated repositories are
   retained as terminal inventory until a supported capability and handler are
   registered together.
@@ -300,6 +301,7 @@ MSC additionally validates public DNS for its ArrayExpress fetcher.
 | traced orchestration | `AtlasRunStore` | normalized SQLite calls | store owns runs, stages, work, attempts, artifact roles, and events | incompatible schema/path-role conflict raises |
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns cache hydration and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; invalid global inputs fail without a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -459,6 +461,11 @@ the Python API, or the canonical parent-adapter workflow documented in the
   runner owns offline trace/TSV validation, exact DOI/PMID comparison, aggregate
   and per-reference-set scoring, and atomic report publication. The preceding
   anchor is retained only as a documentation alias for the removed class.
+<a id="type-fibrosis-meta-pubs-review-benchmark"></a>
+- The direct [`benchmark_fibrosis_meta_pubs_review.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py)
+  runner owns labeled identifier validation, exact public hydration, row-level
+  cache reuse/refresh, production `PublicationTextReviewer` dispatch,
+  three-class metrics, and atomic report publication. It has no trace input.
 
 <a id="public-api-reference"></a>
 ## Public API reference
@@ -1143,9 +1150,10 @@ Definitions/calls:
 <a id="workflow-benchmarking"></a>
 ### Workflow 8: Benchmarking
 
-Offline recall compares one saved trace directory with the combined packaged
-fibrosis reference TSV or a caller-supplied TSV through a directly executed
-script. There is no benchmark Python API or installed console entry point.
+Two directly executed scripts own benchmarking. Offline recall compares one
+saved trace with a packaged/custom TSV. Review classification takes a labeled
+identifier CSV, hydrates stable public inputs without a trace, and calls the
+production TA reviewer. There is no benchmark Python API or console entry point.
 
 ```text
 trace directory + TSV -> validate -> normalize -> exact DOI/PMID match
@@ -1177,6 +1185,16 @@ benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIR]
   -> normalize/group references and discovered publications
   -> score aggregate and each reference_set_id
   -> atomic temp-file replacement
+  <- print report path and exit 0
+
+benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
+    [--cache CSV] [--refresh-cache]
+  -> validate publication_id/DOI/PMID/expected_decision rows
+  -> exact Europe PMC text + accession metadata hydration
+  -> atomically reuse/refresh dataset-bound CSV cache rows
+  -> PublicationTextReviewer.review_publication_texts(theme=packaged fibrosis theme)
+  -> score relevant/not_relevant/unsure; retain row failures outside metrics
+  -> atomic schema 1.0 report replacement
   <- print report path and exit 0
 ```
 
@@ -1273,8 +1291,11 @@ src/benchmark_ThematicAtlases/
 │   ├── __init__.py
 │   ├── benchmark_fibrosis_meta_pubs_recall.py
 │   └── fibrosis_meta_publications.tsv
-├── ontology_harmonizer/
-│   └── __init__.py
+└── benchmark_fibrosis_meta_pubs_review/
+    ├── __init__.py
+    ├── benchmark_fibrosis_meta_pubs_review.py
+    ├── fibrosis_meta_publications_review.csv
+    └── theme_fibrosis.txt
 ```
 
 Root interfaces and configuration:
@@ -1328,7 +1349,7 @@ and trace output are not part of the tracked source tree.
   release gate remains blocked until they are supplied.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-10 this deterministic gate reported `541 passed, 4 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-10 this deterministic gate reported `545 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1371,17 +1392,16 @@ from agentic_curator import ThematicReviewer
 <a id="benchmark-package"></a>
 ## Benchmark Package
 
-`src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/` contains
-one directly executed script and one packaged TSV. The former
-`ThematicReviewerBenchmark`, its `thematic_reviewer/` namespace, and its two
-JSON files were deliberately removed as a breaking interface change. The
-package root exports no benchmark class; `ontology_harmonizer/` remains an
-empty reserved namespace.
+`src/benchmark_ThematicAtlases/` contains separate direct recall and review
+benchmark directories. The former `ThematicReviewerBenchmark`,
+`thematic_reviewer/`, and empty `ontology_harmonizer/` namespaces are removed.
+The package root and both subpackages export no benchmark Python API.
 
 Run the benchmark from the repository root:
 
 ```text
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--refresh-cache]
 ```
 
 `fibrosis_meta_publications.tsv` combines three ordered reference sets: the
@@ -1424,6 +1444,28 @@ the report path, and exits zero. Argument errors exit two. TSV, trace, JSON, or
 filesystem failures emit a concise stderr message, exit one, and leave no
 partial report. The runner makes no network, identifier-resolution, or model
 calls and has no installed console entry point or supported `python -m` form.
+
+The review benchmark's adjacent CSV is an intentionally header-only template
+with exact columns `publication_id`, `doi`, `pmid`, and `expected_decision`.
+Each populated row requires a unique ID, a DOI/PMID, and one normalized label:
+`relevant`, `not_relevant`, or `unsure`. The adjacent theme is byte-identical
+to `docs/theme_fibrosis.txt`. An empty dataset fails before cache/report writes.
+
+The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
+requires one matching record, uses TA's full-text/abstract fallback, discovers
+supported accessions, collects GEO/ArrayExpress context, and invokes
+`PublicationTextReviewer.review_publication_texts` with an explicitly public
+`ThematicReviewer`. It never reads a trace. Successful/degraded hydration is
+frozen in a standard quoted CSV under the benchmark-specific Git-ignored output
+directory; unchanged identifier rows are reused, changed/failed rows refresh,
+and `--refresh-cache` forces all rows. Source-label changes do not refetch text.
+
+Review report schema `1.0` records dataset/theme/cache hashes and counts,
+hydration/review coverage, expected/predicted counts, a three-by-three confusion
+matrix, accuracy, per-class precision/recall/F1, macro F1, and ordered row
+details without raw publication text. Retrieval/review failures remain visible
+but are excluded from classification denominators. Global input/cache failures
+exit one without a partial report; row failures still produce an atomic report.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
@@ -2148,7 +2190,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `541 passed, 4 skipped` on 2026-08-10. Live tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, XML-primary Europe PMC datalinks with bounded JSON fallback, bounded numeric and HTTP-date retry delays, repository resolution, and exact complete input/output comparison for the Leonie reference-publication recall benchmark. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `545 passed, 4 skipped` on 2026-08-10. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, XML-primary Europe PMC datalinks with bounded JSON fallback, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

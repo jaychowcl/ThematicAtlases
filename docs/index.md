@@ -229,6 +229,12 @@ Use `--query <keyword>` when the id is unknown.
   purpose: Direct offline trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall across the combined Leonie, Taylor, and He fibrosis references.
   keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall, Leonie, Taylor, He, ILD
 
+- id: type-fibrosis-meta-pubs-review-benchmark
+  title: [Fibrosis meta-publication review benchmark](codebase.md#type-fibrosis-meta-pubs-review-benchmark)
+  anchor: type-fibrosis-meta-pubs-review-benchmark
+  purpose: Trace-free DOI/PMID hydration, frozen CSV context cache, production TA reviewer execution, and three-class scoring.
+  keywords: benchmark_fibrosis_meta_pubs_review, CSV, Europe PMC, full text, metadata context, cache, relevant, not relevant, unsure, confusion matrix, macro F1
+
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
   anchor: workflow-collection
@@ -280,8 +286,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-benchmarking
   title: [Benchmarking workflow](codebase.md#workflow-benchmarking)
   anchor: workflow-benchmarking
-  purpose: Offline exact recall from a trace directory and one combined packaged or custom TSV.
-  keywords: benchmark, offline, trace directory, TSV, DOI, PMID, exact match, report
+  purpose: Offline exact recall from a trace/TSV and trace-free cached thematic-review classification from a labeled identifier CSV.
+  keywords: benchmark, offline, trace directory, TSV, CSV, DOI, PMID, exact match, hydration cache, thematic review, report
 
 ## Detailed and legacy-stable routes
 
@@ -312,8 +318,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  purpose: Combined fibrosis reference TSV, direct runner, exact matching, aggregate/per-set reports, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, DOI, PMID, reference set, aggregate, recall, conflict, benchmarks directory, Leonie, Taylor, He, ILD
+  purpose: Direct fibrosis recall and review runners, packaged TSV/CSV/theme inputs, frozen runtime cache, scoring, and generated output policy.
+  keywords: benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, TSV, CSV, DOI, PMID, reference set, recall, classification, cache, benchmarks directory, Leonie, Taylor, He, ILD
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)
@@ -343,7 +349,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Test And Verification Status](codebase.md#test-and-verification-status)
   anchor: test-and-verification-status
   purpose: Current automated coverage and verification commands.
-  keywords: pytest, 541 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
+  keywords: pytest, 545 passed, 4 skipped, py_compile, mocked network, documentation, CLI, workflows
 
 - id: atlas-workflow
   title: [Atlas Workflow](codebase.md#atlas-workflow)

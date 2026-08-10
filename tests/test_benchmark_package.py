@@ -11,9 +11,21 @@ def test_benchmark_subpackages_are_separate_import_namespaces() -> None:
     fibrosis_recall = importlib.import_module(
         "benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_recall"
     )
-    ontology_harmonizer = importlib.import_module(
-        "benchmark_ThematicAtlases.ontology_harmonizer"
+    fibrosis_review = importlib.import_module(
+        "benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_review"
     )
 
     assert fibrosis_recall.__all__ == []
-    assert ontology_harmonizer.__all__ == []
+    assert fibrosis_review.__all__ == []
+
+
+def test_obsolete_benchmark_namespaces_are_removed() -> None:
+    for module in (
+        "benchmark_ThematicAtlases.ontology_harmonizer",
+        "benchmark_ThematicAtlases.thematic_reviewer",
+    ):
+        try:
+            importlib.import_module(module)
+        except ModuleNotFoundError:
+            continue
+        raise AssertionError(f"obsolete benchmark namespace remains importable: {module}")

@@ -62,7 +62,7 @@ def test_readme_and_handoff_record_current_contracts_and_test_evidence() -> None
         assert "Atlas document schema 1.0" in document
         assert "H5AD metadata schema 1.0" in document
         assert "2026-08-10" in document
-        assert "541 passed, 4 skipped" in document
+        assert "545 passed, 4 skipped" in document
     for stale in ("meta-standards-converter 3", "H5AD metadata schema 3.0"):
         assert stale not in index
         assert stale not in codebase
@@ -183,6 +183,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "`PublicationTextReviewer.resume(...)`",
         "`AtlasCollector.resume_metadata(...)`",
         "`benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]`",
+        "`benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--refresh-cache]`",
         "`CheckpointStore`",
         "`EuropePMCWrapper`",
         "`GEOWrapper`",

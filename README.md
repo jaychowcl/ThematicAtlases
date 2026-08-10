@@ -8,7 +8,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 2.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "2.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. Legacy MINiML 1.x packages must be migrated explicitly with MSC before entering an Atlas workflow.
 
-The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall against packaged or custom reference sets.
+The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package measures exact DOI/PMID recall and labeled thematic-review classification.
 
 ## Installation
 
@@ -109,7 +109,8 @@ High-level inputs are:
 - Repository selection (`geo` and/or `arrayexpress`), publication limits, review controls, and metadata/harmonization controls.
 - For standalone harmonization, a strict Atlas v1 JSON document with
   `schema_version`, `atlas`, `run`, `datasets`, `publications`, and `summary`.
-- For resume and benchmark workflows, a trace directory, atlas JSON file, or reference-set JSON as appropriate.
+- For resume and benchmark workflows, a trace directory, atlas JSON file,
+  recall-reference TSV, or labeled publication-identifier CSV as appropriate.
 
 Every public Atlas workflow returns or writes the same versioned document
 shape (nested fields are abbreviated here):
@@ -523,6 +524,7 @@ Specialized workflow surfaces are available when independently advancing or eval
 - `PublicationTextReviewer.resume(...)`: `resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict` reviews one stable datalink snapshot. See the [filterer flow](docs/codebase.md#filterer).
 - `AtlasCollector.resume_metadata(...)`: `resume_metadata(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict` collects, audits, or explicitly repairs GEO metadata enrichment for one stable snapshot. See the [collector flow](docs/codebase.md#collector).
 - `benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]` runs the offline fibrosis meta-publication recall benchmark directly. It defaults to the packaged combined TSV for the Leonie 2026, Taylor 2020, and He 2025 fibrosis reference sets and writes `fibrosis_meta_pubs_recall_report.json` under the Git-ignored `benchmarks/` directory. See the [benchmark package](docs/codebase.md#benchmark-package).
+- `benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--refresh-cache]` resolves labeled DOI/PMID rows through public TA retrieval components, freezes full text and metadata context in a Git-ignored CSV cache, and scores the production thematic reviewer as relevant, not relevant, or unsure. The packaged CSV is intentionally a header-only template and must be populated before use. See the [benchmark package](docs/codebase.md#benchmark-package).
 
 Lower-level supported types are documented exhaustively in the
 [public API reference](docs/codebase.md#public-api-reference):
@@ -624,7 +626,7 @@ Implementation details: [collector](docs/codebase.md#collector), [filterer](docs
 ## Testing
 
 The deterministic, network-blocked suite was last verified on 2026-08-10:
-`541 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
+`545 passed, 4 skipped`. The skipped tests are the explicitly opt-in live API
 provider contracts. Normal tests inject all HTTP, LLM, embedding, ontology,
 and metadata collaborators and do not make external calls.
 
