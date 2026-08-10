@@ -372,8 +372,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: epmc-wrapper
   title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
   anchor: epmc-wrapper
-  purpose: Search, pagination, deduplication, datalinks, Europe PMC XML, preprint JATS, abstract fallback, checkpoint, and endpoint detail.
-  keywords: EuropePMCWrapper, search, datalinks, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
+  purpose: Search, pagination, deduplication, XML-primary datalinks with bounded JSON fallback, publication text, checkpoint, and endpoint detail.
+  keywords: EuropePMCWrapper, search, datalinks, XML primary, JSON fallback, Scholix, fail closed, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
 
 - id: fulltext-accession-discovery
   title: [Publication-text Accession Discovery](codebase.md#fulltext-accession-discovery)

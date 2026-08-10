@@ -957,40 +957,30 @@ class EuropePMCWrapper:
         ).json()
 
     def _datalinks(self, source: str, epmc_id: str) -> dict:
-        params = {"format": "json"}
         url = self._datalinks_url.format(source=source, epmc_id=epmc_id)
 
         try:
-            response = self._request_policy.get(
-                url,
-                params=params,
-                retry_exceptions=True,
-                raise_for_status=False,
-            )
-        except requests.RequestException as error:
+            return self._datalinks_from_xml(url=url)
+        except (requests.RequestException, ET.ParseError) as error:
             logger.debug(
-                "EuropePMC datalinks XML fallback error_type=%s source=%r epmc_id=%r",
+                "EuropePMC datalinks JSON fallback error_type=%s source=%r epmc_id=%r",
                 type(error).__name__,
                 source,
                 epmc_id,
             )
-            return self._datalinks_from_xml(url=url)
-
-        if response.status_code >= 500:
-            logger.debug(
-                "EuropePMC datalinks XML fallback status=%s source=%r epmc_id=%r",
-                response.status_code,
-                source,
-                epmc_id,
-            )
-            return self._datalinks_from_xml(url=url)
-
-        response.raise_for_status()
-        return response.json()
+            return self._datalinks_from_json(url=url)
 
     def _datalinks_from_xml(self, url: str) -> dict:
         response = self._request_policy.get(url, retry_exceptions=True)
         return self._datalinks_xml_to_json(response.text)
+
+    def _datalinks_from_json(self, url: str) -> dict:
+        response = self._request_policy.get(
+            url,
+            params={"format": "json"},
+            retry_exceptions=True,
+        )
+        return response.json()
 
     def _datalinks_xml_to_json(self, text: str) -> dict:
         root = parse_xml(text, max_bytes=self.resource_profile.max_xml_bytes)

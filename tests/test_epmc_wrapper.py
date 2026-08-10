@@ -78,6 +78,43 @@ def _geo_datalink_response(accession: str) -> dict:
     }
 
 
+def _datalinks_xml(
+    *categories: tuple[str, str | None, str | None, str | None],
+) -> str:
+    category_xml = []
+    for name, identifier, scheme, url in categories:
+        link_xml = ""
+        if identifier is not None:
+            link_xml = f"""
+              <epmc:Section>
+                <epmc:Linklist>
+                  <slx:Link>
+                    <slx:Target>
+                      <slx:Identifier>
+                        <slx:ID>{identifier}</slx:ID>
+                        <slx:IDScheme>{scheme or ''}</slx:IDScheme>
+                        <slx:IDURL>{url or ''}</slx:IDURL>
+                      </slx:Identifier>
+                    </slx:Target>
+                  </slx:Link>
+                </epmc:Linklist>
+              </epmc:Section>
+            """
+        category_xml.append(
+            f"""
+            <epmc:Category>
+              <epmc:Name>{name}</epmc:Name>
+              {link_xml}
+            </epmc:Category>
+            """
+        )
+    return f"""
+    <responseWrapper xmlns:slx="http://www.scholix.org" xmlns:epmc="https://www.europepmc.org/data">
+      <dataLinkList>{''.join(category_xml)}</dataLinkList>
+    </responseWrapper>
+    """
+
+
 def test_default_request_delay_is_gentle_and_can_be_overridden() -> None:
     assert EuropePMCWrapper()._request_settings["request_delay"] == 0.5
     assert EuropePMCWrapper(request_delay=0)._request_settings["request_delay"] == 0
@@ -926,55 +963,14 @@ def test_collect_datalinks_sends_expected_request_and_returns_accessions(
         "full_text_status": "available",
     }
 
-    def fake_get(url, params, timeout):
+    def fake_get(url, params=None, timeout=None):
         calls.append((url, params, timeout))
         return FakeResponse(
-            {
-                "dataLinkList": {
-                    "Category": [
-                        {
-                            "Name": "GEO",
-                            "Section": [
-                                {
-                                    "Linklist": {
-                                        "Link": [
-                                            {
-                                                "Target": {
-                                                    "Identifier": {
-                                                        "ID": "GSE1",
-                                                        "IDScheme": "GEO",
-                                                        "IDURL": "https://example.org/GSE1",
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    }
-                                }
-                            ],
-                        },
-                        {
-                            "Name": "Ignored",
-                            "Section": [
-                                {
-                                    "Linklist": {
-                                        "Link": [
-                                            {
-                                                "Target": {
-                                                    "Identifier": {
-                                                        "ID": "IGNORE1",
-                                                        "IDScheme": "OTHER",
-                                                        "IDURL": "https://example.org/IGNORE1",
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    }
-                                }
-                            ],
-                        },
-                    ]
-                }
-            }
+            {},
+            text=_datalinks_xml(
+                ("GEO", "GSE1", "GEO", "https://example.org/GSE1"),
+                ("Ignored", "IGNORE1", "OTHER", "https://example.org/IGNORE1"),
+            ),
         )
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
@@ -985,7 +981,7 @@ def test_collect_datalinks_sends_expected_request_and_returns_accessions(
     assert calls == [
         (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
-            {"format": "json"},
+            None,
             12,
         )
     ]
@@ -1017,34 +1013,12 @@ def test_collect_datalinks_sends_expected_request_and_returns_accessions(
 def test_collect_datalinks_deduplicates_flattened_rows(monkeypatch) -> None:
     flattened_datalinks = []
 
-    def fake_get(url, params, timeout):
+    def fake_get(url, params=None, timeout=None):
         return FakeResponse(
-            {
-                "dataLinkList": {
-                    "Category": [
-                        {
-                            "Name": "GEO",
-                            "Section": [
-                                {
-                                    "Linklist": {
-                                        "Link": [
-                                            {
-                                                "Target": {
-                                                    "Identifier": {
-                                                        "ID": "GSE1",
-                                                        "IDScheme": "GEO",
-                                                        "IDURL": "https://example.org/GSE1",
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    }
-                                }
-                            ],
-                        },
-                    ]
-                }
-            }
+            {},
+            text=_datalinks_xml(
+                ("GEO", "GSE1", "GEO", "https://example.org/GSE1"),
+            ),
         )
 
     def fake_deduplicate_accessions(self, datalinks: list[dict]) -> list[dict]:
@@ -1097,37 +1071,15 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
     responses = [
         FakeResponse({}, status_code=503),
         FakeResponse(
-            {
-                "dataLinkList": {
-                    "Category": [
-                        {
-                            "Name": "BioProject",
-                            "Section": [
-                                {
-                                    "Linklist": {
-                                        "Link": [
-                                            {
-                                                "Target": {
-                                                    "Identifier": {
-                                                        "ID": "PRJ1",
-                                                        "IDScheme": "BioProject",
-                                                        "IDURL": "https://example.org/PRJ1",
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    }
-                                }
-                            ],
-                        }
-                    ]
-                }
-            }
+            {},
+            text=_datalinks_xml(
+                ("BioProject", "PRJ1", "BioProject", "https://example.org/PRJ1"),
+            ),
         ),
     ]
 
-    def fake_get(url, params, timeout):
-        calls.append(params.copy())
+    def fake_get(url, params=None, timeout=None):
+        calls.append(params)
         return responses.pop(0)
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
@@ -1138,6 +1090,7 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
     )
 
     assert len(calls) == 2
+    assert calls == [None, None]
     assert result[0]["datalink_id"] == "PRJ1"
     assert result[0]["publications"] == [
         {
@@ -1156,41 +1109,40 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
     ]
 
 
-def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_fails(
+def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_fails(
     monkeypatch,
 ) -> None:
     calls = []
-    xml = """
-    <responseWrapper xmlns:slx="http://www.scholix.org" xmlns:epmc="https://www.europepmc.org/data">
-      <dataLinkList>
-        <epmc:Category>
-          <epmc:Name>Functional Genomics Experiments</epmc:Name>
-          <epmc:Section>
-            <epmc:Linklist>
-              <slx:Link>
-                <slx:Source>
-                  <slx:Identifier>
-                    <slx:ID>123</slx:ID>
-                    <slx:IDScheme>MED</slx:IDScheme>
-                  </slx:Identifier>
-                </slx:Source>
-                <slx:Target>
-                  <slx:Identifier>
-                    <slx:ID>E-MTAB-1</slx:ID>
-                    <slx:IDScheme>ArrayExpress</slx:IDScheme>
-                    <slx:IDURL>https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-1</slx:IDURL>
-                  </slx:Identifier>
-                </slx:Target>
-              </slx:Link>
-            </epmc:Linklist>
-          </epmc:Section>
-        </epmc:Category>
-      </dataLinkList>
-    </responseWrapper>
-    """
     responses = [
         FakeResponse({}, status_code=500),
-        FakeResponse({}, text=xml),
+        FakeResponse(
+            {
+                "dataLinkList": {
+                    "Category": [
+                        {
+                            "Name": "Functional Genomics Experiments",
+                            "Section": [
+                                {
+                                    "Linklist": {
+                                        "Link": [
+                                            {
+                                                "Target": {
+                                                    "Identifier": {
+                                                        "ID": "E-MTAB-1",
+                                                        "IDScheme": "ArrayExpress",
+                                                        "IDURL": "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-1",
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        ),
     ]
 
     def fake_get(url, params=None, timeout=None):
@@ -1207,12 +1159,12 @@ def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_fails(
     assert calls == [
         (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
-            {"format": "json"},
+            None,
             12,
         ),
         (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
-            None,
+            {"format": "json"},
             12,
         ),
     ]
@@ -1241,40 +1193,18 @@ def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_fails(
     ]
 
 
-def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_times_out(
+def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_times_out(
     monkeypatch,
 ) -> None:
     calls = []
-    xml = """
-    <responseWrapper xmlns:slx="http://www.scholix.org" xmlns:epmc="https://www.europepmc.org/data">
-      <dataLinkList>
-        <epmc:Category>
-          <epmc:Name>GEO</epmc:Name>
-          <epmc:Section>
-            <epmc:Linklist>
-              <slx:Link>
-                <slx:Target>
-                  <slx:Identifier>
-                    <slx:ID>GSE1</slx:ID>
-                    <slx:IDScheme>GEO</slx:IDScheme>
-                    <slx:IDURL>https://example.org/GSE1</slx:IDURL>
-                  </slx:Identifier>
-                </slx:Target>
-              </slx:Link>
-            </epmc:Linklist>
-          </epmc:Section>
-        </epmc:Category>
-      </dataLinkList>
-    </responseWrapper>
-    """
 
     def fake_get(url, params=None, timeout=None):
         calls.append((url, params, timeout))
 
-        if params == {"format": "json"}:
-            raise requests.ReadTimeout("slow json")
+        if params is None:
+            raise requests.ReadTimeout("slow xml")
 
-        return FakeResponse({}, text=xml)
+        return FakeResponse(_geo_datalink_response("GSE1"))
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
     monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
@@ -1286,12 +1216,12 @@ def test_collect_datalinks_falls_back_to_xml_when_json_endpoint_times_out(
     assert calls == [
         (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
-            {"format": "json"},
+            None,
             12,
         ),
         (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/123/datalinks",
-            None,
+            {"format": "json"},
             12,
         ),
     ]
@@ -1312,32 +1242,15 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
             raise requests.ReadTimeout("dead datalink endpoint")
 
         return FakeResponse(
-            {
-                "dataLinkList": {
-                    "Category": [
-                        {
-                            "Name": "Functional Genomics Experiments",
-                            "Section": [
-                                {
-                                    "Linklist": {
-                                        "Link": [
-                                            {
-                                                "Target": {
-                                                    "Identifier": {
-                                                        "ID": "E-MTAB-1",
-                                                        "IDScheme": "ArrayExpress",
-                                                        "IDURL": "https://example.org/E-MTAB-1",
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    }
-                                }
-                            ],
-                        }
-                    ]
-                }
-            }
+            {},
+            text=_datalinks_xml(
+                (
+                    "Functional Genomics Experiments",
+                    "E-MTAB-1",
+                    "ArrayExpress",
+                    "https://example.org/E-MTAB-1",
+                ),
+            ),
         )
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
@@ -1377,17 +1290,17 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
     assert calls == [
         (
             "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/failed/datalinks",
-            {"format": "json"},
-            12,
-        ),
-        (
-            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/failed/datalinks",
             None,
             12,
         ),
         (
-            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/ok/datalinks",
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/failed/datalinks",
             {"format": "json"},
+            12,
+        ),
+        (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/MED/ok/datalinks",
+            None,
             12,
         ),
     ]
@@ -1420,6 +1333,65 @@ def test_collect_datalinks_checkpoints_non_network_processing_failure(
     assert "malformed provider payload" not in item["error"]
 
 
+def test_collect_datalinks_falls_back_to_json_when_xml_is_malformed(
+    monkeypatch,
+) -> None:
+    calls = []
+    responses = [
+        FakeResponse({}, text="<responseWrapper>"),
+        FakeResponse(_geo_datalink_response("GSE1")),
+    ]
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return responses.pop(0)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+
+    result = EuropePMCWrapper(max_retries=0, timeout=12).collect_datalinks(
+        publications=[{"query": "q", "source": "MED", "epmc_id": "123"}]
+    )
+
+    assert [call[1] for call in calls] == [None, {"format": "json"}]
+    assert result[0]["datalink_id"] == "GSE1"
+
+
+@pytest.mark.parametrize(
+    ("xml", "resource_overrides", "error_type"),
+    [
+        (
+            '<!DOCTYPE x [<!ENTITY y "z">]><root>&y;</root>',
+            None,
+            UnsafeXMLDocumentError,
+        ),
+        ("<root>" + "x" * 64 + "</root>", {"max_xml_bytes": 32}, XMLSizeLimitError),
+    ],
+)
+def test_datalinks_xml_safety_failures_do_not_fallback_to_json(
+    monkeypatch,
+    xml,
+    resource_overrides,
+    error_type,
+) -> None:
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append((url, params, timeout))
+        return FakeResponse({}, text=xml)
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    wrapper = EuropePMCWrapper(
+        max_retries=0,
+        timeout=12,
+        resource_overrides=resource_overrides,
+    )
+
+    with pytest.raises(error_type):
+        wrapper._datalinks(source="MED", epmc_id="123")
+
+    assert [call[1] for call in calls] == [None]
+
+
 def test_xml_boundaries_reject_unsafe_and_oversized_documents() -> None:
     with pytest.raises(UnsafeXMLDocumentError):
         EuropePMCWrapper()._datalinks_xml_to_json(
@@ -1432,35 +1404,13 @@ def test_xml_boundaries_reject_unsafe_and_oversized_documents() -> None:
 
 
 def test_collect_datalinks_logs_stats(monkeypatch, caplog) -> None:
-    def fake_get(url, params, timeout):
+    def fake_get(url, params=None, timeout=None):
         return FakeResponse(
-            {
-                "dataLinkList": {
-                    "Category": [
-                        {
-                            "Name": "GEO",
-                            "Section": [
-                                {
-                                    "Linklist": {
-                                        "Link": [
-                                            {
-                                                "Target": {
-                                                    "Identifier": {
-                                                        "ID": "GSE1",
-                                                        "IDScheme": "GEO",
-                                                        "IDURL": "",
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    }
-                                }
-                            ],
-                        },
-                        {"Name": "Ignored", "Section": []},
-                    ]
-                }
-            }
+            {},
+            text=_datalinks_xml(
+                ("GEO", "GSE1", "GEO", ""),
+                ("Ignored", None, None, None),
+            ),
         )
 
     monkeypatch.setattr(epmc_module.requests, "get", fake_get)
@@ -1481,7 +1431,9 @@ def test_collect_datalinks_logs_periodic_progress(monkeypatch, caplog) -> None:
     monkeypatch.setattr(
         epmc_module.requests,
         "get",
-        lambda url, params, timeout: FakeResponse({"dataLinkList": {"Category": []}}),
+        lambda url, params=None, timeout=None: FakeResponse(
+            {}, text=_datalinks_xml()
+        ),
     )
     monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
     caplog.set_level(logging.INFO, logger=epmc_module.__name__)
