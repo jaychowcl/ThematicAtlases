@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from ThematicAtlases.trace import DevTraceWriter
@@ -9,6 +10,11 @@ from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
 _default_collector_factory = None
 _default_filterer_factory = None
+_RESOLVED_METADATA_STATUSES = frozenset(
+    {"available", "partial", "unavailable", "error"}
+)
+
+logger = logging.getLogger(__name__)
 
 
 def configure_default_resume_factories(*, collector_factory, filterer_factory) -> None:
@@ -45,6 +51,7 @@ class TracePublicationReviewResumer:
         strategy: str = "direct",
         reviewer=None,
         allow_theme_override: bool = False,
+        require_resolved_metadata: bool = False,
     ) -> dict:
         directory = Path(trace_dir)
         manifest = self._read_manifest(directory)
@@ -78,6 +85,11 @@ class TracePublicationReviewResumer:
         filterer = self._filterer_factory(
             publication_text_reviewer=self._publication_text_reviewer,
         )
+        if require_resolved_metadata:
+            accessions = self._resolved_metadata_publications(
+                accessions=accessions,
+                filterer=filterer,
+            )
         publication_texts = filterer.collect_publication_texts(
             jsons=accessions,
             checkpoint_store=store,
@@ -120,6 +132,42 @@ class TracePublicationReviewResumer:
         }
         trace.write("resume_review_progress.json", result)
         return result
+
+    @staticmethod
+    def _resolved_metadata_publications(*, accessions: list[dict], filterer):
+        statuses: dict[tuple, list[str]] = {}
+        for record in accessions:
+            metadata_status = str(record.get("metadata_status") or "").lower()
+            for publication in record.get("publications", []):
+                key = filterer.publication_key(publication)
+                statuses.setdefault(key, []).append(metadata_status)
+
+        eligible = {
+            key
+            for key, values in statuses.items()
+            if values and all(value in _RESOLVED_METADATA_STATUSES for value in values)
+        }
+        filtered = []
+        for record in accessions:
+            publications = [
+                publication
+                for publication in record.get("publications", [])
+                if filterer.publication_key(publication) in eligible
+            ]
+            if publications:
+                filtered.append({**record, "publications": publications})
+
+        logger.info(
+            "Incremental review metadata gate publications_total=%s "
+            "publications_eligible=%s publications_deferred=%s "
+            "accessions_total=%s accessions_eligible=%s",
+            len(statuses),
+            len(eligible),
+            len(statuses) - len(eligible),
+            len(accessions),
+            len(filtered),
+        )
+        return filtered
 
     @staticmethod
     def _read_manifest(directory: Path) -> dict:

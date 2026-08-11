@@ -555,7 +555,7 @@ otherwise.
 | [`ThematicAtlases.filterer.PUBLICATION_TEXT_REF`](../src/ThematicAtlases/filterer/review.py) | `"publication_text_ref"` foreign-key field. |
 | [`ThematicAtlases.filterer.REVIEW_FILTERS`](../src/ThematicAtlases/filterer/review.py) | Mutable set `{"none", "not_relevant", "not_relevant_and_unsure"}`; callers should treat it as a supported-value registry, not mutate it. |
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, prune_accessions=False, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
-| [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
+| [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. The optional metadata gate defers a whole publication until every supported linked accession has a resolved status without collecting metadata. Calls upstream `ThematicReviewer.review_relevancy`; per-item exceptions become failed review payloads/checkpoints, while invalid theme/filter/strategy raises. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
 | [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
 | [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; Datalinks uses paced XML/JSON retry rounds and rejects negative request delays. Bounded XML parsing strips one ordinary external DTD without resolving it and rejects entities, internal subsets, unsafe declarations, and oversized documents. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
@@ -599,7 +599,7 @@ Complete public-member signatures for the exported classes:
   parameters are internal continuation hooks, not supported caller controls.
 - [`PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py):
   `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct",
-  allow_theme_override=False) -> dict`;
+  allow_theme_override=False, require_resolved_metadata=False) -> dict`;
   `validate_options(theme, review_filter, strategy="direct") -> None`;
   `review_and_filter(accessions, publication_texts, theme, review_filter,
   reviewer=None, strategy="direct", prune_accessions=False) -> tuple[list[dict], dict]`;
@@ -674,11 +674,17 @@ Complete public-member signatures for the exported classes:
   and stage/item/history indexes support resume, retry reporting, and history
   lookup without full checkpoint-table scans.
 - [`TracePublicationReviewResumer.resume(trace_dir, *, theme=None,
-  strategy="direct", reviewer=None, allow_theme_override=False) -> dict`](../src/ThematicAtlases/filterer/resume.py)
+  strategy="direct", reviewer=None, allow_theme_override=False,
+  require_resolved_metadata=False) -> dict`](../src/ThematicAtlases/filterer/resume.py)
   validates a trace, reviews the current datalink snapshot, and writes review
-  progress. [`DevTraceWriter`](../src/ThematicAtlases/trace.py) exposes
+  progress. The opt-in gate includes a publication only after all supported
+  accession links have status `available`, `partial`, `unavailable`, or
+  `error`; pending, missing, and unknown statuses defer it before text/model
+  work. [`DevTraceWriter`](../src/ThematicAtlases/trace.py) exposes
   `checkpoint_store`, `existing`, `write`, and `metadata` for readable artifacts;
   run IDs and artifact names must be single filesystem-safe path components.
+  Each atomic write uses a unique temporary file so cooperating processes do
+  not race on a shared temporary pathname.
 - [`GoogleCredentialPreflight.check() -> str`](../src/ThematicAtlases/credentials.py)
   refreshes ADC and verifies a quota project, raising actionable runtime errors.
   [`load_query_catalog(path) -> dict`](../src/ThematicAtlases/query_catalog.py)
@@ -1045,10 +1051,13 @@ trace -> manifest/fingerprint validation -> publication snapshot
    `PublicationTextReviewer.resume`.
 2. `PublicationTextReviewer.resume` uses `TracePublicationReviewResumer`, which
    validates the manifest/theme and rebuilds a stable current datalink snapshot.
-3. The filterer fetches/reuses text and constructs accession/metadata context.
-4. `PublicationTextReviewer.review_publication_texts` calls the injected
+3. When requested, group all supported accession links by publication and
+   defer the publication unless every metadata status is resolved. The gate
+   makes no metadata call.
+4. The filterer fetches/reuses text and constructs accession/metadata context.
+5. `PublicationTextReviewer.review_publication_texts` calls the injected
    reviewer's `review_relevancy`; item locks prevent duplicate completion.
-5. Model exceptions become retryable/terminal failed review payloads rather
+6. Model exceptions become retryable/terminal failed review payloads rather
    than aborting unrelated publications. Progress is written after each item;
    missing theme or forbidden override raises before review.
 
@@ -1569,7 +1578,7 @@ Public methods:
 - `_dev_run_id()` is internal run allocation policy. It returns
   `YYYYMMDDTHHMMSSffffffZ-xxxxxxxx`, combining UTC microseconds and 32 random
   bits so trace directories are sortable and collision-resistant.
-- `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
+- `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. Incremental review progress contributes cached publication texts and review checkpoints but is merged with the complete `01_collected_accessions.json`, so an early subset never replaces the finished collection. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
 - `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.
 - `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", prune_accessions=False, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v1 with run status `running`. Full-text and curated-link discovery are on by default; accession pruning requires explicit opt-in. Unsupported capabilities are partitioned before review and can be written to the explicit sidecar. With review-before-metadata enabled, supported GEO and ArrayExpress accessions use registry-defined review identity, are filtered without metadata, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
@@ -1719,7 +1728,8 @@ skipped, failed, full-text, fallback, and missing counts.
 `filter_jsons()` remains the internal filterer pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object. Public callers use `Atlas.collect_datasets()`.
 
 - `ThematicAtlases.filterer.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
-- `PublicationTextReviewer.resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False)` delegates to the injectable `TracePublicationReviewResumer`. It snapshots completed `datalinks` checkpoint rows from an active trace, reconstructs and repository-filters accessions, collects missing publication text, reviews unique texts, atomically writes `resume_review_progress.json`, and returns that unfiltered atlas-shaped snapshot. Repeated calls discover newly checkpointed datalinks and reuse completed text/review items for the selected strategy.
+- `PublicationTextReviewer.resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False)` delegates to the injectable `TracePublicationReviewResumer`. It snapshots completed `datalinks` checkpoint rows from an active trace, reconstructs and repository-filters accessions, optionally defers publications until all supported linked accessions have resolved metadata, collects missing publication text, reviews unique texts, atomically writes `resume_review_progress.json`, and returns that unfiltered atlas-shaped snapshot. Repeated calls discover newly checkpointed datalinks and reuse completed text/review items for the selected strategy.
+- With `require_resolved_metadata=True`, `available`, `partial`, `unavailable`, and `error` are resolved terminal contexts; `pending`, missing, and unknown values defer the complete publication and all its accession edges before publication-text or model calls. The independent reviewer never downloads metadata. A later invocation picks up the publication after its final pending link resolves.
 - The trace resumer uses the manifest theme and repository selection by default. An explicit non-empty theme is allowed when the manifest has none; a conflicting theme is rejected unless `allow_theme_override=True`. The reviewer-only override uses the explicit theme without modifying the historical collector manifest or fingerprint. Only `available` datalink items present when the call begins belong to that invocation, so the method does not poll or wait for collection completion.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly, plus the title and every distinct associated GSE accession. When metadata exists, context contains one compact `build_miniml_metadata_context(...)` entry per associated accession; full MINiML, protocol, platform, and author sections are not sent. Original `accession_metadata` remains unchanged in atlas and trace artifacts.
 - Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
@@ -1738,7 +1748,8 @@ skipped, failed, full-text, fallback, and missing counts.
 - `PublicationTextReviewer.resume` reviews one stable datalink snapshot and can
   be invoked again as collection advances. A caller must explicitly allow a
   theme override when reviewing a historical collector snapshot with a newer
-  theme.
+  theme. Full Atlas resume treats this progress as a reusable cache over the
+  eventual full collected-accession set, not as authoritative collection scope.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - `prune_accessions` defaults to false and consumes normalized exact accession identifiers from grounded `accessions_to_remove` only when explicitly enabled, independently of `review_filter`. Missing, malformed, unknown, or failed-review removals fail open. New traces persist and fingerprint the option; legacy traces without it resume with pruning disabled.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.

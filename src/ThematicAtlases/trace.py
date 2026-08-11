@@ -5,6 +5,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+from uuid import uuid4
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.run_store import AtlasRunStore, IncompatibleRunStoreError
@@ -86,12 +87,17 @@ class DevTraceWriter:
     def write(self, name: str, value) -> None:
         name = _safe_path_component(name, "artifact name")
         destination = self.directory / name
-        temporary = destination.with_name(f".{destination.name}.tmp")
-        with open(temporary, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        temporary = destination.with_name(
+            f".{destination.name}.{os.getpid()}.{uuid4().hex}.tmp"
+        )
+        try:
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(value, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def register_artifact(
         self,

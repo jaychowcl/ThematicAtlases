@@ -197,7 +197,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
   purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, criteria, exclusion_basis, grounded evidence, accessions_to_remove, prune_accessions, review revision 3, contract version 7
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, resolved metadata gate, pending metadata, criteria, exclusion_basis, grounded evidence, accessions_to_remove, prune_accessions, review revision 3, contract version 7
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
@@ -274,8 +274,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-independent-review
   title: [Independent review workflow](codebase.md#workflow-independent-review)
   anchor: workflow-independent-review
-  purpose: Stable-snapshot text collection, review_relevancy dispatch, checkpointing, and progress.
-  keywords: publication reviewer, TracePublicationReviewResumer, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
+  purpose: Stable-snapshot text collection, optional all-links-resolved metadata gating, review_relevancy dispatch, checkpointing, and progress.
+  keywords: publication reviewer, TracePublicationReviewResumer, require_resolved_metadata, available, partial, unavailable, error, pending, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
 
 - id: workflow-metadata-repair
   title: [Metadata resume, audit, and repair workflow](codebase.md#workflow-metadata-repair)

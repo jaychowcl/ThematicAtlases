@@ -1,9 +1,13 @@
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
+import threading
 
 import pytest
 
 from ThematicAtlases.run_store import IncompatibleRunStoreError
 from ThematicAtlases.trace import DevTraceWriter
+from ThematicAtlases import trace as trace_module
 
 
 def test_new_trace_initializes_authoritative_v2_run_store_and_registers_artifacts(
@@ -99,3 +103,29 @@ def test_trace_rejects_unsafe_artifact_name_components(tmp_path, name):
 
     with pytest.raises(ValueError, match="artifact name must be a filesystem-safe"):
         trace.register_artifact("result", name)
+
+
+def test_concurrent_trace_writes_use_independent_temporary_files(
+    tmp_path, monkeypatch
+):
+    trace = DevTraceWriter(str(tmp_path), "run-1", {"command": "test"})
+    barrier = threading.Barrier(2)
+    original_dump = trace_module.json.dump
+
+    def synchronized_dump(value, handle, **kwargs):
+        barrier.wait(timeout=5)
+        return original_dump(value, handle, **kwargs)
+
+    monkeypatch.setattr(trace_module.json, "dump", synchronized_dump)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        writes = [
+            executor.submit(trace.write, "resume_review_progress.json", value)
+            for value in ({"writer": 1}, {"writer": 2})
+        ]
+        for write in writes:
+            write.result(timeout=5)
+
+    assert json.loads(
+        (trace.directory / "resume_review_progress.json").read_text()
+    ) in ({"writer": 1}, {"writer": 2})

@@ -200,6 +200,23 @@ def traced_publication(
     return store
 
 
+def available_geo_metadata(store: CheckpointStore, accession: str, *, partial=False):
+    package = {
+        "miniml_schema_version": "2.0",
+        "source": {"format": "test"},
+        "database": [],
+        "organization": [],
+        "contributor": [],
+        "platform": [],
+        "sample": [],
+        "series": {"iid": accession, "accession": [{"value": accession}]},
+    }
+    payload = checkpoint_payload([package], checkpoint_version=4)
+    if partial:
+        payload["repair_summary"] = {"failed_count": 1}
+    store.put("geo_metadata", accession, 1, "available", payload=payload)
+
+
 def reviewed_atlas_parts() -> tuple[list[dict], dict]:
     return (
         [
@@ -874,6 +891,117 @@ def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) ->
         "GSE2",
     ]
     assert set(result["publication_texts"]) == {"1", "2"}
+
+
+def test_resume_can_defer_publications_until_all_linked_metadata_is_resolved(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="available metadata",
+    )
+    available_geo_metadata(store, "GSE1")
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="pending metadata",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="3",
+        datalink_id="GSE3",
+        text="unavailable metadata",
+    )
+    store.put("geo_metadata", "GSE3", 3, "no_data")
+    traced_publication(
+        trace_dir,
+        epmc_id="4",
+        datalink_id="GSE4",
+        text="mixed metadata",
+    )
+    shared = store.get("datalinks", "MED:4")
+    first_row = shared["payload"]["rows"][0]
+    store.put(
+        "datalinks",
+        "MED:4",
+        shared["ordinal"],
+        "available",
+        payload={
+            "rows": [first_row, {**first_row, "datalink_id": "GSE5"}],
+        },
+    )
+    available_geo_metadata(store, "GSE4")
+    traced_publication(
+        trace_dir,
+        epmc_id="5",
+        datalink_id="GSE6",
+        text="terminal metadata error",
+    )
+    store.put("geo_metadata", "GSE6", 5, "terminal_error", error="invalid")
+    traced_publication(
+        trace_dir,
+        epmc_id="6",
+        datalink_id="GSE7",
+        text="partial usable metadata",
+    )
+    available_geo_metadata(store, "GSE7", partial=True)
+    FakeReviewer.calls = []
+
+    result = PublicationTextReviewer().resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        require_resolved_metadata=True,
+    )
+
+    assert set(result["publication_texts"]) == {"1", "3", "5", "6"}
+    assert {record["datalink_id"] for record in result["accessions"]} == {
+        "GSE1",
+        "GSE3",
+        "GSE6",
+        "GSE7",
+    }
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "available metadata",
+        "unavailable metadata",
+        "terminal metadata error",
+        "partial usable metadata",
+    ]
+
+
+def test_resolved_metadata_gate_picks_up_deferred_publication_on_later_snapshot(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="review after metadata",
+    )
+    FakeReviewer.calls = []
+    review = PublicationTextReviewer()
+
+    assert review.resume(
+        trace_dir,
+        reviewer=FailingReviewer(),
+        require_resolved_metadata=True,
+    ) == {"accessions": [], "publication_texts": {}}
+
+    available_geo_metadata(store, "GSE1")
+    result = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        require_resolved_metadata=True,
+    )
+
+    assert set(result["publication_texts"]) == {"1"}
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "review after metadata"
+    ]
 
 
 def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch) -> None:

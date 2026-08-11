@@ -640,22 +640,22 @@ class Atlas:
                     accessions = self._read_checkpoint(collected_path)
                     logger.info("Atlas resume progress stage=collection-complete")
                     progress_path = run_dir / "resume_review_progress.json"
-                    review_input = (
-                        self._read_checkpoint(progress_path)
-                        if progress_path.exists()
-                        else accessions
-                    )
+                    review_accessions = accessions
                     if progress_path.exists() and review_before_metadata:
-                        progress_accessions = review_input.get("accessions", [])
                         if hasattr(self._collector, "available_accession_metadata"):
-                            review_input = {
-                                **review_input,
-                                "accessions": self._collector.available_accession_metadata(
-                                    jsons=progress_accessions,
-                                    metadata_repositories=manifest.get("metadata_repositories"),
-                                    checkpoint_store=checkpoint_store,
-                                ),
-                            }
+                            review_accessions = self._collector.available_accession_metadata(
+                                jsons=accessions,
+                                metadata_repositories=manifest.get("metadata_repositories"),
+                                checkpoint_store=checkpoint_store,
+                            )
+                    if progress_path.exists():
+                        progress = self._read_checkpoint(progress_path)
+                        review_input = {
+                            **progress,
+                            "accessions": review_accessions,
+                        }
+                    else:
+                        review_input = review_accessions
                     datasets = self._filter_jsons(
                         jsons=review_input,
                         theme=(manifest.get("theme") if thematic_review else None),
@@ -668,7 +668,13 @@ class Atlas:
                         prune_accessions=manifest.get("prune_accessions", False),
                         _review_progress_callback=lambda texts: trace.write(
                             "resume_review_progress.json",
-                            {"accessions": self._filterer.accessions_with_publication_text_refs(accessions, texts), "publication_texts": texts},
+                            {
+                                "accessions": self._filterer.accessions_with_publication_text_refs(
+                                    review_accessions,
+                                    texts,
+                                ),
+                                "publication_texts": texts,
+                            },
                         ),
                         _checkpoint_store=checkpoint_store,
                     )

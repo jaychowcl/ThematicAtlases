@@ -787,6 +787,68 @@ def test_resume_from_collected_accessions_skips_collection(tmp_path) -> None:
     assert (run_dir / "06_final_atlas.json").exists()
 
 
+def test_resume_merges_incremental_review_progress_with_full_collection(
+    tmp_path,
+) -> None:
+    run_dir = tmp_path / "trace" / "20260712T220000"
+    run_dir.mkdir(parents=True)
+    (run_dir / "00_run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_dir.name,
+                "atlas_out": str(tmp_path / "atlas.json"),
+                "theme": None,
+                "review_filter": "none",
+                "harmonization_options": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    initialize_run_store(run_dir)
+    collected = [
+        {"datalink_id": "GSE1", "publications": [{"pmid": "1"}]},
+        {"datalink_id": "GSE2", "publications": [{"pmid": "2"}]},
+    ]
+    (run_dir / "01_collected_accessions.json").write_text(
+        json.dumps(collected), encoding="utf-8"
+    )
+    (run_dir / "resume_review_progress.json").write_text(
+        json.dumps(
+            {
+                "accessions": [collected[0]],
+                "publication_texts": {"1": {"text": "reviewed early"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    seen = {}
+
+    class MergeRecordingFilterer:
+        def filter_jsons(self, jsons=None, **kwargs):
+            seen["input"] = jsons
+            return jsons
+
+        @staticmethod
+        def accessions_with_publication_text_refs(accessions, publication_texts):
+            return accessions
+
+    result = Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=MergeRecordingFilterer(),
+        harmonizer=RecordingHarmonizer(),
+    ).resume(dev_out_dir=str(tmp_path / "trace"), run_id=run_dir.name)
+
+    assert seen["input"] == {
+        "accessions": collected,
+        "publication_texts": {"1": {"text": "reviewed early"}},
+    }
+    assert [item.dataset_id for item in AtlasDocument.from_mapping(result).datasets] == [
+        "GSE1",
+        "GSE2",
+    ]
+
+
 def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
     root = tmp_path / "trace"
     for run_id in ("20260712T100000", "20260712T110000"):
