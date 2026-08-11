@@ -227,7 +227,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Fibrosis meta-publication recall benchmark](codebase.md#type-fibrosis-meta-pubs-recall-benchmark)
   anchor: type-fibrosis-meta-pubs-recall-benchmark
   purpose: Direct offline reviewed-trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall across the combined fibrosis references.
-  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall, Leonie, Taylor, He, Campos, ILD
+  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall, Leonie, Taylor, He, Jaimes Campos, ILD
 
 - id: type-fibrosis-meta-pubs-query-recall-benchmark
   title: [Fibrosis publication query-recall benchmark](codebase.md#type-fibrosis-meta-pubs-query-recall-benchmark)
@@ -325,7 +325,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
   purpose: Direct fibrosis query-recall, reviewed-recall, and review-classification runners, shared inputs, read-only trace checkpoints, frozen runtime cache, scoring, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, SQLite, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, cache, benchmarks directory, Leonie, Taylor, He, Campos, ILD
+  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, SQLite, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, cache, benchmarks directory, Leonie, Taylor, He, Jaimes Campos, ILD
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)

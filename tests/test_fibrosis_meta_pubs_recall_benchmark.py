@@ -32,6 +32,130 @@ TSV_COLUMNS = (
     "title",
 )
 
+JAIMES_CAMPOS_PUBLICATIONS = (
+    (
+        "10.1101/2025.10.07.25337472",
+        "",
+        "Pan-fibrotic gene expression signature in major chronic diseases by "
+        "integrative bulk and single-cell transcriptomic analyses",
+    ),
+    (
+        "10.1016/j.ygeno.2014.12.002",
+        "25528681",
+        "RNA-Seq identifies novel myocardial gene expression signatures of heart "
+        "failure",
+    ),
+    (
+        "10.1073/pnas.1401724111",
+        "25012294",
+        "Comparative RNA-sequencing analysis of myocardial and circulating small "
+        "RNAs in human heart failure and their utility as biomarkers",
+    ),
+    (
+        "10.1371/journal.pone.0079792",
+        "24339868",
+        "Differential gene expression of cardiac ion channels in human dilated "
+        "cardiomyopathy",
+    ),
+    (
+        "10.2337/db11-0952",
+        "22427379",
+        "MicroRNA dysregulation in diabetic ischemic heart failure patients",
+    ),
+    (
+        "10.1097/CCM.0000000000002207",
+        "28067713",
+        "Widespread Down-Regulation of Cardiac Mitochondrial and Sarcomeric Genes "
+        "in Patients With Sepsis",
+    ),
+    (
+        "10.1016/j.ygeno.2016.07.001",
+        "27417303",
+        "Methylome analysis reveals alterations in DNA methylation in the "
+        "regulatory regions of left ventricle development genes in human dilated "
+        "cardiomyopathy",
+    ),
+    (
+        "10.1136/annrheumdis-2017-212935",
+        "29724730",
+        "Metabolic pathways and immunometabolism in rare kidney diseases",
+    ),
+    (
+        "10.1016/j.kint.2018.06.031",
+        "30301568",
+        "Hydroxypropyl-β-cyclodextrin protects from kidney disease in experimental "
+        "Alport syndrome and focal segmental glomerulosclerosis",
+    ),
+    (
+        "10.1073/pnas.2019633118",
+        "33888584",
+        "Chitinase 3-like 1 is a profibrogenic factor overexpressed in the aging "
+        "liver and in patients with liver cirrhosis",
+    ),
+    (
+        "10.1016/j.jhep.2021.05.014",
+        "34052252",
+        "Co-expression gene network analysis reveals novel regulatory pathways "
+        "involved in porto-sinusoidal vascular disease",
+    ),
+    (
+        "10.1053/j.gastro.2017.10.048",
+        "29158192",
+        "Combination of Gene Expression Signature and Model for End-Stage Liver "
+        "Disease Score Predicts Survival of Patients With Severe Alcoholic "
+        "Hepatitis",
+    ),
+    (
+        "10.1002/hep.29606",
+        "29059470",
+        "Barrier to autointegration factor 1, procollagen-lysine, 2-oxoglutarate "
+        "5-dioxygenase 3, and splicing factor 3b subunit 4 as early-stage cancer "
+        "decision markers and drivers of hepatocellular carcinoma",
+    ),
+    (
+        "10.1016/j.jhep.2021.04.049",
+        "33992698",
+        "Molecular characterisation of hepatocellular carcinoma in patients with "
+        "non-alcoholic steatohepatitis",
+    ),
+    (
+        "10.1126/scitranslmed.abo4474",
+        "35731891",
+        "Molecular signatures of long-term hepatocellular carcinoma risk in "
+        "nonalcoholic fatty liver disease",
+    ),
+    (
+        "10.1038/s41598-021-96966-5",
+        "34508113",
+        "Molecular characterization and cell type composition deconvolution of "
+        "fibrosis in NAFLD",
+    ),
+    (
+        "10.1002/hep4.1854",
+        "34792289",
+        "Single-Cell, Single-Nucleus, and Spatial RNA Sequencing of the Human "
+        "Liver Identifies Cholangiocyte and Mesenchymal Heterogeneity",
+    ),
+    (
+        "10.1038/s41586-024-07465-2",
+        "38778114",
+        "Acquisition of epithelial plasticity in human chronic liver disease",
+    ),
+    (
+        "10.1038/s41467-024-55325-4",
+        "39747812",
+        "Spatial transcriptomics of healthy and fibrotic human liver at "
+        "single-cell resolution",
+    ),
+    (
+        "10.1016/j.jhep.2024.10.044",
+        "39522884",
+        "Multi-modal analysis of human hepatic stellate cells identifies novel "
+        "therapeutic targets for metabolic dysfunction-associated steatotic liver "
+        "disease",
+    ),
+)
+
 
 def load_runner():
     spec = importlib.util.spec_from_file_location("fibrosis_benchmark_runner", RUNNER)
@@ -128,6 +252,48 @@ def test_runner_and_packaged_tsv_replace_old_layout() -> None:
         / "thematic_reviewer"
         / "__init__.py"
     ).exists()
+
+
+def test_packaged_jaimes_campos_reference_set_is_complete_and_validated() -> None:
+    with REFERENCES.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t", quoting=csv.QUOTE_NONE)
+        assert tuple(reader.fieldnames or ()) == TSV_COLUMNS
+        rows = list(reader)
+
+    set_id = "jaimes_campos_2025_fibrosis"
+    jaimes_rows = [row for row in rows if row["reference_set_id"] == set_id]
+
+    assert len(rows) == 92
+    assert all(row["source_reference_number"] == "" for row in jaimes_rows)
+    assert tuple(
+        (row["doi"], row["pmid"], row["title"]) for row in jaimes_rows
+    ) == JAIMES_CAMPOS_PUBLICATIONS
+    assert "campos_2025_organs&diseases_fibrosis" not in {
+        row["reference_set_id"] for row in rows
+    }
+
+    doi_set_memberships = {
+        doi: {
+            row["reference_set_id"]
+            for row in rows
+            if row["doi"].lower() == doi
+        }
+        for doi in {row["doi"].lower() for row in rows if row["doi"]}
+    }
+    assert {
+        doi: set_ids
+        for doi, set_ids in doi_set_memberships.items()
+        if len(set_ids) > 1
+    } == {
+        "10.1038/s41586-024-07465-2": {
+            "leonie_2026_fibrosis",
+            set_id,
+        },
+        "10.1038/s41467-024-55325-4": {
+            "leonie_2026_fibrosis",
+            set_id,
+        },
+    }
 
 
 def test_runner_builds_aggregate_and_per_set_report(tmp_path: Path) -> None:
