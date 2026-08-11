@@ -11,11 +11,15 @@ def test_benchmark_subpackages_are_separate_import_namespaces() -> None:
     fibrosis_recall = importlib.import_module(
         "benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_recall"
     )
+    fibrosis_query_recall = importlib.import_module(
+        "benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_query_recall"
+    )
     fibrosis_review = importlib.import_module(
         "benchmark_ThematicAtlases.benchmark_fibrosis_meta_pubs_review"
     )
 
     assert fibrosis_recall.__all__ == []
+    assert fibrosis_query_recall.__all__ == []
     assert fibrosis_review.__all__ == []
 
 

@@ -226,8 +226,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-fibrosis-meta-pubs-recall-benchmark
   title: [Fibrosis meta-publication recall benchmark](codebase.md#type-fibrosis-meta-pubs-recall-benchmark)
   anchor: type-fibrosis-meta-pubs-recall-benchmark
-  purpose: Direct offline trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall across the combined Leonie, Taylor, and He fibrosis references.
-  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall, Leonie, Taylor, He, ILD
+  purpose: Direct offline reviewed-trace/TSV runner with aggregate and per-reference-set exact DOI/PMID recall across the combined fibrosis references.
+  keywords: benchmark_fibrosis_meta_pubs_recall, TSV, trace, DOI, PMID, aggregate, recall, Leonie, Taylor, He, Campos, ILD
+
+- id: type-fibrosis-meta-pubs-query-recall-benchmark
+  title: [Fibrosis publication query-recall benchmark](codebase.md#type-fibrosis-meta-pubs-query-recall-benchmark)
+  anchor: type-fibrosis-meta-pubs-query-recall-benchmark
+  purpose: Read-only trace SQLite benchmark of exact reference recall in raw Europe PMC search pages before accession discovery or review, including lower-bound partial reports.
+  keywords: benchmark_fibrosis_meta_pubs_query_recall, atlas_run.sqlite3, search_pages, search_queries, resolved_queries, query recall, partial, lower bound, read only
 
 - id: type-fibrosis-meta-pubs-review-benchmark
   title: [Fibrosis meta-publication review benchmark](codebase.md#type-fibrosis-meta-pubs-review-benchmark)
@@ -286,8 +292,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-benchmarking
   title: [Benchmarking workflow](codebase.md#workflow-benchmarking)
   anchor: workflow-benchmarking
-  purpose: Offline exact recall from a trace/TSV and trace-free cached thematic-review classification from a labeled identifier CSV.
-  keywords: benchmark, offline, trace directory, TSV, CSV, DOI, PMID, exact match, hydration cache, thematic review, report
+  purpose: Raw-query and reviewed-output exact recall from a shared trace/TSV plus trace-free cached thematic-review classification from a labeled identifier CSV.
+  keywords: benchmark, offline, trace directory, SQLite, search_pages, TSV, CSV, DOI, PMID, exact match, partial, lower bound, hydration cache, thematic review, report
 
 ## Detailed and legacy-stable routes
 
@@ -318,8 +324,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  purpose: Direct fibrosis recall and review runners, packaged TSV/CSV/theme inputs, frozen runtime cache, scoring, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, TSV, CSV, DOI, PMID, reference set, recall, classification, cache, benchmarks directory, Leonie, Taylor, He, ILD
+  purpose: Direct fibrosis query-recall, reviewed-recall, and review-classification runners, shared inputs, read-only trace checkpoints, frozen runtime cache, scoring, and generated output policy.
+  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, SQLite, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, cache, benchmarks directory, Leonie, Taylor, He, Campos, ILD
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)

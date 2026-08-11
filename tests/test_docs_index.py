@@ -166,6 +166,7 @@ def test_individual_contracts_have_stable_routes() -> None:
         "type-europe-pmc-wrapper",
         "type-geo-wrapper",
         "type-fibrosis-meta-pubs-recall-benchmark",
+        "type-fibrosis-meta-pubs-query-recall-benchmark",
         "workflow-collection",
         "workflow-atlas-creation",
         "workflow-harmonization",

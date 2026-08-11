@@ -75,9 +75,10 @@ and [project layout](#project-purpose-and-layout).
   Meta Standards Converter 3.x owns strict package decoding and explicit v1
   migration; this repository transports those packages without weakening
   either boundary.
-  `benchmark_ThematicAtlases` reads recall traces without mutation; its review
-  runner instead resolves public identifiers into a separate Git-ignored cache
-  and never reads or mutates a trace. Repository capabilities are explicit and immutable: GEO and
+  `benchmark_ThematicAtlases` reads query and reviewed-output recall traces
+  without workflow mutation; its review runner instead resolves public
+  identifiers into a separate Git-ignored cache and never reads or mutates a
+  trace. Repository capabilities are explicit and immutable: GEO and
   ArrayExpress are supported end to end; scanner-only curated repositories are
   retained as terminal inventory until a supported capability and handler are
   registered together.
@@ -308,6 +309,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | traced orchestration | `AtlasRunStore` | normalized SQLite calls | store owns runs, stages, work, attempts, artifact roles, and events | incompatible schema/path-role conflict raises |
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
+| fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
 | fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns cache hydration and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; invalid global inputs fail without a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
@@ -468,6 +470,11 @@ the Python API, or the canonical parent-adapter workflow documented in the
   runner owns offline trace/TSV validation, exact DOI/PMID comparison, aggregate
   and per-reference-set scoring, and atomic report publication. The preceding
   anchor is retained only as a documentation alias for the removed class.
+<a id="type-fibrosis-meta-pubs-query-recall-benchmark"></a>
+- The direct [`benchmark_fibrosis_meta_pubs_query_recall.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py)
+  runner owns read-only query-checkpoint validation, exact DOI/PMID union,
+  per-query and per-reference-set scoring, complete/lower-bound classification,
+  and atomic report publication. It never reads accession or review artifacts.
 <a id="type-fibrosis-meta-pubs-review-benchmark"></a>
 - The direct [`benchmark_fibrosis_meta_pubs_review.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py)
   runner owns labeled identifier validation, exact public hydration, row-level
@@ -1134,7 +1141,7 @@ supported reuse -----------> CLI / Python APIs / retained data
 1. Six non-canonical runner files and their runner-specific tests moved to the
    ignored local archive.
 2. `docs/theme_fibrosis.txt`, `config/fibrosis_discovery_queries.json`, the
-   benchmark runner, and its combined two-set reference TSV remain tracked.
+   benchmark runners, and their shared four-set reference TSV remain tracked.
 3. The installed CLI and reusable Python workflow APIs remain supported.
 4. Production fibrosis atlas creation routes to the parent adapter script.
 
@@ -1157,32 +1164,41 @@ Definitions/calls:
 <a id="workflow-benchmarking"></a>
 ### Workflow 8: Benchmarking
 
-Two directly executed scripts own benchmarking. Offline recall compares one
-saved trace with a packaged/custom TSV. Review classification takes a labeled
-identifier CSV, hydrates stable public inputs without a trace, and calls the
-production TA reviewer. There is no benchmark Python API or console entry point.
+Three directly executed scripts own benchmarking. Query recall reads raw
+Europe PMC search-page checkpoints before accession discovery or review.
+Reviewed-output recall compares a later trace artifact with the same
+packaged/custom TSV. Review classification takes a separately labeled identifier
+CSV, hydrates stable public inputs without a trace, and calls the production TA
+reviewer. There is no benchmark Python API or console entry point.
 
 ```text
-trace directory + TSV -> validate -> normalize -> exact DOI/PMID match
-       | malformed -----------> exit 1, no partial report          |
-                                                                  v
-                         aggregate + per-set schema 1.0 JSON report
+trace SQLite search pages + shared TSV -> query union/per-query exact recall
+       | incomplete query ----------------> lower-bound schema 1.0 report
+       | malformed -----------------------> exit 1, preserve old report
+
+review artifact + shared TSV ------------> reviewed-output recall report
+labeled CSV -> hydrate/cache -> reviewer -> three-class metrics report
 ```
 
 #### Numbered stages
 
-1. The runner requires `TRACE_DIR`; `--references` defaults to the adjacent
-   packaged TSV and `--out` defaults to the Git-ignored `benchmarks/` directory.
-2. TSV loading requires the exact ordered five-column header, no double quotes,
-   an optional integer reference number, a title, and at least one valid DOI or
-   PMID per row; missing, reordered, unexpected, or surplus fields fail.
-3. Trace loading prefers `resume_review_progress.json`, then
+1. Both recall runners require `TRACE_DIR`, share the same default/custom TSV,
+   and default `--out` to the Git-ignored `benchmarks/` directory.
+2. Shared TSV loading requires the exact ordered five-column header, no double
+   quotes, an optional integer reference number, a title, and at least one valid
+   DOI or PMID per row; missing, reordered, unexpected, or surplus fields fail.
+3. Query recall opens `atlas_run.sqlite3` in a query-only transaction, validates
+   `resolved_queries`, and reads raw `search_queries` plus `search_pages`
+   checkpoints without constructing `CheckpointStore` or reading later stages.
+4. Complete query statuses yield final scores. Missing, pending, retryable, or
+   terminal query states retain available pages and yield an explicit lower
+   bound; malformed structures or inconsistent completed counts fail.
+5. Reviewed-output trace loading prefers `resume_review_progress.json`, then
    `02_reviewed_datasets.json`, then `06_final_atlas.json`.
-4. Exact normalized DOI/PMID identities produce matched, missed, or conflict
-   rows after duplicates are connected across identifiers and accessions.
-5. The runner computes one globally deduplicated aggregate plus independent
-   Leonie/Taylor summaries and details, then atomically replaces
-   `fibrosis_meta_pubs_recall_report.json` under `--out`.
+6. Exact normalized DOI/PMID identities produce matched, missed, or conflict
+   rows after connected-identity deduplication. Query recall scores the union,
+   every reference set, and each query while retaining query provenance.
+7. Each runner atomically replaces only its own schema `1.0` JSON report.
 
 #### Pseudocode
 
@@ -1192,6 +1208,15 @@ benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIR]
   -> normalize/group references and discovered publications
   -> score aggregate and each reference_set_id
   -> atomic temp-file replacement
+  <- print report path and exit 0
+
+benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR
+    [--references TSV] [--out DIR]
+  -> load/validate shared TSV
+  -> read one query-only SQLite snapshot of resolved queries and search pages
+  -> normalize/group raw DOI/PMID hits and preserve query provenance
+  -> score aggregate, each reference_set_id, and each query
+  -> mark final or lower_bound; atomic temp-file replacement
   <- print report path and exit 0
 
 benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
@@ -1208,9 +1233,9 @@ benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
 #### Evidence
 
 Definitions/calls:
-[`run_benchmark`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py)
-and the direct
-[`main`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py).
+reviewed-output [`run_benchmark`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py),
+query-recall [`run_benchmark`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py),
+and direct [`main`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py).
 
 <a id="extension-and-change-guidance"></a>
 ## Extension and change guidance
@@ -1294,10 +1319,14 @@ src/ThematicAtlases/
 
 src/benchmark_ThematicAtlases/
 ├── __init__.py
+├── _fibrosis_references.py
 ├── benchmark_fibrosis_meta_pubs_recall/
 │   ├── __init__.py
 │   ├── benchmark_fibrosis_meta_pubs_recall.py
 │   └── fibrosis_meta_publications.tsv
+├── benchmark_fibrosis_meta_pubs_query_recall/
+│   ├── __init__.py
+│   └── benchmark_fibrosis_meta_pubs_query_recall.py
 └── benchmark_fibrosis_meta_pubs_review/
     ├── __init__.py
     ├── benchmark_fibrosis_meta_pubs_review.py
@@ -1399,34 +1428,36 @@ from agentic_curator import ThematicReviewer
 <a id="benchmark-package"></a>
 ## Benchmark Package
 
-`src/benchmark_ThematicAtlases/` contains separate direct recall and review
-benchmark directories. The former `ThematicReviewerBenchmark`,
+`src/benchmark_ThematicAtlases/` contains separate direct reviewed-recall,
+query-recall, and review-classification benchmark directories. The former `ThematicReviewerBenchmark`,
 `thematic_reviewer/`, and empty `ontology_harmonizer/` namespaces are removed.
-The package root and both subpackages export no benchmark Python API.
+The package root and all three subpackages export no benchmark Python API.
 
 Run the benchmark from the repository root:
 
 ```text
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--refresh-cache]
 ```
 
-`fibrosis_meta_publications.tsv` combines three ordered reference sets: the
+`fibrosis_meta_publications.tsv` combines four ordered reference sets: the
 Küchenhoff 2026 source meta-study plus references 15-34 under
 `leonie_2026_fibrosis`; the Taylor 2020 systematic review plus references
 18-31 under `taylor_2020_nafld_fibrosis`; and the He 2025 interstitial-lung-
 disease systematic review plus its 35 lung-transcriptomics studies, references
-11-18 and 32-58, under `he_2025_ild_fibrosis`. The He set deliberately excludes
+11-18 and 32-58, under `he_2025_ild_fibrosis`; plus the Campos 2025 pan-fibrotic
+source publication under `campos_2025_organs&diseases_fibrosis`. The He set deliberately excludes
 the review's eight peripheral-transcriptomics studies at references 24-31. The
 TSV has exactly five columns: `reference_set_id`, `source_reference_number`,
 `doi`, `pmid`, and `title`. Each source-publication row has a blank reference
 number. The file is quote-free; tabs delimit fields, so commas in titles remain
 unmodified.
 
-`--references` defaults to that adjacent packaged TSV and accepts a custom
-quote-free TSV with the same exact columns and order. Each row requires a title
-and a valid DOI, PMID, or both. `TRACE_DIR` must be a directory containing a
-supported review artifact. Selection prefers the pre-filter
+Both recall runners default `--references` to that one packaged TSV and accept
+a custom quote-free TSV with the same exact columns and order. Each row requires
+a title and a valid DOI, PMID, or both. The reviewed-output runner's `TRACE_DIR`
+must contain a supported review artifact. Selection prefers the pre-filter
 `resume_review_progress.json`, then `02_reviewed_datasets.json`, then
 `06_final_atlas.json`; post-filter reports retain the discovery limitation.
 
@@ -1451,6 +1482,23 @@ the report path, and exits zero. Argument errors exit two. TSV, trace, JSON, or
 filesystem failures emit a concise stderr message, exit one, and leave no
 partial report. The runner makes no network, identifier-resolution, or model
 calls and has no installed console entry point or supported `python -m` form.
+
+The query-recall runner reads only `atlas_run.sqlite3` and requires non-empty
+`resolved_queries` metadata plus the `search_queries` and `search_pages`
+checkpoint contract. It opens a query-only SQLite transaction rather than the
+initializing `CheckpointStore`, groups raw page publications by exact normalized
+DOI/PMID identity, and scores their union, each reference set, and each resolved
+query. Matched reference details retain ordered query provenance; the report
+does not duplicate the complete raw search corpus.
+
+Query statuses `available` and `no_data` are complete. Missing, pending,
+retryable-error, and terminal-error query checkpoints retain any available page
+hits but mark schema `1.0` source provenance `complete: false` and
+`score_interpretation: lower_bound`, with an explicit limitation. Invalid
+SQLite structure, malformed payloads, inconsistent completed counts, or invalid
+reference input fail without replacing a report. Success atomically replaces
+`fibrosis_meta_pubs_query_recall_report.json`; the runner makes no network,
+identifier-resolution, accession, review, or model call.
 
 The review benchmark's adjacent CSV is an intentionally header-only template
 with exact columns `publication_id`, `doi`, `pmid`, and `expected_decision`.
@@ -2221,7 +2269,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `556 passed, 4 skipped` on 2026-08-10. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `570 passed, 4 skipped` on 2026-08-11. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 
