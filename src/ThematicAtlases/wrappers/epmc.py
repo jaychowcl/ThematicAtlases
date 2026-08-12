@@ -627,7 +627,11 @@ class EuropePMCWrapper:
         abstract_fallbacks = 0
         missing_text = 0
 
-        for index, publication in enumerate(publications, start=1):
+        locked_publications = self._publication_text_items(
+            publications,
+            checkpoint_store=checkpoint_store,
+        )
+        for index, publication in enumerate(locked_publications, start=1):
             source = str(publication.get("source", ""))
             epmc_id = str(publication.get("epmc_id", ""))
             checkpoint_key = f"{source}:{epmc_id}"
@@ -772,6 +776,22 @@ class EuropePMCWrapper:
         )
 
         return enriched_publications
+
+    @staticmethod
+    def _publication_text_items(publications, *, checkpoint_store):
+        """Yield each publication while holding its cross-process item lock."""
+
+        for publication in publications:
+            if checkpoint_store is None:
+                yield publication
+                continue
+            source = str(publication.get("source", ""))
+            epmc_id = str(publication.get("epmc_id", ""))
+            with checkpoint_store.item_lock(
+                "publication_text",
+                f"{source}:{epmc_id}",
+            ):
+                yield publication
 
     def collect_datalinks(
         self,

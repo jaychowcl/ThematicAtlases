@@ -1,9 +1,11 @@
 import json
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.checkpoint import CheckpointItemLockTimeout, CheckpointStore
 
 
 def test_checkpoint_store_round_trips_items_and_meta(tmp_path) -> None:
@@ -58,6 +60,31 @@ def test_checkpoint_store_rejects_unknown_status(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="unsupported checkpoint status"):
         store.put("stage", "key", 1, "typo")
+
+
+def test_checkpoint_item_lock_has_an_explicit_bounded_wait(tmp_path) -> None:
+    path = tmp_path / "resume_state.sqlite"
+    store = CheckpointStore(path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with store.item_lock("geo_metadata", "GSE1"):
+            started.set()
+            assert release.wait(timeout=5)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        holder = executor.submit(hold_lock)
+        assert started.wait(timeout=5)
+        with pytest.raises(CheckpointItemLockTimeout, match="geo_metadata:GSE1"):
+            with CheckpointStore(path).item_lock(
+                "geo_metadata",
+                "GSE1",
+                timeout_seconds=0.05,
+            ):
+                raise AssertionError("contended lock must not be entered")
+        release.set()
+        holder.result(timeout=5)
 
 
 def test_checkpoint_store_reports_all_incomplete_retry_work(tmp_path) -> None:

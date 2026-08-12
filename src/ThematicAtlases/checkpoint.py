@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 
 import fcntl
@@ -53,6 +54,10 @@ HARMONIZATION_RETRY_STAGES = frozenset(
         "structured_response_validation",
     }
 )
+
+
+class CheckpointItemLockTimeout(TimeoutError):
+    """Report that another process retained an item lock past its deadline."""
 
 
 class CheckpointStore:
@@ -912,14 +917,46 @@ class CheckpointStore:
         }
 
     @contextmanager
-    def item_lock(self, stage: str, key: str):
+    def item_lock(
+        self,
+        stage: str,
+        key: str,
+        *,
+        timeout_seconds: int | float | None = None,
+    ):
         """Serialize expensive work for one checkpoint item across processes."""
+        if (
+            timeout_seconds is not None
+            and (
+                isinstance(timeout_seconds, bool)
+                or not isinstance(timeout_seconds, (int, float))
+                or timeout_seconds < 0
+            )
+        ):
+            raise ValueError("item lock timeout must be a non-negative number")
         lock_directory = self.path.with_name(f"{self.path.name}.locks")
         lock_directory.mkdir(parents=True, exist_ok=True)
         lock_name = hashlib.sha256(f"{stage}\0{key}".encode("utf-8")).hexdigest()
         lock_path = lock_directory / f"{lock_name}.lock"
         with open(lock_path, "a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            if timeout_seconds is None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            else:
+                deadline = time.monotonic() + float(timeout_seconds)
+                while True:
+                    try:
+                        fcntl.flock(
+                            handle.fileno(),
+                            fcntl.LOCK_EX | fcntl.LOCK_NB,
+                        )
+                        break
+                    except BlockingIOError as error:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise CheckpointItemLockTimeout(
+                                f"checkpoint item lock timed out: {stage}:{key}"
+                            ) from error
+                        time.sleep(min(0.05, remaining))
             try:
                 yield
             finally:

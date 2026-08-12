@@ -1,5 +1,7 @@
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import requests
@@ -671,6 +673,52 @@ def test_collect_publication_texts_fetches_full_text_xml_by_pmcid(monkeypatch) -
     )
     assert result[0]["text_source"] == "fullTextXML"
     assert result[0]["full_text_status"] == "available"
+
+
+def test_publication_text_item_lock_prevents_duplicate_concurrent_requests(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    store_path = tmp_path / "resume_state.sqlite"
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def fake_get(url, timeout):
+        calls.append(url)
+        started.set()
+        assert release.wait(timeout=5)
+        return FakeResponse(
+            {},
+            text="<article><body><p>Shared full text.</p></body></article>",
+        )
+
+    monkeypatch.setattr(epmc_module.requests, "get", fake_get)
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda delay: None)
+    publication = {
+        "source": "MED",
+        "epmc_id": "123",
+        "pmcid": "PMC123",
+        "abstractText": "Abstract fallback",
+    }
+
+    def collect():
+        return EuropePMCWrapper(max_retries=0).collect_publication_texts(
+            publications=[publication],
+            checkpoint_store=CheckpointStore(store_path),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(collect)
+        assert started.wait(timeout=5)
+        second = executor.submit(collect)
+        release.set()
+        assert first.result(timeout=5)[0]["text_source"] == "fullTextXML"
+        assert second.result(timeout=5)[0]["text_source"] == "fullTextXML"
+
+    assert calls == [
+        "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML"
+    ]
 
 
 def test_collect_publication_texts_uses_abstract_when_full_text_unavailable(
