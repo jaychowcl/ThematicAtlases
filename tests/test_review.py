@@ -958,7 +958,7 @@ def test_resume_reviews_current_datalink_checkpoint_snapshot(tmp_path) -> None:
     assert [record["datalink_id"] for record in result["accessions"]] == ["GSE1"]
     assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == "relevant"
     assert json.loads(
-        (trace_dir / "resume_review_progress.json").read_text(encoding="utf-8")
+        (trace_dir / "incremental_review_progress.json").read_text(encoding="utf-8")
     ) == result
 
 
@@ -1155,6 +1155,8 @@ def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> N
         "metadata_reused_count": 0,
         "metadata_deferred_accession_count": 0,
         "metadata_status_counts": {"available": 1},
+        "yielded_to_main": False,
+        "main_phase": "missing",
     }
     assert set(second["publication_texts"]) == {"1", "2"}
     assert collector.calls == ["GSE1", "GSE2"]
@@ -1162,6 +1164,83 @@ def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> N
         "first snapshot",
         "later snapshot",
     ]
+
+
+def test_snapshot_yields_without_work_when_main_has_left_datalinks(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="main owns downstream",
+    )
+    store.set_meta(
+        "main_pipeline_phase",
+        {"phase": "downstream", "invocation_id": "main-1"},
+    )
+    collector = SnapshotMetadataCollector(trace_dir=trace_dir)
+    FakeReviewer.calls = []
+
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+    )
+
+    assert result["accessions"] == []
+    assert result["publication_texts"] == {}
+    assert result["metadata_summary"]["yielded_to_main"] is True
+    assert result["metadata_summary"]["main_phase"] == "downstream"
+    assert collector.calls == []
+    assert FakeReviewer.calls == []
+    assert (trace_dir / "incremental_review_progress.json").exists()
+    assert not (trace_dir / "resume_review_progress.json").exists()
+
+
+def test_snapshot_stops_starting_items_when_main_enters_downstream(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="finishes before transition",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="must remain deferred",
+    )
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+
+    def transition_main():
+        store.set_meta("main_pipeline_phase", {"phase": "downstream"})
+
+    collector = SnapshotMetadataCollector(
+        trace_dir=trace_dir,
+        on_collect=transition_main,
+    )
+    FakeReviewer.calls = []
+
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+    )
+
+    assert collector.calls == ["GSE1"]
+    assert store.get("geo_metadata", "GSE1")["status"] == "available"
+    assert store.get("geo_metadata", "GSE2") is None
+    assert result["publication_texts"] == {}
+    assert result["metadata_summary"]["yielded_to_main"] is True
+    assert result["metadata_summary"]["main_phase"] == "downstream"
+    assert FakeReviewer.calls == []
 
 
 def test_resume_metadata_failures_defer_linked_publications_and_continue(

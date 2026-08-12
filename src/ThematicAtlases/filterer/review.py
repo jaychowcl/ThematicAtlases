@@ -53,6 +53,7 @@ class PublicationTextReviewer:
         require_resolved_metadata: bool = False,
         collect_metadata: bool = False,
         defer_metadata_errors: bool = False,
+        require_main_datalinks_phase: bool = False,
     ) -> dict:
         """Review the current publication snapshot in an evolving trace."""
         return self._resume_orchestrator().resume(
@@ -64,6 +65,7 @@ class PublicationTextReviewer:
             require_resolved_metadata=require_resolved_metadata,
             collect_metadata=collect_metadata,
             defer_metadata_errors=defer_metadata_errors,
+            require_main_datalinks_phase=require_main_datalinks_phase,
         )
 
     def validate_options(

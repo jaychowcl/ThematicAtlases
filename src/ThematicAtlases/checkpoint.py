@@ -65,11 +65,32 @@ class CheckpointStore:
 
     SCHEMA_VERSION = 2
 
-    def __init__(self, path: str | Path):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        default_item_lock_timeout_seconds: int | float | None = None,
+    ):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.default_item_lock_timeout_seconds = self._validated_lock_timeout(
+            default_item_lock_timeout_seconds
+        )
         self._initialize()
+
+    @staticmethod
+    def _validated_lock_timeout(value: int | float | None):
+        if (
+            value is not None
+            and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or value < 0
+            )
+        ):
+            raise ValueError("item lock timeout must be a non-negative number")
+        return None if value is None else float(value)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
@@ -925,15 +946,11 @@ class CheckpointStore:
         timeout_seconds: int | float | None = None,
     ):
         """Serialize expensive work for one checkpoint item across processes."""
-        if (
-            timeout_seconds is not None
-            and (
-                isinstance(timeout_seconds, bool)
-                or not isinstance(timeout_seconds, (int, float))
-                or timeout_seconds < 0
-            )
-        ):
-            raise ValueError("item lock timeout must be a non-negative number")
+        timeout_seconds = self._validated_lock_timeout(
+            self.default_item_lock_timeout_seconds
+            if timeout_seconds is None
+            else timeout_seconds
+        )
         lock_directory = self.path.with_name(f"{self.path.name}.locks")
         lock_directory.mkdir(parents=True, exist_ok=True)
         lock_name = hashlib.sha256(f"{stage}\0{key}".encode("utf-8")).hexdigest()

@@ -30,6 +30,40 @@ def test_epmc_wrapper_accepts_an_injected_publication_policy() -> None:
     ]
 
 
+def test_collect_accessions_publishes_main_phase_transition_before_text(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = CheckpointStore(tmp_path / "atlas_run.sqlite3")
+    wrapper = EuropePMCWrapper()
+    publications = [{"source": "MED", "epmc_id": "1", "abstractText": "text"}]
+
+    def collect_publications(**_kwargs):
+        phase = store.get_meta("main_pipeline_phase")
+        assert phase["phase"] == "datalinks"
+        return publications
+
+    def collect_datalinks(**_kwargs):
+        phase = store.get_meta("main_pipeline_phase")
+        assert phase["phase"] == "datalinks"
+        return []
+
+    def collect_publication_texts(**_kwargs):
+        phase = store.get_meta("main_pipeline_phase")
+        assert phase["phase"] == "downstream"
+        return publications
+
+    monkeypatch.setattr(wrapper, "collect_publications", collect_publications)
+    monkeypatch.setattr(wrapper, "collect_datalinks", collect_datalinks)
+    monkeypatch.setattr(wrapper, "collect_publication_texts", collect_publication_texts)
+
+    assert wrapper.collect_accessions(
+        queries=["fibrosis"],
+        checkpoint_store=store,
+    ) == []
+    assert store.get_meta("main_pipeline_phase")["phase"] == "downstream"
+
+
 class FakeResponse:
     def __init__(
         self,
@@ -719,6 +753,49 @@ def test_publication_text_item_lock_prevents_duplicate_concurrent_requests(
     assert calls == [
         "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC123/fullTextXML"
     ]
+
+
+def test_publication_text_defers_when_bounded_item_lock_is_busy(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    store_path = tmp_path / "resume_state.sqlite"
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def hold_lock() -> None:
+        with CheckpointStore(store_path).item_lock("publication_text", "MED:123"):
+            started.set()
+            assert release.wait(timeout=5)
+
+    monkeypatch.setattr(
+        epmc_module.requests,
+        "get",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    publication = {
+        "source": "MED",
+        "epmc_id": "123",
+        "pmcid": "PMC123",
+        "abstractText": "Abstract fallback",
+    }
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        holder = executor.submit(hold_lock)
+        assert started.wait(timeout=5)
+        result = EuropePMCWrapper(max_retries=0).collect_publication_texts(
+            publications=[publication],
+            checkpoint_store=CheckpointStore(
+                store_path,
+                default_item_lock_timeout_seconds=0.05,
+            ),
+        )
+        release.set()
+        holder.result(timeout=5)
+
+    assert result == []
+    assert calls == []
 
 
 def test_collect_publication_texts_uses_abstract_when_full_text_unavailable(

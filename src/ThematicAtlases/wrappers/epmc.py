@@ -8,7 +8,11 @@ import requests
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 from meta_standards_converter.xml_safety import parse_xml
 
-from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+from ThematicAtlases.checkpoint import (
+    CheckpointItemLockTimeout,
+    failure_category,
+    is_retryable_error,
+)
 from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.runtime_contracts import safe_error_json
 from ThematicAtlases.wrappers.publication_policy import PublicationRecordPolicy
@@ -105,6 +109,11 @@ class EuropePMCWrapper:
         checkpoint_store=None,
         scrape_fulltext_accessions: bool = True,
     ) -> list[dict]:
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                "main_pipeline_phase",
+                {"phase": "datalinks"},
+            )
         publication_options = {
             "queries": queries,
             "max_publications": max_publications,
@@ -122,6 +131,11 @@ class EuropePMCWrapper:
             publications=publications,
             **datalink_options,
         )
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                "main_pipeline_phase",
+                {"phase": "downstream"},
+            )
         if not scrape_fulltext_accessions:
             return accessions
         text_options = {"publications": publications}
@@ -787,11 +801,18 @@ class EuropePMCWrapper:
                 continue
             source = str(publication.get("source", ""))
             epmc_id = str(publication.get("epmc_id", ""))
-            with checkpoint_store.item_lock(
-                "publication_text",
-                f"{source}:{epmc_id}",
-            ):
-                yield publication
+            try:
+                with checkpoint_store.item_lock(
+                    "publication_text",
+                    f"{source}:{epmc_id}",
+                ):
+                    yield publication
+            except CheckpointItemLockTimeout:
+                logger.info(
+                    "Europe PMC publication text deferred for busy item source=%r epmc_id=%r",
+                    source,
+                    epmc_id,
+                )
 
     def collect_datalinks(
         self,

@@ -58,6 +58,7 @@ class TracePublicationReviewResumer:
         require_resolved_metadata: bool = False,
         collect_metadata: bool = False,
         defer_metadata_errors: bool = False,
+        require_main_datalinks_phase: bool = False,
     ) -> dict:
         directory = Path(trace_dir)
         manifest = self._read_manifest(directory)
@@ -68,6 +69,16 @@ class TracePublicationReviewResumer:
         )
         store = DevTraceWriter.existing(directory).checkpoint_store
 
+        def main_phase_name() -> str:
+            phase = store.get_meta("main_pipeline_phase", {})
+            return str(phase.get("phase") or "missing")
+
+        def main_allows_snapshot_work() -> bool:
+            return (
+                not require_main_datalinks_phase
+                or main_phase_name() == "datalinks"
+            )
+
         datalink_items = [
             item for item in store.items("datalinks") if item["status"] == "available"
         ]
@@ -76,6 +87,31 @@ class TracePublicationReviewResumer:
             for item in datalink_items
             for row in (item.get("payload") or {}).get("rows", [])
         ]
+        phase_name = main_phase_name()
+        if require_main_datalinks_phase and phase_name != "datalinks":
+            result = {
+                "accessions": [],
+                "publication_texts": {},
+                "metadata_summary": {
+                    "snapshot_datalink_checkpoint_count": len(datalink_items),
+                    "snapshot_datalink_row_count": len(datalink_rows),
+                    "snapshot_accession_count": 0,
+                    "snapshot_publication_count": 0,
+                    "eligible_publication_count": 0,
+                    "deferred_publication_count": 0,
+                    "metadata_attempted_count": 0,
+                    "metadata_reused_count": 0,
+                    "metadata_deferred_accession_count": 0,
+                    "metadata_status_counts": {},
+                    "yielded_to_main": True,
+                    "main_phase": phase_name,
+                },
+            }
+            DevTraceWriter.existing(directory).write(
+                "incremental_review_progress.json",
+                result,
+            )
+            return result
         accessions = self._epmc_wrapper_factory().accessions_from_datalinks(
             datalinks=datalink_rows
         )
@@ -98,6 +134,7 @@ class TracePublicationReviewResumer:
                 store=store,
                 datalink_checkpoint_count=len(datalink_items),
                 datalink_row_count=len(datalink_rows),
+                continue_predicate=main_allows_snapshot_work,
             )
         elif hasattr(collector, "available_accession_metadata"):
             accessions = collector.available_accession_metadata(
@@ -126,6 +163,22 @@ class TracePublicationReviewResumer:
                     ),
                 }
             )
+            metadata_summary.setdefault("yielded_to_main", False)
+            metadata_summary["main_phase"] = main_phase_name()
+        if require_main_datalinks_phase and not main_allows_snapshot_work():
+            if metadata_summary is not None:
+                metadata_summary["yielded_to_main"] = True
+            result = {
+                "accessions": [],
+                "publication_texts": {},
+            }
+            if metadata_summary is not None:
+                result["metadata_summary"] = metadata_summary
+            DevTraceWriter.existing(directory).write(
+                "incremental_review_progress.json",
+                result,
+            )
+            return result
         publication_texts = filterer.collect_publication_texts(
             jsons=accessions,
             checkpoint_store=store,
@@ -146,7 +199,7 @@ class TracePublicationReviewResumer:
             }
             if metadata_summary is not None:
                 progress["metadata_summary"] = metadata_summary
-            trace.write("resume_review_progress.json", progress)
+            trace.write("incremental_review_progress.json", progress)
 
         reviewed_texts = self._publication_text_reviewer.review_publication_texts(
             publication_texts=publication_texts,
@@ -168,7 +221,7 @@ class TracePublicationReviewResumer:
         }
         if metadata_summary is not None:
             result["metadata_summary"] = metadata_summary
-        trace.write("resume_review_progress.json", result)
+        trace.write("incremental_review_progress.json", result)
         return result
 
     @staticmethod
@@ -180,10 +233,15 @@ class TracePublicationReviewResumer:
         store,
         datalink_checkpoint_count: int,
         datalink_row_count: int,
+        continue_predicate=None,
     ) -> tuple[list[dict], dict]:
         attempted = 0
         reused = 0
+        yielded_to_main = False
         for record in accessions:
+            if continue_predicate is not None and not continue_predicate():
+                yielded_to_main = True
+                break
             existing = collector.available_accession_metadata(
                 jsons=[record],
                 metadata_repositories=repositories,
@@ -233,6 +291,7 @@ class TracePublicationReviewResumer:
             "metadata_reused_count": reused,
             "metadata_deferred_accession_count": deferred,
             "metadata_status_counts": dict(sorted(status_counts.items())),
+            "yielded_to_main": yielded_to_main,
         }
         logger.info(
             "Incremental metadata snapshot checkpoints=%s rows=%s accessions=%s "
