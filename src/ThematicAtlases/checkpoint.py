@@ -109,21 +109,8 @@ class CheckpointStore:
         finally:
             connection.close()
 
-    @contextmanager
-    def _initialization_connection(self):
-        lock_directory = self.path.with_name(f"{self.path.name}.locks")
-        lock_directory.mkdir(parents=True, exist_ok=True)
-        lock_path = lock_directory / "initialize.lock"
-        with open(lock_path, "a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                with self._connection() as connection:
-                    yield connection
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
     def _initialize(self) -> None:
-        with self._lock, self._initialization_connection() as connection:
+        with self._lock, self._connection() as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS checkpoint_meta (

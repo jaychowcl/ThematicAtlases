@@ -995,6 +995,54 @@ def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) ->
     assert set(result["publication_texts"]) == {"1", "2"}
 
 
+def test_main_review_reuses_incremental_checkpoint_without_progress_file(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="shared canonical review",
+    )
+    available_geo_metadata(store, "GSE1")
+    collector = SnapshotMetadataCollector(trace_dir=trace_dir)
+    reviewer = FakeReviewer()
+    FakeReviewer.calls = []
+    sidecar = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=reviewer,
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+    (trace_dir / "incremental_review_progress.json").unlink()
+    unreviewed_texts = {
+        publication_ref: {
+            key: value
+            for key, value in publication_text.items()
+            if key != "agentic_curator"
+        }
+        for publication_ref, publication_text in sidecar["publication_texts"].items()
+    }
+
+    main_result = AtlasFilterer().filter_jsons(
+        jsons={
+            "accessions": sidecar["accessions"],
+            "publication_texts": unreviewed_texts,
+        },
+        theme="fibrosis",
+        reviewer=reviewer,
+        _checkpoint_store=CheckpointStore(trace_dir / "atlas_run.sqlite3"),
+    )
+
+    assert len(FakeReviewer.calls) == 1
+    assert main_result["publication_texts"]["1"]["agentic_curator"][
+        "judgement"
+    ] == "relevant"
+    assert not (trace_dir / "incremental_review_progress.json").exists()
+
+
 def test_resume_can_defer_publications_until_all_linked_metadata_is_resolved(
     tmp_path,
 ) -> None:

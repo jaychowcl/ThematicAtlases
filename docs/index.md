@@ -196,8 +196,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-publication-text-reviewer
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
-  purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, resolved metadata gate, pending metadata, criteria, exclusion_basis, grounded evidence, accessions_to_remove, prune_accessions, review revision 3, contract version 7
+  purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and bounded concurrent independent-review ownership.
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, resolved metadata gate, main_pipeline_phase, publication_limit, item deadline, bounded lock, incremental_review_progress, checkpoint reuse, pending metadata, criteria, exclusion_basis, grounded evidence, accessions_to_remove, prune_accessions, review revision 3, contract version 7
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
@@ -208,14 +208,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-checkpoint-store
   title: [CheckpointStore](codebase.md#type-checkpoint-store)
   anchor: type-checkpoint-store
-  purpose: SQLite schema, fingerprints, item history, retry selection, and comparison archives.
-  keywords: CheckpointStore, SQLite, request_retries, atomic batch, status index, history index, item lock
+  purpose: SQLite schema, fingerprints, item history, retry selection, comparison archives, cross-process locks, and provider pacing.
+  keywords: CheckpointStore, SQLite, request_retries, atomic batch, status index, history index, item lock, bounded wait, provider slot
 
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
   anchor: type-europe-pmc-wrapper
-  purpose: Europe PMC network boundary with injected pure publication identity, limit, merge, deduplication, and projection policy.
-  keywords: EuropePMCWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, abstract, identity, deduplication
+  purpose: Europe PMC network boundary with injected pure publication identity, cross-process pacing, phase advertisement, limit, merge, deduplication, and projection policy.
+  keywords: EuropePMCWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, provider slot, main_pipeline_phase, publication text lock, abstract, identity, deduplication
 
 - id: type-geo-wrapper
   title: [GEOWrapper](codebase.md#type-geo-wrapper)
@@ -274,8 +274,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-independent-review
   title: [Independent review workflow](codebase.md#workflow-independent-review)
   anchor: workflow-independent-review
-  purpose: Fixed-snapshot best-effort metadata download/reuse, all-links reviewable-metadata gating, review_relevancy dispatch, checkpointing, and progress.
-  keywords: publication reviewer, TracePublicationReviewResumer, collect_metadata, defer_metadata_errors, metadata_summary, accession item lock, transient retry, terminal manual retry, require_resolved_metadata, available, partial, unavailable, error, pending, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
+  purpose: Bounded independent review of a deterministic trace snapshot while the main collector remains in Datalinks, with canonical checkpoint reuse.
+  keywords: publication reviewer, TracePublicationReviewResumer, collect_metadata, publication_limit, main_pipeline_phase, item deadline, bounded lock, incremental_review_progress, checkpoint reuse, provider pacing, defer_metadata_errors, metadata_summary, transient retry, terminal manual retry, require_resolved_metadata, available, partial, unavailable, error, pending, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
 
 - id: workflow-metadata-repair
   title: [Metadata resume, audit, and repair workflow](codebase.md#workflow-metadata-repair)

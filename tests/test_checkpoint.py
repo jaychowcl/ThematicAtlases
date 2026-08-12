@@ -90,6 +90,7 @@ def test_checkpoint_item_lock_has_an_explicit_bounded_wait(tmp_path) -> None:
 
 def test_provider_slots_are_paced_across_store_instances(tmp_path) -> None:
     path = tmp_path / "resume_state.sqlite"
+    CheckpointStore(path)
     barrier = threading.Barrier(2)
 
     def take_slot():

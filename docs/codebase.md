@@ -162,10 +162,14 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 
 - **Status:** Observed
 - **Decision:** traced runs combine readable JSON artifacts with a fingerprinted
-  SQLite store and status/history rows.
+  SQLite store and status/history rows. Cross-process item work is file-locked;
+  event sequence allocation is one immediate SQLite
+  transaction; cooperating provider calls can share a run-local pacing gate.
 - **Rationale:** Not documented.
 - **Consequences:** resume reuses completed and terminal work and can selectively
-  requeue retryable/degraded work; incompatible configurations fail validation.
+  requeue retryable/degraded work; concurrent workers do not allocate duplicate
+  event sequences or duplicate a locked item; incompatible configurations fail
+  validation.
 - **Affected components:** `CheckpointStore`, `DevTraceWriter`, `Atlas`, remote
   wrappers, independent workers, and archive logic.
 - **Evidence:** [`checkpoint.py`](../src/ThematicAtlases/checkpoint.py),
@@ -557,10 +561,10 @@ otherwise.
 | [`ThematicAtlases.filterer.PUBLICATION_TEXT_REF`](../src/ThematicAtlases/filterer/review.py) | `"publication_text_ref"` foreign-key field. |
 | [`ThematicAtlases.filterer.REVIEW_FILTERS`](../src/ThematicAtlases/filterer/review.py) | Mutable set `{"none", "not_relevant", "not_relevant_and_unsure"}`; callers should treat it as a supported-value registry, not mutate it. |
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, prune_accessions=False, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
-| [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. The optional fixed-snapshot metadata pass downloads or reuses supported metadata best-effort before the all-links publication gate; per-accession locks prevent duplicate concurrent downloads. Calls upstream `ThematicReviewer.review_relevancy`; metadata/review item exceptions remain checkpointed and isolated, while invalid theme/filter/strategy raises. |
+| [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False, require_main_datalinks_phase=False, publication_limit=None, item_lock_timeout_seconds=None, metadata_item_timeout_seconds=None, publication_text_item_timeout_seconds=None, review_item_timeout_seconds=None) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. The optional fixed-snapshot metadata pass downloads or reuses supported metadata best-effort before the all-links publication gate; deterministic limits, main-phase yielding, bounded locks, and hard item deadlines support a concurrent sidecar. Calls upstream `ThematicReviewer.review_relevancy`; completed canonical checkpoints are shared with normal Atlas review, while incremental readable progress is isolated. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
 | [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
-| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; Datalinks uses paced XML/JSON retry rounds and rejects negative request delays. Bounded XML parsing strips one ordinary external DTD without resolving it and rejects entities, internal subsets, unsafe declarations, and oversized documents. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
+| [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; Datalinks uses paced XML/JSON retry rounds and rejects negative request delays. With a checkpoint store, Datalinks and `fullTextXML` starts share the same cross-process provider slot, publication text uses a per-item lock, and `collect_accessions` advertises `datalinks` then `downstream` in checkpoint metadata. Bounded XML parsing strips one ordinary external DTD without resolving it and rejects entities, internal subsets, unsafe declarations, and oversized documents. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
 | [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared request policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; the injected/default record policy owns package projection and deterministic GSE deduplication. Partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
 
 Complete public-member signatures for the exported classes:
@@ -664,30 +668,40 @@ Complete public-member signatures for the exported classes:
   Relative artifact paths cannot escape the run and a role cannot silently
   change path. Opening legacy, foreign, or newer schemas raises
   `IncompatibleRunStoreError`.
-- [`CheckpointStore(path)`](../src/ThematicAtlases/checkpoint.py): public
+- [`CheckpointStore(path, *, default_item_lock_timeout_seconds=None)`](../src/ThematicAtlases/checkpoint.py): public
   `set_meta`, `get_meta_json`, `get_meta`, `validate_fingerprint`,
   `amend_fingerprint`, `put`, `get`, `items`, `has_retryable`,
   `has_retryable_boundary`, `history`, `request_retries`, `archive_stage`,
-  `archive_items`, and `item_lock` methods own SQLite state and can raise
+  `archive_items`, `item_lock`, and `wait_for_provider_slot` methods own SQLite
+  state and can raise
   `ValueError`, `RuntimeError`, filesystem, or SQLite errors without partial
   source deletion. `is_retryable_error(error) -> bool` and
   `failure_category(error) -> str` classify failures.
   The selective retry entry is `CheckpointStore.request_retries`; all selected
   history rows and retry transitions commit in one transaction. Status/stage
   and stage/item/history indexes support resume, retry reporting, and history
-  lookup without full checkpoint-table scans.
+  lookup without full checkpoint-table scans. `item_lock` supports a bounded
+  wait, and provider
+  slots persist one run-local next-request time under a kernel-released lock.
 - [`TracePublicationReviewResumer.resume(trace_dir, *, theme=None,
   strategy="direct", reviewer=None, allow_theme_override=False,
   require_resolved_metadata=False, collect_metadata=False,
-  defer_metadata_errors=False) -> dict`](../src/ThematicAtlases/filterer/resume.py)
+  defer_metadata_errors=False, require_main_datalinks_phase=False,
+  publication_limit=None, item_lock_timeout_seconds=None,
+  metadata_item_timeout_seconds=None,
+  publication_text_item_timeout_seconds=None,
+  review_item_timeout_seconds=None) -> dict`](../src/ThematicAtlases/filterer/resume.py)
   validates a trace, captures the current datalink snapshot once, optionally
   downloads/reuses metadata best-effort, reviews the eligible snapshot, and
   writes review progress. The default resolved gate accepts `available`,
   `partial`, `unavailable`, and `error`; `defer_metadata_errors=True` limits
   admission to the first three so pending, retryable, terminal-error, missing,
   and unknown contexts defer the complete publication. A collecting result
-  adds deterministic snapshot/attempt/reuse/status counts under
-  `metadata_summary`. [`DevTraceWriter`](../src/ThematicAtlases/trace.py) exposes
+  adds deterministic snapshot/selection/attempt/reuse/defer/timeout/status
+  counts under `metadata_summary`. With phase enforcement it only starts items
+  during main `datalinks`; optional positive limits and hard deadlines bound
+  work. It writes `incremental_review_progress.json`.
+  [`DevTraceWriter`](../src/ThematicAtlases/trace.py) exposes
   `checkpoint_store`, `existing`, `write`, and `metadata` for readable artifacts;
   run IDs and artifact names must be single filesystem-safe path components.
   Each atomic write uses a unique temporary file so cooperating processes do
@@ -1039,17 +1053,18 @@ and [`archive_existing_runs`](../src/ThematicAtlases/run_archive.py).
 ### Workflow 6: Independent publication review
 
 The independent worker reviews a stable or growing trace snapshot without
-rerunning discovery and may safely coexist with a cooperating collector.
+rerunning discovery and may safely coexist with a cooperating collector while
+that collector remains in its advertised Datalinks phase.
 
 ```text
-trace -> manifest/fingerprint validation -> publication snapshot
-   |                                               |
- invalid/error                              review missing items
-                                              | model error
-                                              v
-                                      failed payload/checkpoint
-                                                   |
-                                      progress + reviewed datasets
+trace -> manifest/fingerprint validation -> fixed publication snapshot
+   |                           |                         |
+ invalid/error       main phase is downstream     main phase is datalinks
+                                |                         |
+                         yield without work       bounded metadata/text/review
+                                                          |
+                                              canonical checkpoints + isolated
+                                                   incremental progress
 ```
 
 #### Numbered stages
@@ -1058,21 +1073,28 @@ trace -> manifest/fingerprint validation -> publication snapshot
    `PublicationTextReviewer.resume`.
 2. `PublicationTextReviewer.resume` uses `TracePublicationReviewResumer`, which
    validates the manifest/theme and rebuilds a stable current datalink snapshot.
-3. When requested, group all supported accession links by publication and
-   defer the publication unless every metadata status is resolved. The gate
-   makes no metadata call.
-4. The filterer fetches/reuses text and constructs accession/metadata context.
-5. `PublicationTextReviewer.review_publication_texts` calls the injected
-   reviewer's `review_relevancy`; item locks prevent duplicate completion.
-6. Model exceptions become retryable/terminal failed review payloads rather
-   than aborting unrelated publications. Progress is written after each item;
-   missing theme or forbidden override raises before review.
+3. A deterministic optional publication limit is applied before metadata work.
+   When requested, metadata is downloaded or reused one accession at a time,
+   and the publication is deferred unless every linked status is reviewable.
+4. Before every metadata, publication-text, and review item, the worker checks
+   the main phase. It starts only in `datalinks` and yields before the next item
+   after the main collector switches to `downstream`.
+5. The filterer fetches/reuses one publication text at a time and constructs
+   accession/metadata context. Bounded item-lock waits and optional hard
+   deadlines defer busy or stuck work while releasing all file locks.
+6. `PublicationTextReviewer.review_publication_texts` calls the injected
+   reviewer's `review_relevancy`; canonical item checkpoints prevent duplicate
+   completion and are reused by normal Atlas review.
+7. Model exceptions remain item-local. `incremental_review_progress.json` is
+   written independently of the main workflow's `resume_review_progress.json`;
+   the SQLite checkpoints, not the sidecar progress file, are shared authority.
 
 #### Pseudocode
 
 ```text
 PublicationTextReviewer.resume                  # Python interface
   -> TracePublicationReviewResumer.resume       # internal orchestrator
+  -> CheckpointStore.item_lock/provider slot    # cross-process coordination
   -> PublicationTextReviewer dispatch
      -> reviewer.review_relevancy                # external package/model API
   -> CheckpointStore.put                        # persistence call
@@ -1401,7 +1423,7 @@ and trace output are not part of the tracked source tree.
   release gate remains blocked until they are supplied.
 - The `dev` optional dependency group contains `pytest>=8`.
 - The public wire contract is Atlas document schema 1.0 and downstream H5AD projection uses H5AD metadata schema 1.0. The internal run-store SQL migration number is independently `2`; it is not an Atlas document version.
-- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-10 this deterministic gate reported `545 passed, 4 skipped`.
+- `requirements.txt` delegates to the runtime project metadata with `-e .`; install it with `python3 -m pip install -r requirements.txt`. Development and test environments use `python3 -m pip install -e ".[dev]"`. The canonical test command is `.env/bin/python -m pytest -q`; the autouse test guard blocks sockets and HTTP transports. Only marked tests physically under `tests/live_api` may enable a fixed-host, bounded transport when `RUN_LIVE_API_TESTS=1`. Subprocess creation remains blocked unless a test declares `allow_subprocess`. On 2026-08-12 this deterministic gate reported `597 passed, 4 skipped`.
 
 <a id="live-api-provider-contracts"></a>
 ### Live API provider contracts
@@ -1750,10 +1772,11 @@ skipped, failed, full-text, fallback, and missing counts.
 `filter_jsons()` remains the internal filterer pipeline: parse/merge input, collect missing publication texts, attach publication text refs, optionally review/filter publications, then return the atlas object. Public callers use `Atlas.collect_datasets()`.
 
 - `ThematicAtlases.filterer.review.PublicationTextReviewer` owns thematic review option validation, review reuse, `agentic_curator` JSON parsing, judgement normalization, and review-based accession/publication filtering.
-- `PublicationTextReviewer.resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False)` delegates to the injectable `TracePublicationReviewResumer`. It captures completed `datalinks` checkpoint rows once, reconstructs and repository-filters supported accessions, optionally collects metadata one accession at a time, gates publications, collects missing publication text, reviews unique texts, atomically writes `resume_review_progress.json`, and returns that unfiltered atlas-shaped snapshot. Datalinks arriving after capture wait for the next call.
-- `collect_metadata=True` reuses terminal metadata and attempts missing or retryable GEO/ArrayExpress work. Provider exceptions remain checkpointed and are logged by safe type only; collection continues with unrelated accessions. Checkpoint item locks serialize the same accession across processes, so a main collector and independent reviewer make one provider call. The result's `metadata_summary` reports fixed-snapshot Datalink/accession counts, attempted/reused metadata, deferred accessions, and status counts.
+- `PublicationTextReviewer.resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False, require_main_datalinks_phase=False, publication_limit=None, item_lock_timeout_seconds=None, metadata_item_timeout_seconds=None, publication_text_item_timeout_seconds=None, review_item_timeout_seconds=None)` delegates to the injectable `TracePublicationReviewResumer`. It captures completed `datalinks` checkpoint rows once, reconstructs and repository-filters supported accessions, optionally selects the first deterministic positive-limit subset before metadata, collects metadata one accession at a time, gates publications, then downloads and reviews one publication at a time. It atomically writes `incremental_review_progress.json`, never the main workflow's progress artifact. Datalinks arriving after capture wait for the next call.
+- `collect_metadata=True` reuses terminal metadata and attempts missing or retryable GEO/ArrayExpress work. Provider exceptions remain checkpointed and are logged by safe type only; collection continues with unrelated accessions. Checkpoint item locks serialize the same accession across processes, so a main collector and independent reviewer make one provider call. Optional bounded waits and hard per-item deadlines defer busy or stuck calls, release kernel locks, and continue. The result's `metadata_summary` reports fixed/selected snapshot counts, attempted/reused metadata, busy/timeout/deferred items, phase yield, and status counts.
 - With `require_resolved_metadata=True`, the default gate treats `available`, `partial`, `unavailable`, and `error` as resolved. `defer_metadata_errors=True` instead admits only `available`, `partial`, and authoritative `unavailable`; pending, retryable-error, terminal-error, missing, and unknown values defer the complete publication and all its accession edges before publication-text or model calls. Later calls automatically retry transient checkpoints. Terminal errors remain deferred until `CheckpointStore.request_retries` explicitly requeues the stage or item.
 - The trace resumer uses the manifest theme and repository selection by default. An explicit non-empty theme is allowed when the manifest has none; a conflicting theme is rejected unless `allow_theme_override=True`. The reviewer-only override uses the explicit theme without modifying the historical collector manifest or fingerprint. Only `available` datalink items present when the call begins belong to that invocation, so the method does not poll or wait for collection completion.
+- With `require_main_datalinks_phase=True`, missing or non-Datalinks phase metadata yields without starting work. `EuropePMCWrapper.collect_accessions` advertises `datalinks` before collection and atomically changes it to `downstream` after Datalinks returns. The sidecar checks this value before every metadata, text, and model item, finishes only its current item, then yields. It never changes the main run status, stage state, phase, manifest, fingerprint, or collected-accession artifact.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly, plus the title and every distinct associated GSE accession. When metadata exists, context contains one compact `build_miniml_metadata_context(...)` entry per associated accession; full MINiML, protocol, platform, and author sections are not sent. Original `accession_metadata` remains unchanged in atlas and trace artifacts.
 - Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
 - Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
@@ -1767,12 +1790,13 @@ skipped, failed, full-text, fallback, and missing counts.
   compact metadata context and its coverage in the effective input hash, so
   metadata arriving after an early review triggers a replacement review on the
   next reviewer or full-resume invocation. The raw MINiML object is not sent.
-- Each thematic review is checkpointed atomically under `thematic_review/direct:<publication_ref>`. Per-item locks prevent duplicate calls. Invalid structured output gets one immediate correction attempt and then becomes terminal; transient provider/network failures become `retryable_error` and participate in full Atlas resume gates.
+- Each thematic review is checkpointed atomically under `thematic_review/direct:<publication_ref>`. Per-item locks prevent duplicate calls. The main workflow recomputes the same input identity and reuses a completed sidecar checkpoint even when `incremental_review_progress.json` is absent. Invalid structured output gets one immediate correction attempt and then becomes terminal; transient provider/network failures become `retryable_error` and participate in full Atlas resume gates.
 - `PublicationTextReviewer.resume` reviews one stable datalink snapshot and can
   be invoked again as collection advances. A caller must explicitly allow a
   theme override when reviewing a historical collector snapshot with a newer
-  theme. Full Atlas resume treats this progress as a reusable cache over the
-  eventual full collected-accession set, not as authoritative collection scope.
+  theme. Full Atlas resume treats completed canonical item checkpoints as a
+  reusable cache over the eventual full collected-accession set; the isolated
+  incremental progress artifact is never authoritative collection scope.
 - `review_filter` accepts `none`, `not_relevant`, and `not_relevant_and_unsure`. Filtering uses the judge-level `agentic_curator.judgement`, treating underscores and case differences as equivalent. `not_relevant` removes judgement `not relevant`; `not_relevant_and_unsure` removes `not relevant` and `unsure`.
 - `prune_accessions` defaults to false and consumes normalized exact accession identifiers from grounded `accessions_to_remove` only when explicitly enabled, independently of `review_filter`. Missing, malformed, unknown, or failed-review removals fail open. New traces persist and fingerprint the option; legacy traces without it resume with pruning disabled.
 - When thematic review is active, accessions with no retained publications are dropped and `publication_texts` is pruned to refs used by returned accessions. When no theme is supplied, existing unreferenced `publication_texts` are preserved for backward compatibility.
@@ -1904,10 +1928,10 @@ resume without refetching completed pages.
 
 Current public methods:
 
-- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, fetches Datalinks, scans Europe PMC XML, supported preprint JATS, or abstract fallback by default, merges normalized accession records with provenance, and returns candidates before repository filtering.
+- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, advertises main phase `datalinks`, fetches Datalinks, changes the phase to `downstream`, scans Europe PMC XML, supported preprint JATS, or abstract fallback by default, merges normalized accession records with provenance, and returns candidates before repository filtering.
 - `collect_publications(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches Europe PMC for each query and returns normalized, cross-query-deduplicated publication rows. The per-query limit list aligns with query order; configured limits can expand pagination beyond the default five pages.
-- `collect_publication_texts(publications: list[dict]) -> list[dict]`: fetches Europe PMC `fullTextXML`, then official bioRxiv/medRxiv JATS for supported preprints, and otherwise falls back to abstracts.
-- `collect_datalinks(publications: list[dict]) -> list[dict]`: calls only the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records; publication-text fetching belongs to `collect_accessions`.
+- `collect_publication_texts(publications: list[dict], checkpoint_store=None) -> list[dict]`: fetches Europe PMC `fullTextXML`, then official bioRxiv/medRxiv JATS for supported preprints, and otherwise falls back to abstracts. With a checkpoint store, each publication is locked and a busy bounded lock defers that item.
+- `collect_datalinks(publications: list[dict], checkpoint_store=None) -> list[dict]`: calls only the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records; publication-text fetching belongs to `collect_accessions`. Datalinks and Europe PMC full-text request starts share the run-local cross-process provider interval.
 - `accessions_from_fulltexts(publications, checkpoint_store=None) -> list[dict]`: extracts registry matches from available Europe PMC XML or preprint JATS with `fulltext_regex` provenance and from abstract fallback with `abstract_regex` provenance, then checkpoints each publication.
 - `merge_accessions(datalink_accessions, scraped_accessions) -> list[dict]`: performs case-insensitive accession and publication merging while retaining discovery provenance.
 - `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
@@ -2303,7 +2327,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `570 passed, 4 skipped` on 2026-08-11. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, evolving independent review, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate last reported `597 passed, 4 skipped` on 2026-08-12. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, bounded evolving independent review, deterministic publication limits, main-phase yielding, metadata/text/model hard deadlines, cross-process provider pacing, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 
