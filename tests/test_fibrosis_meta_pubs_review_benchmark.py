@@ -9,6 +9,11 @@ import sys
 
 import pytest
 
+from benchmark_ThematicAtlases._fibrosis_references import (
+    load_reference_tsv,
+    reference_groups,
+)
+
 
 pytestmark = pytest.mark.allow_subprocess
 
@@ -23,6 +28,13 @@ BENCHMARK_DIR = (
 RUNNER = BENCHMARK_DIR / "benchmark_fibrosis_meta_pubs_review.py"
 DATASET = BENCHMARK_DIR / "fibrosis_meta_publications_review.csv"
 THEME = BENCHMARK_DIR / "theme_fibrosis.txt"
+RECALL_DATASET = (
+    ROOT
+    / "src"
+    / "benchmark_ThematicAtlases"
+    / "benchmark_fibrosis_meta_pubs_recall"
+    / "fibrosis_meta_publications.tsv"
+)
 REPORT_NAME = "fibrosis_meta_pubs_review_report.json"
 CACHE_NAME = "fibrosis_meta_pubs_review_cache.csv"
 
@@ -62,6 +74,30 @@ def dataset_row(
         "pmid": pmid,
         "expected_decision": expected,
     }
+
+
+def read_dataset(path: Path = DATASET) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        assert tuple(reader.fieldnames or ()) == DATASET_COLUMNS
+        return list(reader)
+
+
+def projected_recall_rows() -> list[dict[str, str]]:
+    references = load_reference_tsv(RECALL_DATASET)
+    rows = []
+    for group in reference_groups(references["rows"]):
+        doi = group["dois"][0] if group["dois"] else ""
+        pmid = group["pmids"][0] if group["pmids"] else ""
+        rows.append(
+            dataset_row(
+                f"doi:{doi}" if doi else f"pmid:{pmid}",
+                "relevant",
+                doi=doi,
+                pmid=pmid,
+            )
+        )
+    return rows
 
 
 class RecordingHydrator:
@@ -133,30 +169,75 @@ class RecordingReviewRunner:
         return reviewed
 
 
-def test_review_benchmark_layout_and_schema_only_assets() -> None:
+def test_packaged_review_dataset_is_all_recall_publications_labeled_relevant() -> None:
     assert RUNNER.is_file()
     assert DATASET.is_file()
     assert THEME.read_bytes() == (ROOT / "docs" / "theme_fibrosis.txt").read_bytes()
     assert not (ROOT / "src" / "benchmark_ThematicAtlases" / "thematic_reviewer").exists()
     assert not (ROOT / "src" / "benchmark_ThematicAtlases" / "ontology_harmonizer").exists()
 
-    with DATASET.open(encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        assert tuple(reader.fieldnames or ()) == DATASET_COLUMNS
-        assert list(reader) == []
+    references = load_reference_tsv(RECALL_DATASET)
+    rows = read_dataset()
+
+    assert len(references["rows"]) == 92
+    assert len(rows) == 90
+    assert rows == projected_recall_rows()
+    assert {row["expected_decision"] for row in rows} == {"relevant"}
+    assert {
+        (row["doi"], row["pmid"])
+        for row in rows
+        if row["doi"]
+        in {"10.1038/s41467-024-55325-4", "10.1038/s41586-024-07465-2"}
+    } == {
+        ("10.1038/s41467-024-55325-4", "39747812"),
+        ("10.1038/s41586-024-07465-2", "38778114"),
+    }
 
 
-def test_empty_packaged_dataset_fails_clearly() -> None:
+def test_empty_custom_dataset_fails_clearly(tmp_path: Path) -> None:
     runner = load_runner()
+    dataset = tmp_path / "empty.csv"
+    write_dataset(dataset, [])
 
     with pytest.raises(ValueError, match="at least one labeled publication"):
         runner.run_benchmark(
-            dataset_csv=DATASET,
-            cache_csv=Path("unused.csv"),
+            dataset_csv=dataset,
+            cache_csv=tmp_path / "unused.csv",
             theme_file=THEME,
             hydrator=RecordingHydrator(),
             review_runner=RecordingReviewRunner({}),
         )
+
+
+def test_packaged_all_relevant_dataset_runs_offline(tmp_path: Path) -> None:
+    runner = load_runner()
+    rows = read_dataset()
+    decisions = {row["publication_id"]: "relevant" for row in rows}
+    hydrator = RecordingHydrator()
+    reviewer = RecordingReviewRunner(decisions)
+
+    report = runner.run_benchmark(
+        dataset_csv=DATASET,
+        cache_csv=tmp_path / CACHE_NAME,
+        theme_file=THEME,
+        hydrator=hydrator,
+        review_runner=reviewer,
+    )
+
+    assert report["summary"]["input_count"] == 90
+    assert report["summary"]["hydrated_count"] == 90
+    assert report["summary"]["review_completed_count"] == 90
+    assert report["summary"]["scored_count"] == 90
+    assert report["summary"]["correct_count"] == 90
+    assert report["summary"]["accuracy"] == 1.0
+    assert report["summary"]["per_class"]["relevant"] == {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 90,
+    }
+    assert report["summary"]["macro_f1"] == pytest.approx(1 / 3)
+    assert hydrator.calls == [row["publication_id"] for row in rows]
 
 
 @pytest.mark.parametrize(
@@ -470,9 +551,19 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
     assert result["hydration_status"] == "available"
 
 
-def test_cli_rejects_empty_template_without_cache_or_report(tmp_path: Path) -> None:
+def test_cli_rejects_empty_custom_dataset_without_cache_or_report(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "empty.csv"
+    write_dataset(dataset, [])
     completed = subprocess.run(
-        [sys.executable, str(RUNNER), "--out", str(tmp_path / "out")],
+        [
+            sys.executable,
+            str(RUNNER),
+            str(dataset),
+            "--out",
+            str(tmp_path / "out"),
+        ],
         cwd=tmp_path,
         text=True,
         capture_output=True,

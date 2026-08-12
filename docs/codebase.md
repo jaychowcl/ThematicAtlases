@@ -480,6 +480,8 @@ the Python API, or the canonical parent-adapter workflow documented in the
   runner owns labeled identifier validation, exact public hydration, row-level
   cache reuse/refresh, production `PublicationTextReviewer` dispatch,
   three-class metrics, and atomic report publication. It has no trace input.
+  Its packaged labeled CSV is the all-relevant, identity-deduplicated projection
+  of the shared recall TSV rather than another direct consumer of that TSV.
 
 <a id="public-api-reference"></a>
 ## Public API reference
@@ -1517,11 +1519,20 @@ reference input fail without replacing a report. Success atomically replaces
 `fibrosis_meta_pubs_query_recall_report.json`; the runner makes no network,
 identifier-resolution, accession, review, or model call.
 
-The review benchmark's adjacent CSV is an intentionally header-only template
-with exact columns `publication_id`, `doi`, `pmid`, and `expected_decision`.
-Each populated row requires a unique ID, a DOI/PMID, and one normalized label:
-`relevant`, `not_relevant`, or `unsure`. The adjacent theme is byte-identical
-to `docs/theme_fibrosis.txt`. An empty dataset fails before cache/report writes.
+The review benchmark's adjacent CSV has exact columns `publication_id`, `doi`,
+`pmid`, and `expected_decision`. Its 90 rows are the first-seen connected
+DOI/PMID identities projected from all 92 rows in the recall/query-recall TSV;
+the two publications repeated across reference sets collapse once while their
+PMIDs remain attached. `publication_id` is `doi:<normalized-doi>` for this
+fixture and every `expected_decision` is `relevant`. This is intentionally a
+positive-control test of reviewer recall, not a balanced three-class test.
+
+Recall and query-recall therefore share one TSV directly, while reviewer
+classification uses a separate CSV because it needs stable publication IDs and
+expected class labels. A custom CSV may contain `relevant`, `not_relevant`, and
+`unsure`, but every row still requires a unique ID and a DOI/PMID. The adjacent
+theme is byte-identical to `docs/theme_fibrosis.txt`. An empty custom dataset
+fails before cache/report writes.
 
 The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
 requires one matching record, uses TA's full-text/abstract fallback, discovers
@@ -1538,6 +1549,9 @@ matrix, accuracy, per-class precision/recall/F1, macro F1, and ordered row
 details without raw publication text. Retrieval/review failures remain visible
 but are excluded from classification denominators. Global input/cache failures
 exit one without a partial report; row failures still produce an atomic report.
+Because absent classes retain zero F1, perfect predictions on the packaged
+all-relevant fixture yield relevant recall and accuracy of `1.0` but three-class
+macro F1 of `1/3`; custom mixed-label datasets exercise balanced classification.
 
 <a id="fibrosis-curation-theme"></a>
 ### Fibrosis Curation Theme
