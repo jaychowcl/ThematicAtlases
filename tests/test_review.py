@@ -9,11 +9,14 @@ from ThematicAtlases.filterer.review import (
     REVIEW_CONTRACT_VERSION,
     PublicationTextReviewer,
 )
+from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
 from ThematicAtlases.filterer import review as review_module
 from ThematicAtlases.filterer.filterer import AtlasFilterer
+from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.miniml_boundary import checkpoint_payload
 from ThematicAtlases.run_store import AtlasRunStore
+from ThematicAtlases.wrappers.geo import GEOWrapper
 
 
 class FakeReviewer:
@@ -215,6 +218,104 @@ def available_geo_metadata(store: CheckpointStore, accession: str, *, partial=Fa
     if partial:
         payload["repair_summary"] = {"failed_count": 1}
     store.put("geo_metadata", accession, 1, "available", payload=payload)
+
+
+class SnapshotMetadataCollector:
+    def __init__(self, *, trace_dir: Path, fail_once=(), terminal=(), on_collect=None):
+        self.trace_dir = trace_dir
+        self.fail_once = set(fail_once)
+        self.terminal = set(terminal)
+        self.on_collect = on_collect
+        self.calls = []
+        self.failures = set()
+
+    def filter_accessions(self, accessions, metadata_repositories=None):
+        return list(accessions)
+
+    def available_accession_metadata(
+        self,
+        jsons,
+        metadata_repositories=None,
+        checkpoint_store=None,
+    ):
+        records = []
+        for record in jsons:
+            accession = record["datalink_id"]
+            checkpoint = checkpoint_store.get("geo_metadata", accession)
+            status = None if checkpoint is None else checkpoint["status"]
+            metadata_status = (
+                "available"
+                if status == "available"
+                else "unavailable"
+                if status == "no_data"
+                else "error"
+                if status == "terminal_error"
+                else "pending"
+            )
+            records.append(
+                {
+                    **record,
+                    "metadata_repository": "geo",
+                    "metadata_status": metadata_status,
+                    "accession_metadata": (
+                        {"series": {"accession": [{"value": accession}]}}
+                        if metadata_status == "available"
+                        else None
+                    ),
+                }
+            )
+        return records
+
+    def collect_accession_metadata(
+        self,
+        jsons,
+        metadata_repositories=None,
+        checkpoint_store=None,
+    ):
+        assert len(jsons) == 1
+        record = jsons[0]
+        accession = record["datalink_id"]
+        self.calls.append(accession)
+        if self.on_collect is not None:
+            callback, self.on_collect = self.on_collect, None
+            callback()
+        if accession in self.terminal:
+            checkpoint_store.put(
+                "geo_metadata",
+                accession,
+                len(self.calls),
+                "terminal_error",
+                error="invalid metadata",
+            )
+            raise ValueError("invalid metadata")
+        if accession in self.fail_once and accession not in self.failures:
+            self.failures.add(accession)
+            checkpoint_store.put(
+                "geo_metadata",
+                accession,
+                len(self.calls),
+                "retryable_error",
+                error="temporary metadata timeout",
+            )
+            raise TimeoutError("temporary metadata timeout")
+        available_geo_metadata(checkpoint_store, accession)
+        return self.available_accession_metadata(
+            jsons,
+            metadata_repositories=metadata_repositories,
+            checkpoint_store=checkpoint_store,
+        )
+
+
+def snapshot_reviewer(collector: SnapshotMetadataCollector) -> PublicationTextReviewer:
+    return PublicationTextReviewer(
+        resume_orchestrator_factory=lambda publication_text_reviewer: (
+            TracePublicationReviewResumer(
+                publication_text_reviewer=publication_text_reviewer,
+                collector_factory=lambda: collector,
+                filterer_factory=AtlasFilterer,
+            )
+        )
+    )
 
 
 def reviewed_atlas_parts() -> tuple[list[dict], dict]:
@@ -1002,6 +1103,251 @@ def test_resolved_metadata_gate_picks_up_deferred_publication_on_later_snapshot(
     assert [call["publication_text"] for call in FakeReviewer.calls] == [
         "review after metadata"
     ]
+
+
+def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="first snapshot",
+    )
+
+    def add_later_publication():
+        traced_publication(
+            trace_dir,
+            epmc_id="2",
+            datalink_id="GSE2",
+            text="later snapshot",
+        )
+
+    collector = SnapshotMetadataCollector(
+        trace_dir=trace_dir,
+        on_collect=add_later_publication,
+    )
+    review = snapshot_reviewer(collector)
+    FakeReviewer.calls = []
+
+    first = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+    second = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+    assert set(first["publication_texts"]) == {"1"}
+    assert first["metadata_summary"] == {
+        "snapshot_datalink_checkpoint_count": 1,
+        "snapshot_datalink_row_count": 1,
+        "snapshot_accession_count": 1,
+        "metadata_attempted_count": 1,
+        "metadata_reused_count": 0,
+        "metadata_deferred_accession_count": 0,
+        "metadata_status_counts": {"available": 1},
+    }
+    assert set(second["publication_texts"]) == {"1", "2"}
+    assert collector.calls == ["GSE1", "GSE2"]
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "first snapshot",
+        "later snapshot",
+    ]
+
+
+def test_resume_metadata_failures_defer_linked_publications_and_continue(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="unrelated success",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="retry later",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="3",
+        datalink_id="GSE3",
+        text="terminal manual retry",
+    )
+    collector = SnapshotMetadataCollector(
+        trace_dir=trace_dir,
+        fail_once={"GSE2"},
+        terminal={"GSE3"},
+    )
+    review = snapshot_reviewer(collector)
+    FakeReviewer.calls = []
+
+    first = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+    second = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+    collector.terminal.clear()
+    CheckpointStore(trace_dir / "atlas_run.sqlite3").request_retries(
+        items={"geo_metadata": ["GSE3"]}
+    )
+    third = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+
+    assert set(first["publication_texts"]) == {"1"}
+    assert first["metadata_summary"]["metadata_deferred_accession_count"] == 2
+    assert first["metadata_summary"]["metadata_status_counts"] == {
+        "available": 1,
+        "error": 1,
+        "pending": 1,
+    }
+    assert set(second["publication_texts"]) == {"1", "2"}
+    assert second["metadata_summary"]["metadata_deferred_accession_count"] == 1
+    assert set(third["publication_texts"]) == {"1", "2", "3"}
+    assert collector.calls == ["GSE1", "GSE2", "GSE3", "GSE2", "GSE3"]
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "unrelated success",
+        "retry later",
+        "terminal manual retry",
+    ]
+
+
+def test_resume_defers_publication_when_any_linked_metadata_download_fails(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="two linked accessions",
+    )
+    item = store.get("datalinks", "MED:1")
+    row = item["payload"]["rows"][0]
+    store.put(
+        "datalinks",
+        "MED:1",
+        item["ordinal"],
+        "available",
+        payload={"rows": [row, {**row, "datalink_id": "GSE2"}]},
+    )
+    collector = SnapshotMetadataCollector(
+        trace_dir=trace_dir,
+        fail_once={"GSE2"},
+    )
+
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=FailingReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+    )
+
+    assert result["accessions"] == []
+    assert result["publication_texts"] == {}
+    assert result["metadata_summary"]["metadata_deferred_accession_count"] == 1
+
+
+def test_snapshot_and_main_metadata_collection_share_accession_lock(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="shared metadata download",
+    )
+    started = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    class SlowGeo(GEOWrapper):
+        def _gse_metadata_packages(self, gse_accession):
+            calls.append(gse_accession)
+            started.set()
+            assert release.wait(timeout=5)
+            return [
+                {
+                    "miniml_schema_version": "2.0",
+                    "source": {"format": "test"},
+                    "database": [],
+                    "organization": [],
+                    "contributor": [],
+                    "platform": [],
+                    "sample": [],
+                    "series": {
+                        "iid": gse_accession,
+                        "accession": [{"value": gse_accession}],
+                    },
+                }
+            ]
+
+    def collector_factory():
+        return AtlasCollector(
+            metadata_handlers={"geo": SlowGeo},
+            metadata_repositories=["geo"],
+        )
+
+    review = PublicationTextReviewer(
+        resume_orchestrator_factory=lambda publication_text_reviewer: (
+            TracePublicationReviewResumer(
+                publication_text_reviewer=publication_text_reviewer,
+                collector_factory=collector_factory,
+                filterer_factory=AtlasFilterer,
+            )
+        )
+    )
+    main_record = {
+        "datalink_id": "GSE1",
+        "datalink_id_scheme": "GEO",
+        "publications": [{"source": "MED", "epmc_id": "1"}],
+    }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        sidecar = executor.submit(
+            review.resume,
+            trace_dir,
+            reviewer=FakeReviewer(),
+            collect_metadata=True,
+            require_resolved_metadata=True,
+            defer_metadata_errors=True,
+        )
+        assert started.wait(timeout=5)
+        main = executor.submit(
+            collector_factory().collect_accession_metadata,
+            [main_record],
+            checkpoint_store=store,
+        )
+        release.set()
+        assert sidecar.result()["publication_texts"]["1"]["agentic_curator"][
+            "judgement"
+        ] == "relevant"
+        assert main.result()[0]["metadata_status"] == "available"
+
+    assert calls == ["GSE1"]
 
 
 def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch) -> None:

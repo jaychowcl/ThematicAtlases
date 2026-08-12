@@ -51,6 +51,8 @@ class PublicationTextReviewer:
         strategy: str = "direct",
         allow_theme_override: bool = False,
         require_resolved_metadata: bool = False,
+        collect_metadata: bool = False,
+        defer_metadata_errors: bool = False,
     ) -> dict:
         """Review the current publication snapshot in an evolving trace."""
         return self._resume_orchestrator().resume(
@@ -60,6 +62,8 @@ class PublicationTextReviewer:
             strategy=strategy,
             allow_theme_override=allow_theme_override,
             require_resolved_metadata=require_resolved_metadata,
+            collect_metadata=collect_metadata,
+            defer_metadata_errors=defer_metadata_errors,
         )
 
     def validate_options(

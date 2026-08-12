@@ -219,6 +219,35 @@ def test_offline_geo_resume_marks_legacy_metadata_checkpoint_pending(tmp_path) -
     assert result[0]["accession_metadata"] is None
 
 
+@pytest.mark.parametrize(
+    "checkpoint_status, metadata_status",
+    [
+        ("retryable_error", "pending"),
+        ("terminal_error", "error"),
+    ],
+)
+def test_offline_geo_resolution_preserves_retry_policy_status(
+    tmp_path,
+    checkpoint_status,
+    metadata_status,
+) -> None:
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+    store.put(
+        "geo_resolution",
+        "GDS1",
+        1,
+        checkpoint_status,
+        error="resolution failed",
+    )
+
+    result = GEOWrapper().available_accession_metadata(
+        [{"datalink_id": "GDS1", "publications": []}], store
+    )
+
+    assert result[0]["metadata_status"] == metadata_status
+    assert result[0]["accession_metadata"] is None
+
+
 def test_geo_metadata_item_lock_prevents_duplicate_concurrent_downloads(tmp_path) -> None:
     store_path = tmp_path / "resume_state.sqlite"
     started = threading.Event()

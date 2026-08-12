@@ -244,6 +244,9 @@ class GEOWrapper:
             checkpoint = checkpoint_store.get("geo_resolution", source_accession)
             if checkpoint and checkpoint["status"] in {"available", "no_data"}:
                 gse_accession = (checkpoint.get("payload") or {}).get("gse_accession")
+            elif checkpoint and checkpoint["status"] == "terminal_error":
+                resolved.append(self._metadata_error_record(record))
+                continue
             elif source_accession.startswith("GSE"):
                 gse_accession = source_accession
             else:

@@ -274,8 +274,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-independent-review
   title: [Independent review workflow](codebase.md#workflow-independent-review)
   anchor: workflow-independent-review
-  purpose: Stable-snapshot text collection, optional all-links-resolved metadata gating, review_relevancy dispatch, checkpointing, and progress.
-  keywords: publication reviewer, TracePublicationReviewResumer, require_resolved_metadata, available, partial, unavailable, error, pending, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
+  purpose: Fixed-snapshot best-effort metadata download/reuse, all-links reviewable-metadata gating, review_relevancy dispatch, checkpointing, and progress.
+  keywords: publication reviewer, TracePublicationReviewResumer, collect_metadata, defer_metadata_errors, metadata_summary, accession item lock, transient retry, terminal manual retry, require_resolved_metadata, available, partial, unavailable, error, pending, review_relevancy, reviewer identity, provider, model, generation, prompt digest, direct
 
 - id: workflow-metadata-repair
   title: [Metadata resume, audit, and repair workflow](codebase.md#workflow-metadata-repair)
