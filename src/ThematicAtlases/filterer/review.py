@@ -23,7 +23,7 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct"}
-REVIEW_CONTRACT_VERSION = 7
+REVIEW_CONTRACT_VERSION = 8
 
 logger = logging.getLogger(__name__)
 
@@ -583,6 +583,9 @@ class PublicationTextReviewer:
                     "accession_assessments", []
                 ),
                 "review_revision": review.get("review_revision"),
+                "evidence_contract_version": review.get(
+                    "evidence_contract_version"
+                ),
                 "raw_review": review,
             }
             if review_input_hash is not None:

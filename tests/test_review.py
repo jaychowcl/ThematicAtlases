@@ -117,6 +117,7 @@ class DirectReviewer:
             ],
             "accession_assessments": [assessment],
             "review_revision": 1,
+            "evidence_contract_version": 2,
             "strategy": strategy,
         }
 
@@ -726,6 +727,7 @@ def test_direct_review_traces_and_applies_accession_removals(
 
     trace = texts["1"]["agentic_curator"]
     assert trace["review_revision"] == 1
+    assert trace["evidence_contract_version"] == 2
     assert trace["criteria"] == [
         {
             "id": "theme_condition",
@@ -820,7 +822,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
 
 
 def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
-    assert REVIEW_CONTRACT_VERSION == 7
+    assert REVIEW_CONTRACT_VERSION == 8
 
 
 def test_retired_evidence_then_judgement_strategy_is_rejected(tmp_path) -> None:
