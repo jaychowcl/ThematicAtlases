@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import csv
 from datetime import datetime, timezone
+from functools import partial
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -49,6 +51,8 @@ DOI_PREFIX = re.compile(
 )
 PMID_PREFIX = re.compile(r"^pmid\s*:\s*", flags=re.IGNORECASE)
 
+logger = logging.getLogger(__name__)
+
 
 class ProductionHydrator:
     """Resolve public publication text and TA review context without a trace."""
@@ -67,8 +71,15 @@ class ProductionHydrator:
             epmc_wrapper = EuropePMCWrapper()
         if collector is None:
             from ThematicAtlases.collector import AtlasCollector
+            from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
+            from ThematicAtlases.wrappers.geo import GEOWrapper
 
-            collector = AtlasCollector()
+            collector = AtlasCollector(
+                metadata_handlers={
+                    "arrayexpress": ArrayExpressWrapper,
+                    "geo": partial(GEOWrapper, enrich_metadata=False),
+                }
+            )
         if filterer is None:
             from ThematicAtlases.filterer import AtlasFilterer
 
@@ -218,15 +229,24 @@ def run_benchmark(
     cache_rows = []
     reused_count = 0
     refreshed_count = 0
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         identity_hash = _identity_hash(row)
         cached_row = cached.get(row["publication_id"])
-        if (
+        reuse_cached = (
             not refresh_cache
             and cached_row is not None
             and cached_row["identity_sha256"] == identity_hash
             and cached_row["hydration_status"] in {"available", "degraded"}
-        ):
+        )
+        logger.info(
+            "Reviewer benchmark progress stage=hydrate publication_index=%s "
+            "publication_total=%s publication_id=%s cache_action=%s",
+            index,
+            len(rows),
+            row["publication_id"],
+            "reuse" if reuse_cached else "refresh",
+        )
+        if reuse_cached:
             hydration = _hydration_from_cache(cached_row)
             reused_count += 1
         else:
@@ -235,6 +255,18 @@ def run_benchmark(
                 hydration = _validated_hydration(hydrator.hydrate(row))
             except Exception as error:
                 hydration = _failed_hydration(error)
+                logger.warning(
+                    "Reviewer benchmark progress stage=hydrate publication_id=%s "
+                    "hydration_status=failed error_type=%s",
+                    row["publication_id"],
+                    type(error).__name__,
+                )
+        logger.info(
+            "Reviewer benchmark progress stage=hydrate publication_id=%s "
+            "hydration_status=%s",
+            row["publication_id"],
+            hydration["hydration_status"],
+        )
         hydrated_rows.append({"dataset": row, "hydration": hydration})
         cache_rows.append(_cache_row(row, identity_hash, hydration))
     _write_csv_atomic(cache_path, CACHE_COLUMNS, cache_rows)
@@ -260,14 +292,35 @@ def run_benchmark(
     reviewed = {}
     review_batch_error = None
     if publication_texts:
+        logger.info(
+            "Reviewer benchmark progress stage=review publication_total=%s "
+            "status=started",
+            len(publication_texts),
+        )
         try:
             reviewed = (review_runner or _production_review)(
                 publication_texts,
                 contexts,
                 theme,
             )
+            logger.info(
+                "Reviewer benchmark progress stage=review publication_total=%s "
+                "status=complete",
+                len(publication_texts),
+            )
         except Exception as error:
             review_batch_error = {"error_type": type(error).__name__}
+            logger.warning(
+                "Reviewer benchmark progress stage=review publication_total=%s "
+                "status=failed error_type=%s",
+                len(publication_texts),
+                type(error).__name__,
+            )
+    else:
+        logger.info(
+            "Reviewer benchmark progress stage=review publication_total=0 "
+            "status=skipped"
+        )
 
     publication_results = [
         _publication_result(item, reviewed, review_batch_error)
@@ -756,11 +809,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT_DIRECTORY)
     parser.add_argument("--cache", type=Path, default=None)
     parser.add_argument("--refresh-cache", action="store_true")
+    parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.verbose:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
     output_directory = args.out.resolve()
     report_path = output_directory / REPORT_NAME
     cache_path = (

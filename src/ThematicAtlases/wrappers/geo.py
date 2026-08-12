@@ -98,6 +98,7 @@ class GEOWrapper:
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides=None,
         record_policy: GEORecordPolicy | None = None,
+        enrich_metadata: bool = True,
     ):
         self.resource_profile = (
             resource_profile.with_overrides(resource_overrides)
@@ -133,6 +134,7 @@ class GEOWrapper:
             resource_profile=self.resource_profile,
         )
         self._record_policy = record_policy or GEORecordPolicy()
+        self._enrich_metadata = bool(enrich_metadata)
 
     def collect_accession_metadata(
         self,
@@ -472,8 +474,11 @@ class GEOWrapper:
                     payload = checkpoint.get("payload") or {}
                     packages = cached_packages
                     mode = payload.get("enrichment_mode")
-                    if checkpoint_store is not None and packages and (
-                        mode in {"all", "selected"} or retry_tags is not None
+                    if (
+                        self._enrich_metadata
+                        and checkpoint_store is not None
+                        and packages
+                        and (mode in {"all", "selected"} or retry_tags is not None)
                     ):
                         packages, payload = self._repair_enrichment_packages(
                             packages=packages,
@@ -508,14 +513,34 @@ class GEOWrapper:
                         and checkpoint_packages(pending_payload)
                     ):
                         packages = checkpoint_packages(pending_payload) or []
-                        packages, pending_payload = self._repair_enrichment_packages(
-                            packages=packages,
-                            payload=pending_payload,
-                            checkpoint_store=checkpoint_store,
-                            retry_tags=retry_tags,
-                        )
+                        if self._enrich_metadata:
+                            packages, pending_payload = self._repair_enrichment_packages(
+                                packages=packages,
+                                payload=pending_payload,
+                                checkpoint_store=checkpoint_store,
+                                retry_tags=retry_tags,
+                            )
+                        else:
+                            pending_payload = _metadata_checkpoint_payload(
+                                packages,
+                                enrichment_mode="none",
+                                enrichment_state="complete",
+                            )
                     elif checkpoint_store is not None:
-                        if type(self)._gse_metadata_packages is not GEOWrapper._gse_metadata_packages:
+                        if not self._enrich_metadata:
+                            packages = self._gse_metadata_packages(
+                                gse_accession=gse_accession
+                            )
+                            packages = canonicalize_miniml_packages(packages)
+                            pending_payload = _metadata_checkpoint_payload(
+                                packages,
+                                enrichment_mode="none",
+                                enrichment_state="complete",
+                            )
+                        elif (
+                            type(self)._gse_metadata_packages
+                            is not GEOWrapper._gse_metadata_packages
+                        ):
                             packages = self._gse_metadata_packages(
                                 gse_accession=gse_accession
                             )
@@ -571,7 +596,11 @@ class GEOWrapper:
                             index,
                             "no_data",
                             payload=_metadata_checkpoint_payload(
-                                [], enrichment_mode="all", enrichment_state="complete"
+                                [],
+                                enrichment_mode=(
+                                    "all" if self._enrich_metadata else "none"
+                                ),
+                                enrichment_state="complete",
                             ),
                         )
                     continue
@@ -583,6 +612,12 @@ class GEOWrapper:
                 )
                 metadata_records.extend(package_records)
                 if checkpoint_store is not None:
+                    completed_payload = {
+                        **pending_payload,
+                        "enrichment_state": "complete",
+                    }
+                    if not self._enrich_metadata:
+                        completed_payload["enrichment_mode"] = "none"
                     checkpoint_store.put(
                         "geo_metadata",
                         gse_accession,
@@ -590,7 +625,7 @@ class GEOWrapper:
                         "available",
                         payload=_metadata_checkpoint_payload(
                             packages,
-                            **{**pending_payload, "enrichment_state": "complete"},
+                            **completed_payload,
                         ),
                     )
 
@@ -883,7 +918,7 @@ class GEOWrapper:
             gse=gse_accession,
             related_series=True,
             remove_empty=True,
-            enrich=True,
+            enrich=self._enrich_metadata,
             out=None,
         )
         codec = MINiMLCodec()

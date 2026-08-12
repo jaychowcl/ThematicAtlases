@@ -862,6 +862,76 @@ def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
     ]
 
 
+def test_gse_metadata_packages_can_skip_identifier_enrichment(monkeypatch) -> None:
+    calls = []
+    package = v2_package("GSE1")
+
+    class FakeGeo2JsonConverter:
+        def convert(self, **kwargs):
+            calls.append(kwargs)
+            return [package]
+
+    monkeypatch.setattr(
+        geo_module,
+        "geo2json",
+        lambda: FakeGeo2JsonConverter(),
+    )
+
+    assert GEOWrapper(enrich_metadata=False)._gse_metadata_packages("GSE1") == [
+        package
+    ]
+    assert calls == [
+        {
+            "gse": "GSE1",
+            "related_series": True,
+            "remove_empty": True,
+            "enrich": False,
+            "out": None,
+        }
+    ]
+
+
+def test_checkpointed_geo_can_skip_identifier_enrichment(
+    tmp_path, monkeypatch
+) -> None:
+    calls = []
+
+    class FakeGeo2JsonConverter:
+        def convert(self, **kwargs):
+            calls.append(kwargs)
+            return [MINiMLCodec().decode(v2_package("GSE1"), strict=True).package]
+
+    monkeypatch.setattr(
+        geo_module,
+        "geo2json",
+        lambda: FakeGeo2JsonConverter(),
+    )
+    store = CheckpointStore(tmp_path / "run.sqlite3")
+    record = {
+        "datalink_id": "GSE1",
+        "datalink_id_scheme": "GEO",
+        "publications": [],
+    }
+
+    result = GEOWrapper(enrich_metadata=False).collect_accession_metadata(
+        [record], checkpoint_store=store
+    )
+
+    assert result[0]["metadata_status"] == "available"
+    assert calls == [
+        {
+            "gse": "GSE1",
+            "related_series": True,
+            "remove_empty": True,
+            "enrich": False,
+            "out": None,
+        }
+    ]
+    payload = store.get("geo_metadata", "GSE1")["payload"]
+    assert payload["enrichment_mode"] == "none"
+    assert payload["enrichment_state"] == "complete"
+
+
 def test_gse_metadata_packages_rejects_non_v2_converter_output(monkeypatch) -> None:
     class FakeGeo2JsonConverter:
         def convert(self, **kwargs):

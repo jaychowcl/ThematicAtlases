@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import logging
 from pathlib import Path
 import subprocess
 import sys
@@ -549,6 +550,88 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
     assert result["publication_text"] == "Full text"
     assert result["review_context"]["accessions"] == ["GSE1"]
     assert result["hydration_status"] == "available"
+
+
+def test_default_production_hydrator_skips_geo_identifier_enrichment(
+    monkeypatch,
+) -> None:
+    runner = load_runner()
+    import ThematicAtlases.collector as collector_module
+
+    captured = {}
+
+    class CapturingCollector:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(collector_module, "AtlasCollector", CapturingCollector)
+
+    runner.ProductionHydrator(
+        epmc_wrapper=object(),
+        filterer=object(),
+        review_service=object(),
+    )
+
+    handlers = captured["metadata_handlers"]
+    assert set(handlers) == {"arrayexpress", "geo"}
+    assert handlers["geo"]()._enrich_metadata is False
+
+
+def test_run_benchmark_logs_hydration_and_review_progress(
+    tmp_path: Path, caplog
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(
+        dataset,
+        [
+            dataset_row("first", "relevant", pmid="1"),
+            dataset_row("second", "relevant", pmid="2"),
+        ],
+    )
+    caplog.set_level(logging.INFO, logger=runner.__name__)
+
+    runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=tmp_path / CACHE_NAME,
+        theme_file=THEME,
+        hydrator=RecordingHydrator(),
+        review_runner=RecordingReviewRunner(
+            {"first": "relevant", "second": "relevant"}
+        ),
+    )
+
+    assert "stage=hydrate publication_index=1 publication_total=2" in caplog.text
+    assert "publication_id=first cache_action=refresh" in caplog.text
+    assert "publication_id=second hydration_status=available" in caplog.text
+    assert "stage=review publication_total=2 status=started" in caplog.text
+    assert "stage=review publication_total=2 status=complete" in caplog.text
+
+
+def test_main_verbose_configures_info_logging(monkeypatch, tmp_path: Path) -> None:
+    runner = load_runner()
+    calls = []
+    report_path = tmp_path / "out" / REPORT_NAME
+
+    monkeypatch.setattr(
+        runner.logging,
+        "basicConfig",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    monkeypatch.setattr(runner, "run_benchmark", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        runner,
+        "_write_report",
+        lambda _report, _output_directory: report_path,
+    )
+
+    assert runner.main(["--out", str(tmp_path / "out"), "--verbose"]) == 0
+    assert calls == [
+        {
+            "level": logging.INFO,
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        }
+    ]
 
 
 def test_cli_rejects_empty_custom_dataset_without_cache_or_report(

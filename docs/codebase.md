@@ -314,7 +314,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 | fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
-| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns cache hydration and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; invalid global inputs fail without a report |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns raw repository-context hydration without PubMed/SRA/ENA identifier enrichment and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; invalid global inputs fail without a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -482,8 +482,10 @@ the Python API, or the canonical parent-adapter workflow documented in the
 <a id="type-fibrosis-meta-pubs-review-benchmark"></a>
 - The direct [`benchmark_fibrosis_meta_pubs_review.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py)
   runner owns labeled identifier validation, exact public hydration, row-level
-  cache reuse/refresh, production `PublicationTextReviewer` dispatch,
-  three-class metrics, and atomic report publication. It has no trace input.
+  cache reuse/refresh, raw GEO MINiML collection without unrelated
+  PubMed/SRA/ENA identifier enrichment, visible progress, production
+  `PublicationTextReviewer` dispatch, three-class metrics, and atomic report
+  publication. It has no trace input.
   Its packaged labeled CSV is the all-relevant, identity-deduplicated projection
   of the shared recall TSV rather than another direct consumer of that TSV.
 
@@ -565,7 +567,7 @@ otherwise.
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
 | [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
 | [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; Datalinks uses paced XML/JSON retry rounds and rejects negative request delays. With a checkpoint store, Datalinks and `fullTextXML` starts share the same cross-process provider slot, publication text uses a per-item lock, and `collect_accessions` advertises `datalinks` then `downstream` in checkpoint metadata. Bounded XML parsing strips one ordinary external DTD without resolving it and rejects entities, internal subsets, unsafe declarations, and oversized documents. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
-| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared request policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; the injected/default record policy owns package projection and deterministic GSE deduplication. Partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
+| [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None, enrich_metadata=True)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared request policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; `enrich_metadata=False` retains parsed MINiML while suppressing identifier enrichment and records checkpoint mode `none`. The injected/default record policy owns package projection and deterministic GSE deduplication. Partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
 
 Complete public-member signatures for the exported classes:
 
@@ -1258,10 +1260,12 @@ benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR
   <- print report path and exit 0
 
 benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
-    [--cache CSV] [--refresh-cache]
+    [--cache CSV] [--refresh-cache] [--verbose]
   -> validate publication_id/DOI/PMID/expected_decision rows
-  -> exact Europe PMC text + accession metadata hydration
+  -> exact Europe PMC text + raw accession metadata hydration
+     (GEO PubMed/SRA/ENA identifier enrichment disabled)
   -> atomically reuse/refresh dataset-bound CSV cache rows
+  -> with --verbose, log each cache/hydration action and review-stage status
   -> PublicationTextReviewer.review_publication_texts(theme=packaged fibrosis theme)
   -> score relevant/not_relevant/unsure; retain row failures outside metrics
   -> atomic schema 1.0 report replacement
@@ -1476,7 +1480,7 @@ Run the benchmark from the repository root:
 ```text
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
-python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--refresh-cache]
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--refresh-cache] [--verbose]
 ```
 
 `fibrosis_meta_publications.tsv` combines four ordered reference sets: the
@@ -1558,9 +1562,15 @@ fails before cache/report writes.
 
 The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
 requires one matching record, uses TA's full-text/abstract fallback, discovers
-supported accessions, collects GEO/ArrayExpress context, and invokes
+supported accessions, collects raw GEO/ArrayExpress context, and invokes
 `PublicationTextReviewer.review_publication_texts` with an explicitly public
-`ThematicReviewer`. It never reads a trace. Successful/degraded hydration is
+`ThematicReviewer`. Its benchmark-owned GEO handler sets
+`enrich_metadata=False`: parsed MINiML remains available to the reviewer, but
+the unrelated PubMed/SRA/ENA identifier-enrichment requests are suppressed.
+The normal `AtlasCollector` still defaults to full enrichment. `--verbose`
+emits an INFO event before and after each publication hydration/cache action,
+then reports review-stage start/completion/failure. It never reads a trace.
+Successful/degraded hydration is
 frozen in a standard quoted CSV under the benchmark-specific Git-ignored output
 directory; unchanged identifier rows are reused, changed/failed rows refresh,
 and `--refresh-cache` forces all rows. Source-label changes do not refetch text.
@@ -2207,7 +2217,7 @@ Resolution behavior:
 - `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
 - Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
 - If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
-- GEO metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=True, out=None)`. Typed or mapping results are strictly canonicalized as MINiML 2.0 before they are appended to an output record, traced, or checkpointed.
+- GEO metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=enrich_metadata, out=None)`. `enrich_metadata` defaults to `True`; setting it to `False` preserves parsed MINiML while suppressing PubMed/SRA/ENA identifier enrichment, including in checkpointed collection where the payload records `enrichment_mode="none"`. Typed or mapping results are strictly canonicalized as MINiML 2.0 before they are appended to an output record, traced, or checkpointed.
 - Related GEO super/subseries packages returned by `geo2json` become separate records, inherit the source record's `publications` and `original_datalinks`, and receive their own `accession_metadata` package.
 
 GEO metadata records add:
@@ -2236,7 +2246,7 @@ https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi
 
 with `db=gds`, comma-separated UIDs in `id`, and `retmode=json`. When ESearch returns related records, the wrapper only accepts the ESummary record whose `accession` exactly matches the requested GEO accession.
 
-`GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in E-utilities parameters when present. Request settings default to the selected profile's connect/read timeout pair, `request_delay=0.34`, and `max_retries=3`; the delay keeps the default path below the no-key E-utilities guideline of 3 requests per second.
+`GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in E-utilities parameters when present. `enrich_metadata=True` preserves the ordinary full-enrichment default; callers that need only raw repository context may opt out explicitly. Request settings default to the selected profile's connect/read timeout pair, `request_delay=0.34`, and `max_retries=3`; the delay keeps the default path below the no-key E-utilities guideline of 3 requests per second.
 
 GEO emits INFO-level progress logs while resolving accessions and collecting metadata for each GSE. GEO emits INFO-level stats for resolved records, dropped records, metadata packages, related records, error/unavailable records, deduplicated output rows, publication links, and original datalink links. GEO DEBUG logs include ESearch/ESummary request details, retry status/attempt/delay, `geo2json` calls, and accession routing decisions.
 
