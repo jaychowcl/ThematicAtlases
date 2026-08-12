@@ -108,11 +108,23 @@ class TracePublicationReviewResumer:
         filterer = self._filterer_factory(
             publication_text_reviewer=self._publication_text_reviewer,
         )
+        snapshot_publications = self._publication_keys(accessions, filterer)
         if require_resolved_metadata:
             accessions = self._resolved_metadata_publications(
                 accessions=accessions,
                 filterer=filterer,
                 defer_metadata_errors=defer_metadata_errors,
+            )
+        eligible_publications = self._publication_keys(accessions, filterer)
+        if metadata_summary is not None:
+            metadata_summary.update(
+                {
+                    "snapshot_publication_count": len(snapshot_publications),
+                    "eligible_publication_count": len(eligible_publications),
+                    "deferred_publication_count": len(
+                        snapshot_publications - eligible_publications
+                    ),
+                }
             )
         publication_texts = filterer.collect_publication_texts(
             jsons=accessions,
@@ -234,6 +246,14 @@ class TracePublicationReviewResumer:
             summary["metadata_status_counts"],
         )
         return overlaid, summary
+
+    @staticmethod
+    def _publication_keys(accessions: list[dict], filterer) -> set[tuple]:
+        return {
+            filterer.publication_key(publication)
+            for record in accessions
+            for publication in record.get("publications", [])
+        }
 
     @staticmethod
     def _resolved_metadata_publications(

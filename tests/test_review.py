@@ -1148,6 +1148,9 @@ def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> N
         "snapshot_datalink_checkpoint_count": 1,
         "snapshot_datalink_row_count": 1,
         "snapshot_accession_count": 1,
+        "snapshot_publication_count": 1,
+        "eligible_publication_count": 1,
+        "deferred_publication_count": 0,
         "metadata_attempted_count": 1,
         "metadata_reused_count": 0,
         "metadata_deferred_accession_count": 0,
@@ -1219,6 +1222,9 @@ def test_resume_metadata_failures_defer_linked_publications_and_continue(
 
     assert set(first["publication_texts"]) == {"1"}
     assert first["metadata_summary"]["metadata_deferred_accession_count"] == 2
+    assert first["metadata_summary"]["snapshot_publication_count"] == 3
+    assert first["metadata_summary"]["eligible_publication_count"] == 1
+    assert first["metadata_summary"]["deferred_publication_count"] == 2
     assert first["metadata_summary"]["metadata_status_counts"] == {
         "available": 1,
         "error": 1,
@@ -1270,6 +1276,7 @@ def test_resume_defers_publication_when_any_linked_metadata_download_fails(
     assert result["accessions"] == []
     assert result["publication_texts"] == {}
     assert result["metadata_summary"]["metadata_deferred_accession_count"] == 1
+    assert result["metadata_summary"]["deferred_publication_count"] == 1
 
 
 def test_snapshot_and_main_metadata_collection_share_accession_lock(tmp_path) -> None:
