@@ -1,4 +1,6 @@
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
@@ -81,6 +83,39 @@ def test_run_store_preserves_work_order_attempts_events_and_artifact_roles(tmp_p
         store.register_artifact(
             "run-1", "final_atlas", "snapshot.json", "application/json", "def", 12
         )
+
+
+def test_run_store_allocates_event_sequences_across_concurrent_instances(tmp_path):
+    path = tmp_path / "atlas_run.sqlite3"
+    store = AtlasRunStore(path)
+    store.create_run("run-1", "atlas-1", "1.0", {})
+    workers = 12
+    events_per_worker = 40
+    barrier = threading.Barrier(workers)
+
+    def record_events(worker: int) -> list[int]:
+        local_store = AtlasRunStore(path)
+        barrier.wait(timeout=5)
+        return [
+            local_store.record_event(
+                "run-1",
+                "concurrent_event",
+                detail={"worker": worker, "index": index},
+            )
+            for index in range(events_per_worker)
+        ]
+
+    sequences = []
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(record_events, worker) for worker in range(workers)]
+        for future in as_completed(futures):
+            sequences.extend(future.result(timeout=10))
+
+    expected = workers * events_per_worker
+    assert sorted(sequences) == list(range(1, expected + 1))
+    assert [event["sequence"] for event in store.events("run-1")] == list(
+        range(1, expected + 1)
+    )
 
 
 def test_run_store_rejects_invalid_lifecycle_and_artifact_values(tmp_path):

@@ -385,6 +385,11 @@ class AtlasRunStore:
     ) -> int:
         safe_detail = redact(dict(detail or {}))
         with self._lock, self._connection() as connection:
+            # Allocate the per-run sequence while holding SQLite's write lock.
+            # A deferred transaction lets separate processes read the same MAX
+            # before either inserts, so the UNIQUE(run_id, sequence) constraint
+            # alone is not sufficient concurrency control.
+            connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT COALESCE(MAX(sequence), 0) AS sequence "
                 "FROM run_events WHERE run_id=?",
