@@ -64,6 +64,48 @@ def test_collect_accessions_publishes_main_phase_transition_before_text(
     assert store.get_meta("main_pipeline_phase")["phase"] == "downstream"
 
 
+def test_datalinks_and_full_text_share_checkpoint_provider_pacing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = CheckpointStore(tmp_path / "atlas_run.sqlite3")
+    slots = []
+    monkeypatch.setattr(
+        store,
+        "wait_for_provider_slot",
+        lambda provider, *, min_interval_seconds: slots.append(
+            (provider, min_interval_seconds)
+        ),
+        raising=False,
+    )
+    wrapper = EuropePMCWrapper(request_delay=0.25)
+    monkeypatch.setattr(
+        wrapper,
+        "_datalinks",
+        lambda **_kwargs: {"dataLinkList": {"Category": []}},
+    )
+    monkeypatch.setattr(
+        wrapper,
+        "_full_text_xml",
+        lambda **_kwargs: "<article><body><p>Full text.</p></body></article>",
+    )
+    monkeypatch.setattr(epmc_module.time, "sleep", lambda _delay: None)
+    publication = {
+        "source": "MED",
+        "epmc_id": "1",
+        "pmcid": "PMC1",
+        "abstractText": "Abstract",
+    }
+
+    wrapper.collect_datalinks([publication], checkpoint_store=store)
+    wrapper.collect_publication_texts([publication], checkpoint_store=store)
+
+    assert slots == [
+        ("europe_pmc", 0.25),
+        ("europe_pmc", 0.25),
+    ]
+
+
 class FakeResponse:
     def __init__(
         self,

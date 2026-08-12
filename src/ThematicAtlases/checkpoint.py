@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import threading
@@ -108,8 +109,21 @@ class CheckpointStore:
         finally:
             connection.close()
 
+    @contextmanager
+    def _initialization_connection(self):
+        lock_directory = self.path.with_name(f"{self.path.name}.locks")
+        lock_directory.mkdir(parents=True, exist_ok=True)
+        lock_path = lock_directory / "initialize.lock"
+        with open(lock_path, "a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                with self._connection() as connection:
+                    yield connection
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def _initialize(self) -> None:
-        with self._lock, self._connection() as connection:
+        with self._lock, self._initialization_connection() as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS checkpoint_meta (
@@ -936,6 +950,52 @@ class CheckpointStore:
             "item_count": source_count,
             "archive_path": str(destination),
         }
+
+    def wait_for_provider_slot(
+        self,
+        provider: str,
+        *,
+        min_interval_seconds: int | float,
+    ) -> float:
+        """Pace one provider across every process sharing this run store."""
+        if not isinstance(provider, str) or not provider.strip():
+            raise ValueError("provider must be a non-empty string")
+        if (
+            isinstance(min_interval_seconds, bool)
+            or not isinstance(min_interval_seconds, (int, float))
+            or min_interval_seconds < 0
+        ):
+            raise ValueError("provider interval must be a non-negative number")
+        interval = float(min_interval_seconds)
+        lock_directory = self.path.with_name(f"{self.path.name}.locks")
+        lock_directory.mkdir(parents=True, exist_ok=True)
+        provider_hash = hashlib.sha256(
+            provider.strip().lower().encode("utf-8")
+        ).hexdigest()
+        pace_path = lock_directory / f"provider-{provider_hash}.pace"
+
+        with open(pace_path, "a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                handle.seek(0)
+                try:
+                    next_allowed = float(handle.read().decode("ascii") or "0")
+                except (UnicodeDecodeError, ValueError):
+                    next_allowed = 0.0
+                now = time.time()
+                next_allowed = min(next_allowed, now + interval)
+                delay = max(0.0, next_allowed - now)
+                if delay:
+                    time.sleep(delay)
+                granted_at = time.time()
+                handle.seek(0)
+                handle.truncate()
+                handle.write(f"{granted_at + interval:.9f}".encode("ascii"))
+                handle.flush()
+                os.fsync(handle.fileno())
+                return delay
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
     def item_lock(

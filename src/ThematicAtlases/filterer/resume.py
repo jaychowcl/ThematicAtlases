@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import signal
+import threading
+import time
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 
+from ThematicAtlases.checkpoint import CheckpointItemLockTimeout, CheckpointStore
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
@@ -19,6 +24,64 @@ _REVIEWABLE_METADATA_STATUSES = frozenset(
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SnapshotItemTimeout(TimeoutError):
+    """Report that one incremental snapshot item exceeded its hard deadline."""
+
+
+class _SnapshotDeadlineInterrupt(BaseException):
+    """Escape broad provider exception handlers when a hard deadline expires."""
+
+
+def _validated_positive_timeout(value, *, name: str):
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or value <= 0
+    ):
+        raise ValueError(f"{name} must be a positive number")
+    return float(value)
+
+
+@contextmanager
+def _item_deadline(timeout_seconds, *, item: str):
+    timeout_seconds = _validated_positive_timeout(
+        timeout_seconds,
+        name="snapshot item timeout",
+    )
+    if timeout_seconds is None:
+        yield
+        return
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("snapshot item hard deadlines require the main thread")
+
+    def interrupt(_signum, _frame):
+        raise _SnapshotDeadlineInterrupt()
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_delay, previous_interval = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+    signal.signal(signal.SIGALRM, interrupt)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        yield
+    except _SnapshotDeadlineInterrupt as error:
+        raise SnapshotItemTimeout(
+            f"incremental snapshot item timed out: {item}"
+        ) from error
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_delay > 0:
+            elapsed = time.monotonic() - started
+            signal.setitimer(
+                signal.ITIMER_REAL,
+                max(0.000001, previous_delay - elapsed),
+                previous_interval,
+            )
 
 
 def configure_default_resume_factories(*, collector_factory, filterer_factory) -> None:
@@ -59,15 +122,37 @@ class TracePublicationReviewResumer:
         collect_metadata: bool = False,
         defer_metadata_errors: bool = False,
         require_main_datalinks_phase: bool = False,
+        publication_limit: int | None = None,
+        item_lock_timeout_seconds: int | float | None = None,
+        metadata_item_timeout_seconds: int | float | None = None,
+        publication_text_item_timeout_seconds: int | float | None = None,
+        review_item_timeout_seconds: int | float | None = None,
     ) -> dict:
         directory = Path(trace_dir)
+        publication_limit = self._validated_publication_limit(publication_limit)
+        metadata_item_timeout_seconds = _validated_positive_timeout(
+            metadata_item_timeout_seconds,
+            name="metadata item timeout",
+        )
+        publication_text_item_timeout_seconds = _validated_positive_timeout(
+            publication_text_item_timeout_seconds,
+            name="publication text item timeout",
+        )
+        review_item_timeout_seconds = _validated_positive_timeout(
+            review_item_timeout_seconds,
+            name="review item timeout",
+        )
         manifest = self._read_manifest(directory)
         resolved_theme = self._resolved_theme(
             theme=theme,
             manifest=manifest,
             allow_theme_override=allow_theme_override,
         )
-        store = DevTraceWriter.existing(directory).checkpoint_store
+        store = CheckpointStore(
+            directory / "atlas_run.sqlite3",
+            default_item_lock_timeout_seconds=item_lock_timeout_seconds,
+        )
+        trace = DevTraceWriter.existing(directory)
 
         def main_phase_name() -> str:
             phase = store.get_meta("main_pipeline_phase", {})
@@ -97,17 +182,25 @@ class TracePublicationReviewResumer:
                     "snapshot_datalink_row_count": len(datalink_rows),
                     "snapshot_accession_count": 0,
                     "snapshot_publication_count": 0,
+                    "selected_publication_count": 0,
+                    "publication_limit": publication_limit,
                     "eligible_publication_count": 0,
                     "deferred_publication_count": 0,
                     "metadata_attempted_count": 0,
                     "metadata_reused_count": 0,
                     "metadata_deferred_accession_count": 0,
+                    "metadata_busy_count": 0,
+                    "metadata_timeout_count": 0,
+                    "publication_text_deferred_count": 0,
+                    "publication_text_timeout_count": 0,
+                    "review_deferred_count": 0,
+                    "review_timeout_count": 0,
                     "metadata_status_counts": {},
                     "yielded_to_main": True,
                     "main_phase": phase_name,
                 },
             }
-            DevTraceWriter.existing(directory).write(
+            trace.write(
                 "incremental_review_progress.json",
                 result,
             )
@@ -119,11 +212,25 @@ class TracePublicationReviewResumer:
             accessions=accessions,
             metadata_repositories=manifest.get("metadata_repositories"),
         )
-        accessions = [
+        snapshot_accessions = [
             record
             for record in accessions
             if str(record.get("metadata_status") or "").lower() != "unsupported"
         ]
+        filterer = self._filterer_factory(
+            publication_text_reviewer=self._publication_text_reviewer,
+        )
+        snapshot_publications = self._publication_keys(snapshot_accessions, filterer)
+        selected_publications = set(
+            self._sorted_publication_keys(snapshot_publications)[:publication_limit]
+            if publication_limit is not None
+            else snapshot_publications
+        )
+        accessions = self._only_publications(
+            accessions=snapshot_accessions,
+            publication_keys=selected_publications,
+            filterer=filterer,
+        )
         collector = self._collector_factory()
         metadata_summary = None
         if collect_metadata:
@@ -135,6 +242,7 @@ class TracePublicationReviewResumer:
                 datalink_checkpoint_count=len(datalink_items),
                 datalink_row_count=len(datalink_rows),
                 continue_predicate=main_allows_snapshot_work,
+                item_timeout_seconds=metadata_item_timeout_seconds,
             )
         elif hasattr(collector, "available_accession_metadata"):
             accessions = collector.available_accession_metadata(
@@ -142,10 +250,6 @@ class TracePublicationReviewResumer:
                 metadata_repositories=manifest.get("metadata_repositories"),
                 checkpoint_store=store,
             )
-        filterer = self._filterer_factory(
-            publication_text_reviewer=self._publication_text_reviewer,
-        )
-        snapshot_publications = self._publication_keys(accessions, filterer)
         if require_resolved_metadata:
             accessions = self._resolved_metadata_publications(
                 accessions=accessions,
@@ -157,10 +261,17 @@ class TracePublicationReviewResumer:
             metadata_summary.update(
                 {
                     "snapshot_publication_count": len(snapshot_publications),
+                    "snapshot_accession_count": len(snapshot_accessions),
+                    "selected_publication_count": len(selected_publications),
+                    "publication_limit": publication_limit,
                     "eligible_publication_count": len(eligible_publications),
                     "deferred_publication_count": len(
-                        snapshot_publications - eligible_publications
+                        selected_publications - eligible_publications
                     ),
+                    "publication_text_deferred_count": 0,
+                    "publication_text_timeout_count": 0,
+                    "review_deferred_count": 0,
+                    "review_timeout_count": 0,
                 }
             )
             metadata_summary.setdefault("yielded_to_main", False)
@@ -174,22 +285,80 @@ class TracePublicationReviewResumer:
             }
             if metadata_summary is not None:
                 result["metadata_summary"] = metadata_summary
-            DevTraceWriter.existing(directory).write(
+            trace.write(
                 "incremental_review_progress.json",
                 result,
             )
             return result
-        publication_texts = filterer.collect_publication_texts(
-            jsons=accessions,
-            checkpoint_store=store,
-        )
+        publication_texts = {}
+        publication_text_deferred_count = 0
+        publication_text_timeout_count = 0
+        for publication_key in self._sorted_publication_keys(eligible_publications):
+            if not main_allows_snapshot_work():
+                if metadata_summary is not None:
+                    metadata_summary["yielded_to_main"] = True
+                break
+            item_accessions = self._only_publications(
+                accessions=accessions,
+                publication_keys={publication_key},
+                filterer=filterer,
+            )
+            try:
+                with _item_deadline(
+                    publication_text_item_timeout_seconds,
+                    item=f"publication_text:{publication_key!r}",
+                ):
+                    collected_texts = filterer.collect_publication_texts(
+                        jsons=item_accessions,
+                        checkpoint_store=store,
+                    )
+            except SnapshotItemTimeout:
+                publication_text_timeout_count += 1
+                logger.warning(
+                    "Incremental publication text timed out publication_key=%r",
+                    publication_key,
+                )
+                continue
+            except CheckpointItemLockTimeout:
+                publication_text_deferred_count += 1
+                logger.info(
+                    "Incremental publication text deferred for busy item publication_key=%r",
+                    publication_key,
+                )
+                continue
+            except Exception as error:
+                publication_text_deferred_count += 1
+                logger.warning(
+                    "Incremental publication text deferred publication_key=%r error_type=%s",
+                    publication_key,
+                    type(error).__name__,
+                )
+                continue
+            if not collected_texts:
+                publication_text_deferred_count += 1
+                continue
+            publication_texts.update(collected_texts)
+
         accessions_with_refs = filterer.accessions_with_publication_text_refs(
             jsons=accessions,
             publication_texts=publication_texts,
         )
-        trace = DevTraceWriter.existing(directory)
 
         def write_progress(reviewed_texts: dict) -> None:
+            if metadata_summary is not None:
+                metadata_summary.update(
+                    {
+                        "main_phase": main_phase_name(),
+                        "publication_text_deferred_count": (
+                            publication_text_deferred_count
+                        ),
+                        "publication_text_timeout_count": (
+                            publication_text_timeout_count
+                        ),
+                        "review_deferred_count": review_deferred_count,
+                        "review_timeout_count": review_timeout_count,
+                    }
+                )
             progress = {
                 "accessions": filterer.accessions_with_publication_text_refs(
                     jsons=accessions,
@@ -201,17 +370,90 @@ class TracePublicationReviewResumer:
                 progress["metadata_summary"] = metadata_summary
             trace.write("incremental_review_progress.json", progress)
 
-        reviewed_texts = self._publication_text_reviewer.review_publication_texts(
-            publication_texts=publication_texts,
-            contexts=self._publication_text_reviewer.publication_review_contexts(
-                accessions=accessions_with_refs
-            ),
-            theme=resolved_theme,
-            strategy=strategy,
-            reviewer=reviewer,
-            progress_callback=write_progress,
-            checkpoint_store=store,
+        reviewed_texts = {}
+        review_deferred_count = 0
+        review_timeout_count = 0
+        contexts = self._publication_text_reviewer.publication_review_contexts(
+            accessions=accessions_with_refs
         )
+        resolved_reviewer = reviewer
+        if publication_texts and resolved_reviewer is None:
+            resolved_reviewer = self._publication_text_reviewer._reviewer()
+        for publication_ref in sorted(publication_texts):
+            if not main_allows_snapshot_work():
+                if metadata_summary is not None:
+                    metadata_summary["yielded_to_main"] = True
+                break
+            try:
+                with _item_deadline(
+                    review_item_timeout_seconds,
+                    item=f"thematic_review:{strategy}:{publication_ref}",
+                ):
+                    reviewed = (
+                        self._publication_text_reviewer.review_publication_texts(
+                            publication_texts={
+                                publication_ref: publication_texts[publication_ref]
+                            },
+                            contexts={
+                                publication_ref: contexts.get(publication_ref, {})
+                            },
+                            theme=resolved_theme,
+                            strategy=strategy,
+                            reviewer=resolved_reviewer,
+                            checkpoint_store=store,
+                        )
+                    )
+            except SnapshotItemTimeout:
+                review_timeout_count += 1
+                logger.warning(
+                    "Incremental thematic review timed out publication_ref=%s",
+                    publication_ref,
+                )
+                write_progress(reviewed_texts)
+                continue
+            except CheckpointItemLockTimeout:
+                review_deferred_count += 1
+                logger.info(
+                    "Incremental thematic review deferred for busy item publication_ref=%s",
+                    publication_ref,
+                )
+                write_progress(reviewed_texts)
+                continue
+            except Exception as error:
+                review_deferred_count += 1
+                logger.warning(
+                    "Incremental thematic review deferred publication_ref=%s error_type=%s",
+                    publication_ref,
+                    type(error).__name__,
+                )
+                write_progress(reviewed_texts)
+                continue
+            reviewed_publication = reviewed.get(publication_ref, {})
+            review_trace = reviewed_publication.get("agentic_curator", {})
+            if review_trace.get("review_status") == "failed":
+                review_deferred_count += 1
+            else:
+                reviewed_texts.update(reviewed)
+            write_progress(reviewed_texts)
+
+        if metadata_summary is not None:
+            metadata_summary.update(
+                {
+                    "main_phase": main_phase_name(),
+                    "yielded_to_main": (
+                        metadata_summary.get("yielded_to_main", False)
+                        or not main_allows_snapshot_work()
+                    ),
+                    "publication_text_deferred_count": (
+                        publication_text_deferred_count
+                    ),
+                    "publication_text_timeout_count": (
+                        publication_text_timeout_count
+                    ),
+                    "review_deferred_count": review_deferred_count,
+                    "review_timeout_count": review_timeout_count,
+                }
+            )
         result = {
             "accessions": filterer.accessions_with_publication_text_refs(
                 jsons=accessions,
@@ -234,9 +476,12 @@ class TracePublicationReviewResumer:
         datalink_checkpoint_count: int,
         datalink_row_count: int,
         continue_predicate=None,
+        item_timeout_seconds=None,
     ) -> tuple[list[dict], dict]:
         attempted = 0
         reused = 0
+        busy = 0
+        timeout_count = 0
         yielded_to_main = False
         for record in accessions:
             if continue_predicate is not None and not continue_predicate():
@@ -256,10 +501,26 @@ class TracePublicationReviewResumer:
                 continue
             attempted += 1
             try:
-                collector.collect_accession_metadata(
-                    jsons=[record],
-                    metadata_repositories=repositories,
-                    checkpoint_store=store,
+                with _item_deadline(
+                    item_timeout_seconds,
+                    item=f"metadata:{record.get('datalink_id', '')}",
+                ):
+                    collector.collect_accession_metadata(
+                        jsons=[record],
+                        metadata_repositories=repositories,
+                        checkpoint_store=store,
+                    )
+            except SnapshotItemTimeout:
+                timeout_count += 1
+                logger.warning(
+                    "Incremental metadata collection timed out accession=%s",
+                    record.get("datalink_id", ""),
+                )
+            except CheckpointItemLockTimeout:
+                busy += 1
+                logger.info(
+                    "Incremental metadata collection deferred for busy item accession=%s",
+                    record.get("datalink_id", ""),
                 )
             except Exception as error:
                 logger.warning(
@@ -290,6 +551,8 @@ class TracePublicationReviewResumer:
             "metadata_attempted_count": attempted,
             "metadata_reused_count": reused,
             "metadata_deferred_accession_count": deferred,
+            "metadata_busy_count": busy,
+            "metadata_timeout_count": timeout_count,
             "metadata_status_counts": dict(sorted(status_counts.items())),
             "yielded_to_main": yielded_to_main,
         }
@@ -305,6 +568,34 @@ class TracePublicationReviewResumer:
             summary["metadata_status_counts"],
         )
         return overlaid, summary
+
+    @staticmethod
+    def _validated_publication_limit(value: int | None) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("publication_limit must be a positive integer")
+        return value
+
+    @staticmethod
+    def _only_publications(*, accessions, publication_keys, filterer):
+        selected = []
+        for record in accessions:
+            publications = [
+                publication
+                for publication in record.get("publications", [])
+                if filterer.publication_key(publication) in publication_keys
+            ]
+            if publications:
+                selected.append({**record, "publications": publications})
+        return selected
+
+    @staticmethod
+    def _sorted_publication_keys(publication_keys):
+        return sorted(
+            publication_keys,
+            key=lambda key: tuple(str(value or "") for value in key),
+        )
 
     @staticmethod
     def _publication_keys(accessions: list[dict], filterer) -> set[tuple]:

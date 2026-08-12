@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -85,6 +86,25 @@ def test_checkpoint_item_lock_has_an_explicit_bounded_wait(tmp_path) -> None:
                 raise AssertionError("contended lock must not be entered")
         release.set()
         holder.result(timeout=5)
+
+
+def test_provider_slots_are_paced_across_store_instances(tmp_path) -> None:
+    path = tmp_path / "resume_state.sqlite"
+    barrier = threading.Barrier(2)
+
+    def take_slot():
+        barrier.wait(timeout=5)
+        CheckpointStore(path).wait_for_provider_slot(
+            "europe_pmc",
+            min_interval_seconds=0.05,
+        )
+        return time.monotonic()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        granted = [executor.submit(take_slot), executor.submit(take_slot)]
+        times = sorted(future.result(timeout=5) for future in granted)
+
+    assert times[1] - times[0] >= 0.04
 
 
 def test_checkpoint_store_reports_all_incomplete_retry_work(tmp_path) -> None:

@@ -684,6 +684,7 @@ class EuropePMCWrapper:
                         "EuropePMC fullTextXML request epmc_id=%r",
                         full_text_id,
                     )
+                    self._wait_for_provider_slot(checkpoint_store)
                     full_text_xml = self._full_text_xml(epmc_id=full_text_id)
                     text, links = self._text_and_links_from_xml(full_text_xml)
                     enriched_publication = {
@@ -854,6 +855,7 @@ class EuropePMCWrapper:
             )
             started = time.monotonic()
             try:
+                self._wait_for_provider_slot(checkpoint_store)
                 response_data = self._datalinks(source=source, epmc_id=epmc_id)
             except Exception as error:
                 failed_publications += 1
@@ -1188,6 +1190,14 @@ class EuropePMCWrapper:
         url = self._full_text_xml_url.format(epmc_id=epmc_id)
 
         return self._request_policy.get(url).text
+
+    def _wait_for_provider_slot(self, checkpoint_store) -> None:
+        if checkpoint_store is None:
+            return
+        checkpoint_store.wait_for_provider_slot(
+            "europe_pmc",
+            min_interval_seconds=self._request_settings["request_delay"],
+        )
 
     def _retry_delay(self, response: requests.Response, attempt: int) -> float:
         return RequestPolicy.retry_delay(response, attempt)

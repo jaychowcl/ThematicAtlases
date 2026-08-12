@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -1149,11 +1150,19 @@ def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> N
         "snapshot_datalink_row_count": 1,
         "snapshot_accession_count": 1,
         "snapshot_publication_count": 1,
+        "selected_publication_count": 1,
+        "publication_limit": None,
         "eligible_publication_count": 1,
         "deferred_publication_count": 0,
         "metadata_attempted_count": 1,
         "metadata_reused_count": 0,
         "metadata_deferred_accession_count": 0,
+        "metadata_busy_count": 0,
+        "metadata_timeout_count": 0,
+        "publication_text_deferred_count": 0,
+        "publication_text_timeout_count": 0,
+        "review_deferred_count": 0,
+        "review_timeout_count": 0,
         "metadata_status_counts": {"available": 1},
         "yielded_to_main": False,
         "main_phase": "missing",
@@ -1241,6 +1250,261 @@ def test_snapshot_stops_starting_items_when_main_enters_downstream(tmp_path) -> 
     assert result["metadata_summary"]["yielded_to_main"] is True
     assert result["metadata_summary"]["main_phase"] == "downstream"
     assert FakeReviewer.calls == []
+
+
+def test_snapshot_publication_limit_is_deterministic_and_applied_before_metadata(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="3",
+        datalink_id="GSE3",
+        text="third publication",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="first publication",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="second publication",
+    )
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    collector = SnapshotMetadataCollector(trace_dir=trace_dir)
+    FakeReviewer.calls = []
+
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+        publication_limit=2,
+    )
+
+    assert collector.calls == ["GSE1", "GSE2"]
+    assert set(result["publication_texts"]) == {"1", "2"}
+    assert result["metadata_summary"]["snapshot_publication_count"] == 3
+    assert result["metadata_summary"]["selected_publication_count"] == 2
+    assert result["metadata_summary"]["publication_limit"] == 2
+
+
+def test_snapshot_stops_before_next_review_when_main_enters_downstream(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="first review",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="second review",
+    )
+    available_geo_metadata(store, "GSE1")
+    available_geo_metadata(store, "GSE2")
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    collector = SnapshotMetadataCollector(trace_dir=trace_dir)
+
+    class TransitioningReviewer(FakeReviewer):
+        calls = []
+
+        def review_relevancy(self, **kwargs):
+            result = super().review_relevancy(**kwargs)
+            store.set_meta("main_pipeline_phase", {"phase": "downstream"})
+            return result
+
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=TransitioningReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+    )
+
+    assert [call["publication_text"] for call in TransitioningReviewer.calls] == [
+        "first review"
+    ]
+    assert set(result["publication_texts"]) == {"1"}
+    assert result["metadata_summary"]["yielded_to_main"] is True
+    assert result["metadata_summary"]["main_phase"] == "downstream"
+    assert store.get("thematic_review", "direct:2") is None
+
+
+def test_snapshot_metadata_deadline_defers_one_item_and_continues(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="slow metadata",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="fast metadata",
+    )
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+
+    class SlowFirstCollector(SnapshotMetadataCollector):
+        def collect_accession_metadata(self, jsons, **kwargs):
+            if jsons[0]["datalink_id"] == "GSE1":
+                self.calls.append("GSE1")
+                time.sleep(1)
+            return super().collect_accession_metadata(jsons, **kwargs)
+
+    collector = SlowFirstCollector(trace_dir=trace_dir)
+    FakeReviewer.calls = []
+    started = time.monotonic()
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+        metadata_item_timeout_seconds=0.05,
+    )
+
+    assert time.monotonic() - started < 1.5
+    assert collector.calls == ["GSE1", "GSE2"]
+    assert result["metadata_summary"]["metadata_timeout_count"] == 1
+    assert store.get("geo_metadata", "GSE1") is None
+    assert store.get("geo_metadata", "GSE2")["status"] == "available"
+    assert set(result["publication_texts"]) == {"2"}
+    assert store.get_meta("main_pipeline_phase")["phase"] == "datalinks"
+
+
+def test_snapshot_review_deadline_releases_lock_and_continues(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="slow review",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="fast review",
+    )
+    available_geo_metadata(store, "GSE1")
+    available_geo_metadata(store, "GSE2")
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+
+    class SlowFirstReviewer(FakeReviewer):
+        calls = []
+
+        def review_relevancy(self, **kwargs):
+            if kwargs.get("publication_text") == "slow review":
+                self.__class__.calls.append(kwargs)
+                time.sleep(1)
+            return super().review_relevancy(**kwargs)
+
+    started = time.monotonic()
+    result = snapshot_reviewer(
+        SnapshotMetadataCollector(trace_dir=trace_dir)
+    ).resume(
+        trace_dir,
+        reviewer=SlowFirstReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+        item_lock_timeout_seconds=0.05,
+        review_item_timeout_seconds=0.05,
+    )
+
+    assert time.monotonic() - started < 1.5
+    assert result["metadata_summary"]["review_timeout_count"] == 1
+    assert set(result["publication_texts"]) == {"2"}
+    assert store.get("thematic_review", "direct:1") is None
+    assert store.get("thematic_review", "direct:2")["status"] == "available"
+    with CheckpointStore(trace_dir / "atlas_run.sqlite3").item_lock(
+        "thematic_review",
+        "direct:1",
+        timeout_seconds=0,
+    ):
+        pass
+
+
+def test_snapshot_publication_text_deadline_defers_one_item_and_continues(
+    tmp_path,
+) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="slow full text",
+    )
+    traced_publication(
+        trace_dir,
+        epmc_id="2",
+        datalink_id="GSE2",
+        text="fast full text",
+    )
+    available_geo_metadata(store, "GSE1")
+    available_geo_metadata(store, "GSE2")
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+
+    class SlowFirstTextFilterer(AtlasFilterer):
+        calls = []
+
+        def collect_publication_texts(self, jsons, **kwargs):
+            publication_ref = self.publication_text_ref(jsons[0]["publications"][0])
+            self.__class__.calls.append(publication_ref)
+            if publication_ref == "1":
+                time.sleep(1)
+            return {
+                publication_ref: {
+                    "text": "fast full text",
+                    "text_source": "abstractText",
+                    "full_text_status": "unavailable",
+                }
+            }
+
+    collector = SnapshotMetadataCollector(trace_dir=trace_dir)
+    review = PublicationTextReviewer(
+        resume_orchestrator_factory=lambda publication_text_reviewer: (
+            TracePublicationReviewResumer(
+                publication_text_reviewer=publication_text_reviewer,
+                collector_factory=lambda: collector,
+                filterer_factory=SlowFirstTextFilterer,
+            )
+        )
+    )
+    FakeReviewer.calls = []
+    started = time.monotonic()
+    result = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+        publication_text_item_timeout_seconds=0.05,
+    )
+
+    assert time.monotonic() - started < 1.5
+    assert SlowFirstTextFilterer.calls == ["1", "2"]
+    assert result["metadata_summary"]["publication_text_timeout_count"] == 1
+    assert set(result["publication_texts"]) == {"2"}
+    assert store.get("thematic_review", "direct:1") is None
+    assert store.get("thematic_review", "direct:2")["status"] == "available"
 
 
 def test_resume_metadata_failures_defer_linked_publications_and_continue(
