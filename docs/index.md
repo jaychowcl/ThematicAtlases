@@ -197,7 +197,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
   purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and bounded concurrent independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, resolved metadata gate, main_pipeline_phase, publication_limit, item deadline, bounded lock, incremental_review_progress, checkpoint reuse, pending metadata, criteria, exclusion_basis, exact quote evidence, evidence contract 2, accessions_to_remove, prune_accessions, review revision 4, contract version 8
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, resolved metadata gate, main_pipeline_phase, publication_limit, item deadline, bounded lock, incremental_review_progress, checkpoint reuse, pending metadata, stable criteria catalogue, derive_criteria, exclusion_basis, exact quote evidence, evidence contract 2, accessions_to_remove, prune_accessions, review revision 4, contract version 9
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)

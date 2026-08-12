@@ -2,6 +2,7 @@ import json
 import logging
 import hashlib
 import inspect
+import re
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -23,7 +24,8 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct"}
-REVIEW_CONTRACT_VERSION = 8
+REVIEW_CONTRACT_VERSION = 9
+_CRITERION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +195,17 @@ class PublicationTextReviewer:
         failed_count = 0
 
         total = len(publication_texts)
+        criteria = (
+            self._review_criteria(
+                theme=theme,
+                strategy=strategy,
+                reviewer=reviewer,
+                reviewer_identity=reviewer_identity,
+                checkpoint_store=checkpoint_store,
+            )
+            if total
+            else None
+        )
         for index, (publication_ref, publication_text) in enumerate(
             publication_texts.items(), start=1
         ):
@@ -211,6 +224,7 @@ class PublicationTextReviewer:
                 theme=theme,
                 strategy=strategy,
                 reviewer_identity=reviewer_identity,
+                criteria=criteria,
             )
             identity_hash = self._review_identity_hash(
                 publication_text=publication_text,
@@ -218,6 +232,7 @@ class PublicationTextReviewer:
                 theme=theme,
                 strategy=strategy,
                 reviewer_identity=reviewer_identity,
+                criteria=criteria,
             )
             item_lock = (
                 checkpoint_store.item_lock(
@@ -240,6 +255,7 @@ class PublicationTextReviewer:
                     identity_hash=identity_hash,
                     strategy=strategy,
                     reviewer_identity=reviewer_identity,
+                    criteria=criteria,
                 )
             reviewed_publication_texts[publication_ref] = outcome["publication_text"]
             reviewed_count += outcome["reviewed"]
@@ -271,6 +287,7 @@ class PublicationTextReviewer:
         identity_hash: str,
         strategy: str,
         reviewer_identity: dict,
+        criteria: list[dict[str, str]] | None,
     ) -> dict:
         checkpoint_key = self._review_checkpoint_key(strategy, publication_ref)
         checkpoint = (
@@ -313,6 +330,8 @@ class PublicationTextReviewer:
                 "accessions": context.get("accessions", []),
                 "strategy": strategy,
             }
+            if criteria is not None:
+                review_options["criteria"] = criteria
             signature = inspect.signature(reviewer.review_relevancy)
             accepts_kwargs = any(
                 parameter.kind == inspect.Parameter.VAR_KEYWORD
@@ -418,6 +437,96 @@ class PublicationTextReviewer:
             "failed": 0,
         }
 
+    def _review_criteria(
+        self,
+        *,
+        theme: str,
+        strategy: str,
+        reviewer,
+        reviewer_identity: dict,
+        checkpoint_store,
+    ) -> list[dict[str, str]] | None:
+        derive = getattr(reviewer, "derive_criteria", None)
+        if not callable(derive):
+            return None
+        review_signature = inspect.signature(reviewer.review_relevancy)
+        accepts_criteria = "criteria" in review_signature.parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in review_signature.parameters.values()
+        )
+        if not accepts_criteria:
+            return None
+        checkpoint_key = self._criteria_checkpoint_key(
+            theme=theme,
+            strategy=strategy,
+            reviewer_identity=reviewer_identity,
+        )
+        cached = (
+            checkpoint_store.get_meta(checkpoint_key)
+            if checkpoint_store is not None
+            else None
+        )
+        if (
+            isinstance(cached, dict)
+            and cached.get("review_contract_version") == REVIEW_CONTRACT_VERSION
+        ):
+            return self._validated_criteria_catalogue(cached.get("criteria"))
+        derived = derive(theme)
+        if not isinstance(derived, dict) or set(derived) != {"criteria"}:
+            raise ValueError("derive_criteria must return only a criteria list")
+        criteria = self._validated_criteria_catalogue(derived["criteria"])
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                checkpoint_key,
+                {
+                    "criteria": criteria,
+                    "review_contract_version": REVIEW_CONTRACT_VERSION,
+                    "reviewer_identity": reviewer_identity,
+                    "strategy": strategy,
+                    "theme": theme,
+                },
+            )
+        return criteria
+
+    @staticmethod
+    def _validated_criteria_catalogue(value) -> list[dict[str, str]]:
+        if not isinstance(value, list) or not 1 <= len(value) <= 12:
+            raise ValueError("criteria must contain one to twelve definitions")
+        criteria: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for index, item in enumerate(value):
+            if not isinstance(item, dict) or set(item) != {"id", "description"}:
+                raise ValueError(f"criterion {index} has an invalid shape")
+            criterion_id = str(item["id"]).strip()
+            description = str(item["description"]).strip()
+            if not _CRITERION_ID_PATTERN.fullmatch(criterion_id):
+                raise ValueError(f"criterion {index} has an invalid id")
+            if not description:
+                raise ValueError(f"criterion {index} has an empty description")
+            if criterion_id in seen:
+                raise ValueError(f"criterion id is duplicated: {criterion_id}")
+            seen.add(criterion_id)
+            criteria.append({"id": criterion_id, "description": description})
+        return criteria
+
+    @staticmethod
+    def _criteria_checkpoint_key(
+        *, theme: str, strategy: str, reviewer_identity: dict
+    ) -> str:
+        identity = json.dumps(
+            {
+                "theme": theme,
+                "strategy": strategy,
+                "reviewer_identity": reviewer_identity,
+                "review_contract_version": REVIEW_CONTRACT_VERSION,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return "thematic_review_criteria:" + hashlib.sha256(
+            identity.encode("utf-8")
+        ).hexdigest()
+
     @staticmethod
     def _review_input_hash(
         publication_text: dict,
@@ -425,6 +534,7 @@ class PublicationTextReviewer:
         theme: str,
         strategy: str = "direct",
         reviewer_identity: dict | None = None,
+        criteria: list[dict[str, str]] | None = None,
     ) -> str:
         value = json.dumps(
             {
@@ -434,6 +544,7 @@ class PublicationTextReviewer:
                 "strategy": strategy,
                 "review_contract_version": REVIEW_CONTRACT_VERSION,
                 "reviewer_identity": reviewer_identity or {},
+                "criteria": criteria,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -448,6 +559,7 @@ class PublicationTextReviewer:
         theme: str,
         strategy: str = "direct",
         reviewer_identity: dict | None = None,
+        criteria: list[dict[str, str]] | None = None,
     ) -> str:
         value = json.dumps(
             {
@@ -458,6 +570,7 @@ class PublicationTextReviewer:
                 "strategy": strategy,
                 "review_contract_version": REVIEW_CONTRACT_VERSION,
                 "reviewer_identity": reviewer_identity or {},
+                "criteria": criteria,
             },
             sort_keys=True,
             separators=(",", ":"),

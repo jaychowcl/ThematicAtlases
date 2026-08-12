@@ -127,6 +127,47 @@ class FailingReviewer:
         raise AssertionError("review should not be called")
 
 
+class RubricReviewer:
+    derive_calls: list[str] = []
+    review_calls: list[dict] = []
+    criteria = [
+        {
+            "id": "theme_condition",
+            "description": "The accession satisfies the supplied theme.",
+        }
+    ]
+
+    def derive_criteria(self, theme):
+        self.__class__.derive_calls.append(theme)
+        return {"criteria": self.criteria}
+
+    def review_relevancy(
+        self,
+        *,
+        publication_text,
+        theme,
+        metadata,
+        title,
+        accessions,
+        criteria,
+        strategy,
+    ):
+        self.__class__.review_calls.append(
+            {"publication_text": publication_text, "criteria": criteria}
+        )
+        return {
+            "criteria": criteria,
+            "judgement": "relevant",
+            "reasoning": "The supplied evidence matches the fixed criteria.",
+            "confidence": "high",
+            "accessions_to_remove": [],
+            "accession_assessments": [],
+            "review_revision": 4,
+            "evidence_contract_version": 2,
+            "strategy": strategy,
+        }
+
+
 def traced_publication(
     trace_dir: Path,
     *,
@@ -752,6 +793,50 @@ def test_direct_review_traces_and_applies_accession_removals(
     assert [record["datalink_id"] for record in filtered] == ["GSE1"]
 
 
+def test_review_derives_and_reuses_one_fixed_criteria_catalogue(tmp_path) -> None:
+    RubricReviewer.derive_calls = []
+    RubricReviewer.review_calls = []
+    store = CheckpointStore(tmp_path / "criteria.sqlite")
+    publication_texts = {
+        "1": {"text": "first publication"},
+        "2": {"text": "second publication"},
+    }
+    contexts = {"1": {}, "2": {}}
+    service = PublicationTextReviewer()
+    reviewer = RubricReviewer()
+
+    result = service.review_publication_texts(
+        publication_texts=publication_texts,
+        contexts=contexts,
+        theme="fibrosis",
+        reviewer=reviewer,
+        checkpoint_store=store,
+    )
+
+    assert RubricReviewer.derive_calls == ["fibrosis"]
+    assert [call["criteria"] for call in RubricReviewer.review_calls] == [
+        RubricReviewer.criteria,
+        RubricReviewer.criteria,
+    ]
+    assert result["1"]["agentic_curator"]["criteria"] == RubricReviewer.criteria
+    rubric_key = service._criteria_checkpoint_key(
+        theme="fibrosis",
+        strategy="direct",
+        reviewer_identity=service._reviewer_identity(reviewer),
+    )
+    assert store.get_meta(rubric_key)["criteria"] == RubricReviewer.criteria
+
+    service.review_publication_texts(
+        publication_texts=publication_texts,
+        contexts=contexts,
+        theme="fibrosis",
+        reviewer=RubricReviewer(),
+        checkpoint_store=store,
+    )
+    assert RubricReviewer.derive_calls == ["fibrosis"]
+    assert len(RubricReviewer.review_calls) == 2
+
+
 def test_accession_pruning_defaults_to_non_destructive() -> None:
     accessions = [
         {
@@ -821,8 +906,8 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
     assert set(texts) == {"retaining"}
 
 
-def test_review_contract_version_requires_criterion_based_direct_reviews() -> None:
-    assert REVIEW_CONTRACT_VERSION == 8
+def test_review_contract_version_requires_run_stable_criteria_catalogues() -> None:
+    assert REVIEW_CONTRACT_VERSION == 9
 
 
 def test_retired_evidence_then_judgement_strategy_is_rejected(tmp_path) -> None:
