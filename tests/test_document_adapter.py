@@ -317,7 +317,7 @@ def test_adapter_rejects_legacy_miniml_package_metadata():
     }
 
     adapter = AtlasDocumentAdapter()
-    with pytest.raises(ValueError, match="MSC MINiML schema version '2.0'"):
+    with pytest.raises(ValueError, match="MSC MINiML schema version '3.0'"):
         adapter.assemble(
             legacy,
             atlas_metadata={"atlas_id": "atlas-lung"},

@@ -17,7 +17,7 @@ from meta_standards_converter.miniml import MINiMLCodec
 
 def v2_package(accession: str = "GSE1") -> dict:
     return {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "GEO MINiML"},
         "database": [],
         "organization": [],
@@ -832,7 +832,7 @@ def test_package_gse_accession_extracts_string_series_accession() -> None:
 def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
     calls = []
     package = {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "GEO MINiML", "version": "0.5.4"},
         "database": [], "organization": [], "contributor": [], "platform": [],
         "sample": [],
@@ -932,14 +932,14 @@ def test_checkpointed_geo_can_skip_identifier_enrichment(
     assert payload["enrichment_state"] == "complete"
 
 
-def test_gse_metadata_packages_rejects_non_v2_converter_output(monkeypatch) -> None:
+def test_gse_metadata_packages_rejects_unversioned_converter_output(monkeypatch) -> None:
     class FakeGeo2JsonConverter:
         def convert(self, **kwargs):
             return [{"series": {"iid": "GSE1"}}]
 
     monkeypatch.setattr(geo_module, "geo2json", lambda: FakeGeo2JsonConverter())
 
-    with pytest.raises(ValueError, match="MSC MINiML schema version '2.0'"):
+    with pytest.raises(ValueError, match="MSC MINiML schema version '3.0'"):
         GEOWrapper()._gse_metadata_packages(gse_accession="GSE1")
 
 

@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 2.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "2.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. Legacy MINiML 1.x packages must be migrated explicitly with MSC before entering an Atlas workflow.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. MINiML 2.0 remains readable through MSC's deterministic migration, while canonical Atlas encoding emits only 3.0.
 
 The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package separately measures raw query-result recall, post-discovery/review recall, and labeled thematic-review classification.
 
@@ -44,7 +44,7 @@ The editable install provides the `thematic-atlas` console command. The equivale
 ### Requirements
 
 - Python 3.10 or newer.
-- Installable `agentic-curator>=3,<4` and `meta-standards-converter>=4,<5`
+- Installable `agentic-curator>=4,<5` and `meta-standards-converter>=5,<6`
   distributions. The package does not depend on sibling source checkouts or Git
   URLs at runtime or build time.
 - Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
@@ -274,6 +274,7 @@ thematic-atlas harmonize-datasets \
 | `--file INPUT` | Required strict Atlas v1 JSON; legacy unversioned accessions envelopes fail validation. |
 | `--out OUTPUT` | Required deterministic, atomically replaced Atlas v1 JSON. |
 | `--harmonization-details-out PATH` | Optional details sidecar. |
+| `--review-decisions-file PATH` | Optional validated prune-only review-decision JSON. Only the matching MINiML source fingerprint is rerun. |
 
 `resume` continues a traced run and can first requeue selected checkpoint
 boundaries:
@@ -291,6 +292,7 @@ thematic-atlas resume --dev-out-dir .dev --run-id RUN_ID [OPTIONS]
 | `--retry-stage STAGE` | Requeue all retryable items at a registered stage; repeat for multiple stages. |
 | `--retry-item STAGE:ITEM_ID` | Requeue one checkpoint item; repeat for multiple items. |
 | `--retry-degraded-stage STAGE` | Requeue harmonization items degraded at the named internal stage; repeat as needed. |
+| `--review-decisions-file PATH` | Apply review decisions for this run. A mismatched run ID or stale MINiML source fingerprint fails before publication. |
 
 `fork-run` safely clones a trace paused after metadata for different downstream
 review or harmonization configuration:
@@ -439,8 +441,17 @@ Atlas.harmonize_datasets(
     datasets,
     harmonization_details_out=None,
     harmonization_options=None,
+    review_decisions=None,
 )
 ```
+
+The default Agentic Curator 4 path emits a source-bound
+`MINiMLHarmonizationPatch` 3.0. Applying it preserves raw metadata and writes
+occurrence-local `hz_*` groups; `annotations` arrays are not emitted. Semantic
+candidate labels are the model's primary decision surface, optional ontology
+and accession values disambiguate only collisions, split-derived targets are
+additive, extension fields remain run-local, and hierarchy enrichment is on
+through depth two for every matched ontology.
 
 Every accession receives `ontology_harmonization_status`, a status contract
 2.0 envelope with independent `execution`, `completeness`,
@@ -470,6 +481,7 @@ Atlas.resume(
     retry_stages=None,
     retry_items=None,
     retry_degraded_stages=None,
+    review_decisions=None,
 )
 ```
 
@@ -483,6 +495,11 @@ and must be handled explicitly rather than silently migrated.
 stage names to item IDs, and `retry_degraded_stages` requeues harmonization
 items whose status 2.0 execution is `degraded` and whose recorded workflow
 names the selected internal stage.
+`review_decisions` is the validated JSON contract written for pending
+prune-only fields. Its run ID must equal the resumed run, and its source
+fingerprint changes only the matching harmonization work key; unaffected
+datasets continue to reuse their checkpoints. Partial decisions leave the
+remaining items pending and publication disposition review-required.
 
 `Atlas.fork_run(...)` safely branches a metadata-paused trace for alternate
 downstream processing:

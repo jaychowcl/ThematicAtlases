@@ -48,24 +48,24 @@ def test_build_atlas_summary_reports_operations_and_scientific_profile() -> None
                                 {
                                     "source": {
                                         "value": "biopsy",
-                                        "annotations": [
-                                            {"field": "organism_part", "value": "lung biopsy"}
-                                        ],
+                                        "hz_organism_part": "lung biopsy",
+                                        "hz_organism_part_id": "UBERON:0002048",
+                                        "hz_organism_part_onto": "UBERON",
                                     },
                                     "organism": [{
                                         "name": "human",
-                                        "annotations": [
-                                            {"field": "organism", "value": "Homo sapiens"}
-                                        ],
+                                        "hz_organism": "Homo sapiens",
+                                        "hz_organism_id": "NCBITaxon:9606",
+                                        "hz_organism_onto": "NCBITaxon",
                                     }],
                                     "characteristics": [
                                         {
                                             "name": "disease",
                                             "value": "fibrosis",
-                                            "annotations": [
-                                                {"field": "disease", "value": "pulmonary fibrosis"}
-                                            ],
                                         },
+                                        {"name": "hz_disease", "value": "pulmonary fibrosis"},
+                                        {"name": "hz_disease_id", "value": "MONDO:0002771"},
+                                        {"name": "hz_disease_onto", "value": "MONDO"},
                                         {"name": "tissue", "value": "lung"},
                                     ],
                                 },

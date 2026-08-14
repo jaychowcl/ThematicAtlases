@@ -66,7 +66,7 @@ def test_arrayexpress_biostudies_magetab_contract():
 
     assert result[0]["metadata_status"] == "available"
     package = result[0]["accession_metadata"]
-    assert package["miniml_schema_version"] == "2.0"
+    assert package["miniml_schema_version"] == "3.0"
     assert package["source"]["format"] == "MAGE-TAB"
     assert package["series"]["protocols"]
     assert package["series"]["assay_paths"]

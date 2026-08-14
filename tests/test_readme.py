@@ -163,7 +163,8 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "stop_after",
     ]
     assert list(inspect.signature(Atlas.harmonize_datasets).parameters) == [
-        "self", "datasets", "harmonization_details_out", "harmonization_options"
+        "self", "datasets", "harmonization_details_out", "harmonization_options",
+        "review_decisions",
     ]
     assert list(inspect.signature(EuropePMCWrapper.collect_accessions).parameters)[-1] == (
         "scrape_fulltext_accessions"

@@ -29,9 +29,10 @@ def package_mapping(iid: str = "GSE1") -> dict:
 def test_canonicalization_accepts_mapping_and_typed_package() -> None:
     mapping = package_mapping()
     typed = MINiMLCodec().decode(mapping, strict=True).package
+    canonical = {**mapping, "miniml_schema_version": "3.0"}
 
-    assert canonicalize_miniml_package(mapping) == mapping
-    assert canonicalize_miniml_package(typed) == mapping
+    assert canonicalize_miniml_package(mapping) == canonical
+    assert canonicalize_miniml_package(typed) == canonical
 
 
 @pytest.mark.parametrize(
@@ -42,15 +43,16 @@ def test_canonicalization_accepts_mapping_and_typed_package() -> None:
     ],
 )
 def test_atlas_metadata_rejects_legacy_miniml(value) -> None:
-    with pytest.raises(ValueError, match="MSC MINiML schema version '2.0'"):
+    with pytest.raises(ValueError, match="MSC MINiML schema version '3.0'"):
         canonicalize_atlas_metadata(value)
 
 
 def test_atlas_metadata_validates_package_collections_but_preserves_other_metadata() -> None:
     package = package_mapping()
+    canonical = {**package, "miniml_schema_version": "3.0"}
 
     assert canonicalize_atlas_metadata({"packages": [package]}) == {
-        "packages": [package]
+        "packages": [canonical]
     }
     assert canonicalize_atlas_metadata({"accession": "GSE1"}) == {
         "accession": "GSE1"
@@ -62,6 +64,8 @@ def test_checkpoint_payload_requires_explicit_miniml_version_markers() -> None:
     payload = checkpoint_payload([package], checkpoint_version=3)
 
     assert payload["miniml_checkpoint_payload_version"] == MINIML_CHECKPOINT_PAYLOAD_VERSION
-    assert payload["miniml_schema_version"] == "2.0"
-    assert checkpoint_packages(payload) == [package]
+    assert payload["miniml_schema_version"] == "3.0"
+    assert checkpoint_packages(payload) == [
+        {**package, "miniml_schema_version": "3.0"}
+    ]
     assert checkpoint_packages({"checkpoint_version": 3, "packages": [package]}) is None

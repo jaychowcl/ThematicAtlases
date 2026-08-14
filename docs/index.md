@@ -21,7 +21,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [System Context And Boundaries](codebase.md#system-context-and-boundaries)
   anchor: system-context-and-boundaries
   purpose: External actors, delegated packages, persistence, network, trust, privacy, and failure ownership.
-  keywords: Europe PMC, NCBI, ENA, BioStudies, Google ADC, agentic-curator 3.x, meta-standards-converter 4.x, MSC MINiML 2.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy, safe errors
+  keywords: Europe PMC, NCBI, ENA, BioStudies, Google ADC, agentic-curator 4.x, meta-standards-converter 5.x, MSC MINiML 3.0, Atlas document schema 1.0, H5AD metadata schema 1.0, SQLite schema 2, privacy, safe errors
 
 - id: architectural-decisions
   title: [Architectural Decisions](codebase.md#architectural-decisions)
@@ -173,7 +173,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [AtlasDocumentAdapter](codebase.md#type-atlas-document-adapter)
   anchor: type-atlas-document-adapter
   purpose: Internal anti-corruption boundary for strict Atlas v1 projection, lossless MINiML metadata transport, evidence envelopes, and provider harmonization targets.
-  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, MSC MINiML 2.0, canonical JSON, strict validation, publication_texts, annotations, ontology_lookup, v1 projection
+  keywords: AtlasDocumentAdapter, assemble, to_legacy, accessions, MSC MINiML 3.0, canonical JSON, strict validation, publication_texts, hz fields, harmonization patch, ontology_lookup, v1 projection
 
 - id: type-atlas-run-store
   title: [AtlasRunStore](codebase.md#type-atlas-run-store)
@@ -307,7 +307,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, exact-platform hashed runtime lock, deterministic CycloneDX SBOM, fail-closed release evidence, independent v1 dependencies, editable install, tests, and console command.
-  keywords: pyproject, Python 3.10, version 3.0.0, pylock, SHA-256, CycloneDX, SBOM, advisory snapshot, signed artifact, security SLA, MSC MINiML 2.0, pytest, thematic-atlas
+  keywords: pyproject, Python 3.10, version 4.0.0, pylock, SHA-256, CycloneDX, SBOM, advisory snapshot, signed artifact, security SLA, MSC MINiML 3.0, pytest, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)
@@ -402,7 +402,7 @@ Use `--query <keyword>` when the id is unknown.
 - id: arrayexpress-wrapper
   title: [ArrayExpress Wrapper](codebase.md#arrayexpress-wrapper)
   anchor: arrayexpress-wrapper
-  purpose: In-memory BioStudies MAGE-TAB collection through the strict MSC MINiML 2.0 transport boundary, versioned checkpoints, and offline availability overlay.
+  purpose: In-memory BioStudies MAGE-TAB collection through the strict MSC MINiML 3.0 transport boundary, versioned checkpoints, and offline availability overlay.
   keywords: ArrayExpressWrapper, E-MTAB, E-GEOD, E-MEXP, BioStudies, ae2json, MINiMLPackage, series.protocols, series.assay_paths, checkpoint version 2, arrayexpress_metadata
 
 - id: geo-wrapper

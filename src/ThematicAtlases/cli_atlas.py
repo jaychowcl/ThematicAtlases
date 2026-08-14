@@ -24,6 +24,14 @@ def _positive_int(value: str) -> int:
     return integer
 
 
+def _json_file(path: str) -> dict:
+    with open(path, encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise ValueError(f"JSON file {path!r} must contain an object")
+    return value
+
+
 def _resource_override(value: str) -> tuple[str, int | float]:
     name, separator, raw_value = value.partition("=")
     if not separator or not name.strip() or not raw_value.strip():
@@ -227,6 +235,7 @@ def _build_parser() -> argparse.ArgumentParser:
     harmonize.add_argument("--file", required=True)
     harmonize.add_argument("--out", required=True)
     harmonize.add_argument("--harmonization-details-out", default=None)
+    harmonize.add_argument("--review-decisions-file", default=None)
 
     resume = subparsers.add_parser(
         "resume",
@@ -248,6 +257,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--retry-stage", action="append", default=[])
     resume.add_argument("--retry-item", action="append", default=[])
     resume.add_argument("--retry-degraded-stage", action="append", default=[])
+    resume.add_argument("--review-decisions-file", default=None)
 
     fork = subparsers.add_parser(
         "fork-run",
@@ -399,6 +409,11 @@ def main(argv: list[str] | None = None) -> int:
         result = atlas.harmonize_datasets(
             datasets=datasets,
             harmonization_details_out=args.harmonization_details_out,
+            **(
+                {"review_decisions": _json_file(args.review_decisions_file)}
+                if args.review_decisions_file
+                else {}
+            ),
         )
         JsonArtifactBundlePublisher().publish({Path(args.out): result})
     elif args.command == "resume":
@@ -410,6 +425,11 @@ def main(argv: list[str] | None = None) -> int:
             retry_stages=args.retry_stage,
             retry_items=_retry_items(args.retry_item),
             retry_degraded_stages=args.retry_degraded_stage,
+            **(
+                {"review_decisions": _json_file(args.review_decisions_file)}
+                if args.review_decisions_file
+                else {}
+            ),
         )
     elif args.command == "fork-run":
         with open(args.config, encoding="utf-8") as handle:

@@ -4,7 +4,10 @@ import pytest
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.harmonizer import AtlasHarmonizer
-from agentic_curator.contracts import MINiMLAnnotationPatch
+from agentic_curator.contracts import (
+    MINiMLHarmonizationPatch,
+    miniml_source_fingerprint,
+)
 from meta_standards_converter.runtime_contracts import (
     CompletenessStatus,
     EvidenceConfidence,
@@ -92,14 +95,17 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
                 "status": operation_status(),
                 "workflow": "local_exact",
                 "harmonization_targets": [target],
-                "annotation_patch": MINiMLAnnotationPatch.from_targets(
+                "harmonization_patch": MINiMLHarmonizationPatch.from_targets(
                     kwargs["miniml_json"], [target]
                 ).to_mapping(),
+                "pending_review": [],
+                "extension_registry": [],
+                "review_required": False,
             }
 
-        def apply_miniml_annotation_patch(self, document, patch):
+        def apply_miniml_harmonization_patch(self, document, patch):
             from agentic_curator import OntologyHarmonizer
-            return OntologyHarmonizer().apply_miniml_annotation_patch(document, patch)
+            return OntologyHarmonizer().apply_miniml_harmonization_patch(document, patch)
 
     result, details = AtlasHarmonizer(
         ontology_harmonizer=PatchHarmonizer()
@@ -108,9 +114,94 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     }]})
 
     metadata = result["accessions"][0]["accession_metadata"]
-    annotations = metadata["sample"][0]["channel"][0]["source"]["annotations"]
-    assert annotations == [{"field": "organism_part", "value": "lung"}]
-    assert details[0]["annotation_patch"]["schema_version"] == "2.0"
+    source = metadata["sample"][0]["channel"][0]["source"]
+    assert source["hz_organism_part"] == "lung"
+    assert details[0]["harmonization_patch"]["schema_version"] == "3.0"
+    assert details[0]["pending_review"] == []
+
+
+def test_review_decisions_selectively_change_matching_work_key_and_are_forwarded(
+    tmp_path,
+) -> None:
+    first = {
+        "miniml_schema_version": "3.0",
+        "source": {"format": "test"},
+        "series": {"iid": "GSE1"},
+        "sample": [],
+    }
+    second = {
+        "miniml_schema_version": "3.0",
+        "source": {"format": "test"},
+        "series": {"iid": "GSE2"},
+        "sample": [],
+    }
+    decisions = {
+        "schema_version": "1.0",
+        "run_id": "run-1",
+        "source_fingerprint": miniml_source_fingerprint(first),
+        "decisions": [{
+            "dataset_id": "GSE1",
+            "field": "sampleid",
+            "decision": "prune",
+            "reviewer": "curator@example.org",
+            "reason": "Operational identifier.",
+        }],
+    }
+
+    class ReviewAwareHarmonizer:
+        calls = []
+
+        def harmonization_execution_identity(self):
+            return {
+                "contract_version": "1.0",
+                "model": {"provider": "test", "model": "stable"},
+                "generation": {"temperature": 0},
+                "prompt_sha256": {"prompt": "a" * 64},
+                "embedding": {"model": "test"},
+                "ontology": {"version": "test"},
+                "strategy": {"revision": "test"},
+                "preprocessing": {"revision": "test"},
+            }
+
+        def harmonize_miniml_annotations(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "contract_version": "2.0",
+                "status": operation_status(),
+                "workflow": "local_rag_ols",
+                "harmonization_targets": [],
+                "pending_review": [],
+                "extension_registry": [],
+                "review_required": False,
+                "harmonization_patch": MINiMLHarmonizationPatch.from_targets(
+                    kwargs["miniml_json"], []
+                ).to_mapping(),
+            }
+
+        def apply_miniml_harmonization_patch(self, document, patch):
+            from agentic_curator import OntologyHarmonizer
+            return OntologyHarmonizer().apply_miniml_harmonization_patch(
+                document, patch
+            )
+
+    datasets = {"accessions": [
+        {"datalink_id": "GSE1", "accession_metadata": first},
+        {"datalink_id": "GSE2", "accession_metadata": second},
+    ]}
+    store = CheckpointStore(tmp_path / "review.sqlite")
+    provider = ReviewAwareHarmonizer()
+    AtlasHarmonizer(ontology_harmonizer=provider).harmonize_datasets(
+        datasets, checkpoint_store=store
+    )
+    provider.calls.clear()
+
+    AtlasHarmonizer(ontology_harmonizer=provider).harmonize_datasets(
+        datasets, checkpoint_store=store, review_decisions=decisions
+    )
+
+    assert len(provider.calls) == 1
+    assert provider.calls[0]["miniml_json"]["series"]["iid"] == "GSE1"
+    assert provider.calls[0]["review_decisions"] == decisions
 
 
 def test_explicit_legacy_harmonizer_output_is_strictly_validated() -> None:

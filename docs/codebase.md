@@ -71,10 +71,10 @@ and [project layout](#project-purpose-and-layout).
   `CheckpointStore` owns internal item results, fingerprints, retry history,
   and atomic amendments.
 - **Package boundary:** `ThematicAtlases` owns atlas workflow policy.
-  Agentic Curator 3.x owns typed MSC MINiML 2.0 annotation patches and
-  Meta Standards Converter 3.x owns strict package decoding and explicit v1
-  migration; this repository transports those packages without weakening
-  either boundary.
+  Agentic Curator 4.x owns typed MSC MINiML 3.0 harmonization patches and
+  Meta Standards Converter 5.x owns strict package decoding plus deterministic
+  MINiML 2.0 migration; this repository transports canonical 3.0 packages
+  without weakening either boundary.
   `benchmark_ThematicAtlases` reads query and reviewed-output recall traces
   without workflow mutation; its review runner instead resolves public
   identifiers into a separate Git-ignored cache and never reads or mutates a
@@ -424,8 +424,9 @@ the Python API, or the canonical parent-adapter workflow documented in the
   Dataset `metadata` remains open for non-MINiML application mappings. A value
   declaring `miniml_schema_version` or the legacy `mage_tab` marker, or a
   `{"packages": [...]}` collection, is instead a strict MSC-owned boundary:
-  only MINiML 2.0 packages accepted by `MINiMLCodec.decode(..., strict=True)`
-  are retained, in canonical JSON-native form. MINiML 1.x and malformed nested
+  MINiML 3.0 packages and migratable 2.0 packages accepted by
+  `MINiMLCodec.decode(..., strict=True)` are retained as canonical JSON-native
+  3.0. MINiML 1.x and malformed nested
   packages are rejected rather than silently reinterpreted. ThematicAtlases
   owns the surrounding Atlas v1 model, not the nested MINiML package schema.
 <a id="type-atlas-run-store"></a>
@@ -565,7 +566,7 @@ otherwise.
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, prune_accessions=False, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False, require_main_datalinks_phase=False, publication_limit=None, item_lock_timeout_seconds=None, metadata_item_timeout_seconds=None, publication_text_item_timeout_seconds=None, review_item_timeout_seconds=None) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. The optional fixed-snapshot metadata pass downloads or reuses supported metadata best-effort before the all-links publication gate; deterministic limits, main-phase yielding, bounded locks, and hard item deadlines support a concurrent sidecar. Calls upstream `ThematicReviewer.review_relevancy`; completed canonical checkpoints are shared with normal Atlas review, while incremental readable progress is isolated. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
-| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 2.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
+| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 3.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
 | [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None)`. `collect_accessions`, `collect_publications`, `collect_publication_texts`, `collect_datalinks`, `accessions_from_datalinks`, and `publication_text_sections` return normalized lists/maps. Calls Europe PMC search/datalinks/full-text endpoints and official bioRxiv/medRxiv details/JATS endpoints through the shared request policy; Datalinks uses paced XML/JSON retry rounds and rejects negative request delays. With a checkpoint store, Datalinks and `fullTextXML` starts share the same cross-process provider slot, publication text uses a per-item lock, and `collect_accessions` advertises `datalinks` then `downstream` in checkpoint metadata. Bounded XML parsing strips one ordinary external DTD without resolving it and rejects entities, internal subsets, unsafe declarations, and oversized documents. The injected/default publication policy owns pure identity, merge, limit, and projection rules. |
 | [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.34, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None, enrich_metadata=True)`. `collect_accession_metadata(jsons, checkpoint_store=None, retry_tags=None) -> list[dict]`, `available_accession_metadata`, and `get_gse`. Calls NCBI E-utilities through the injected/shared request policy and delegates resource-profiled MINiML/PubMed/SRA/ENA handlers; `enrich_metadata=False` retains parsed MINiML while suppressing identifier enrichment and records checkpoint mode `none`. The injected/default record policy owns package projection and deterministic GSE deduplication. Partial repair failures retain usable metadata with a typed repair summary and `metadata_status="partial"`. |
 
@@ -905,9 +906,10 @@ dataset -> eligible? -- no --> not_run/original
    share one result without changing accession order.
 4. Model-enabled controls preflight credentials; invalid options or credentials
    fail the invocation before provider work.
-5. Unique eligible work is decoded through MSC 2's `MINiMLCodec`, calls the
+5. Unique eligible work is decoded through MSC 5's `MINiMLCodec`, calls the
    delegated patch-first `harmonize_miniml_annotations`, applies the
-   source-bound patch to a copy, and decodes the result again. Legacy injected
+   source-bound `MINiMLHarmonizationPatch` 3.0 to a copy, and decodes the
+   MINiML 3.0 result again. Legacy injected
    test/adaptor harmonizers may still expose the mutating wrapper.
 6. Results and details, including execution identity provenance, are
    memoized/checkpointed; caught item failures remain local, retain original
@@ -928,7 +930,7 @@ Atlas.harmonize_datasets(datasets)              # interface
   -> AtlasHarmonizer.harmonize_datasets         # internal call
      -> MINiMLCodec.decode_many                 # typed package boundary
      -> ontology_harmonizer.harmonize_miniml_annotations
-     -> ontology_harmonizer.apply_miniml_annotation_patch
+     -> ontology_harmonizer.apply_miniml_harmonization_patch
      -> CheckpointStore.put                     # persistence call
   -> AtlasDocumentAdapter.assemble              # strict v1 result
   <- updated Atlas v1 + optional details sidecar
@@ -969,7 +971,10 @@ select trace -> validate fingerprint -> retry request?
 3. `CheckpointStore.request_retries` validates requested boundaries and
    archives selected rows; invalid stages/items leave live rows unchanged.
 4. Resume reconstructs completed search, datalink, text, metadata, review, and
-   harmonization boundaries and invokes only missing/requeued work. The traced
+   harmonization boundaries and invokes only missing/requeued work. An optional
+   review-decision file is validated before state mutation; its run ID must
+   match the trace and its source fingerprint changes only the matching
+   harmonization work key. Unaffected datasets reuse their checkpoints. The traced
    unsupported inventory is reused for summaries and optional publication but
    never re-enters review, metadata, or harmonization.
 5. A reusable internal result is converted to Atlas v1 and returned/published
@@ -1410,12 +1415,12 @@ and trace output are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Package version metadata is `3.0.0`; the Atlas document wire schema remains 1.0 while embedded metadata requires MSC MINiML 2.0.
+- Package version metadata is `4.0.0`; the Atlas document wire schema remains 1.0 while embedded metadata is canonically MSC MINiML 3.0.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
-  `agentic-curator>=3,<4`, `google-auth>=2,<3`,
-  `meta-standards-converter>=4,<5`, and `requests>=2.31,<3`. MSC 4 supplies
+  `agentic-curator>=4,<5`, `google-auth>=2,<3`,
+  `meta-standards-converter>=5,<6`, and `requests>=2.31,<3`. MSC 5 supplies
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
@@ -1448,7 +1453,7 @@ and a fixed EBI/NCBI/preprint host allowlist. Run them with
 ## Public API
 
 `src/ThematicAtlases/__init__.py` intentionally exports only
-`__version__ == "3.0.0"`. Application and domain imports remain explicit, for
+`__version__ == "4.0.0"`. Application and domain imports remain explicit, for
 example `ThematicAtlases.atlas.Atlas` and
 `ThematicAtlases.domain.AtlasDocument`.
 
@@ -1635,11 +1640,11 @@ Public methods:
 - `_dev_run_id()` is internal run allocation policy. It returns
   `YYYYMMDDTHHMMSSffffffZ-xxxxxxxx`, combining UTC microseconds and 32 random
   bits so trace directories are sortable and collision-resistant.
-- `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. Incremental review progress contributes cached publication texts and review checkpoints but is merged with the complete `01_collected_accessions.json`, so an early subset never replaces the finished collection. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows.
+- `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None, review_decisions=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. Incremental review progress contributes cached publication texts and review checkpoints but is merged with the complete `01_collected_accessions.json`, so an early subset never replaces the finished collection. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows. Review decisions must name the same run and a current source fingerprint; only that source's work key is invalidated.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
 - `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.
 - `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", prune_accessions=False, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v1 with run status `running`. Full-text and curated-link discovery are on by default; accession pruning requires explicit opt-in. Unsupported capabilities are partitioned before review and can be written to the explicit sidecar. With review-before-metadata enabled, supported GEO and ArrayExpress accessions use registry-defined review identity, are filtered without metadata, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
-- `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None)`: requires an Atlas v1 mapping, delegates its projected metadata to `AtlasHarmonizer`, returns validated Atlas v1, and optionally writes a details sidecar. Legacy unversioned mappings fail closed.
+- `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None, review_decisions=None)`: requires an Atlas v1 mapping, delegates its projected metadata to `AtlasHarmonizer`, returns validated Atlas v1, and optionally writes a details sidecar. A review-decision contract selectively changes the matching source work key. Legacy unversioned mappings fail closed.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
 
@@ -1749,13 +1754,13 @@ Repository filtering behavior:
   order selects the canonical record and later aliases contribute only unique
   publications and original-datalink provenance.
 - GEO resolution and metadata downloads use per-item cross-process locks. New
-  metadata checkpoints store provenance-independent, canonical MINiML 2.0
+  metadata checkpoints store provenance-independent, canonical MINiML 3.0
   packages with explicit transport and checkpoint versions; reuse rebuilds
   records from the latest accession snapshot so later publication links are not
   lost. Legacy record-shaped or unversioned package payloads are invalidated
   and recomputed, or shown as pending during offline availability checks.
 - ArrayExpress metadata collection is enabled by default. Its MSC adapter
-  applies the same strict MINiML 2.0 boundary before a package can enter a
+  applies the same strict MINiML 3.0 boundary before a package can enter a
   record, trace, or checkpoint.
 
 <a id="filterer"></a>
@@ -1822,8 +1827,9 @@ skipped, failed, full-text, fallback, and missing counts.
 `ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared
 `ontostore`, iterates atlas accessions, builds ordered publication context from
 non-empty publication titles and abstracts, canonicalizes dictionary or list
-`accession_metadata` with MSC 2, requests a versioned Agentic annotation patch,
-applies it copy-on-write, and revalidates the resulting typed packages. Patch
+`accession_metadata` with MSC 5, requests a versioned Agentic harmonization
+patch, applies it copy-on-write, and revalidates the resulting typed packages.
+Patch
 details are retained in the harmonization sidecar/checkpoint. Its lazily
 created default harmonizer receives that same store.
 
@@ -1835,12 +1841,14 @@ within their existing pool sizes. The preference is advisory and is not passed
 to target checking or field assignment. OLS still makes exactly one
 unrestricted request, regardless of a target's existing ontology ID.
 
-The optional target checker can return `prunes` alongside `additions`. Only
-high-confidence prunes of known, unique targets are applied. Pruned targets are
-omitted from lookup and field assignment but remain unchanged in the raw
-MINiML input and are recorded with their evidence in the target-check trace.
-Rejected medium-confidence, unknown, or ambiguous prune requests are also
-retained in that trace for auditability.
+The dataset-level target checker receives the complete deduplicated target and
+field catalogues. Its semantic `splits` are additive: a compound source target
+continues independently while every accepted two- or three-part split target
+is copied to all source occurrences. `prunes` are mutually exclusive with a
+split and require high confidence. Identifier-like, numeric, and values longer
+than 200 characters are exposed as prune-only targets (or a bounded synthetic
+summary at 20 distinct values); unresolved prune-only inputs remain excluded,
+are checkpointed as pending review, and make publication review-required.
 
 A usable call replaces `accession_metadata` with the returned `miniml_json`,
 sets the compatibility `ontology_harmonization_run_status="completed"`, and
@@ -1866,13 +1874,16 @@ final run partial. Target-checker and field-assignment invalid-output fallbacks
 may still be usable degraded outcomes; provider failures remain classified for
 selective retry.
 
-The upstream ontology path is fixed:
+The upstream ontology path is fixed and hierarchy enrichment defaults on:
 
 1. local exact lookup, then FTS5;
 2. semantic lookup across locally cached ontology frameworks;
 3. unrestricted OLS when semantic lookup misses;
 4. selected-term title promotion to `hz_label`;
-5. field registry lookup or LLM field assignment using the harmonized label.
+5. field registry lookup or semantic LLM field assignment using the harmonized
+   label, with accepted novel fields registered as run-local extensions;
+6. traverse and emit all distinct parents through depth two for every matched
+   ontology, retaining ordered source/depth provenance.
 
 Semantic lookup embeds one ontology term per chunk with Gemini and retrieves
 cosine-nearest neighbours from persistent USearch partitions. It never downloads
@@ -1880,7 +1891,13 @@ a missing local framework. OLS is the only external ontology search; no grounded
 web search or prior LLM framework-selection call occurs.
 
 Every available local, semantic, or OLS candidate set is judged when its
-stage-specific judge is enabled. With `direct_lookup_judge=False`, only one
+stage-specific judge is enabled. Candidate labels are the model's primary
+decision surface because natural-language tokens are more distinguishable
+than compact identifiers. Host resolution matches normalized label first,
+requires ontology only for cross-ontology collisions, and requires accession,
+ID, or IRI only when duplicates remain inside an ontology. Unneeded supplied
+disambiguators are ignored. No `C###`, `T###`, or `F###` choice-token contract
+crosses this boundary. With `direct_lookup_judge=False`, only one
 unique exact identity is accepted; ambiguous exact and FTS candidates remain
 unjudged evidence. `rag_lookup` and `ols_lookup` independently control
 retrieval, while their judge switches independently control selection. An
@@ -1891,14 +1908,23 @@ to the next stage. `false` terminally skips a non-harmonizable target, records
 search, label, field, and MINiML application. The OLS judge receives a neutral
 candidate section and no restricted/unrestricted stage literal.
 
-Field harmonization runs after label resolution. A selected canonical term title
-replaces `hz_label` and is supplied to field lookup/assignment together with
-the original `pre_hz_label`. If no term matches, field harmonization uses the
-normalized input label; terminal skips are the exception.
+Field harmonization runs after label resolution. A selected canonical term
+title replaces `hz_label` and is supplied to field lookup/assignment together
+with the original `pre_hz_label`. Assignment may select an existing semantic
+field or propose `new_extension`; normalized extension keys and their label,
+stage, reason, confidence, occurrences, and review state remain run-local.
+Low-confidence/exhausted assignment retains the normalized source field as an
+unreviewed extension. Applied patches preserve raw values and add aligned
+occurrence-local `hz_<field>`, `_id`, `_onto`, and `_hierarchy_depth` groups;
+collisions use `(1)`, `(2)`, and no `annotations` arrays are emitted.
 
 The details sidecar records targets, `workflow`, effective `controls`, paths,
 `run_status`, errors, configured `preferred_ontology_ids`, and the complete
-`harmonization_execution_identity` by `datalink_id`.
+`harmonization_execution_identity` by `datalink_id`. It also checkpoints the
+`harmonization_patch`, run-local `extension_registry`, `pending_review`, and
+`review_required` state. A validated review-decision file contains run ID,
+source fingerprint, dataset/field identity, `harmonize|prune`, reviewer, and
+reason. Partial decisions leave unresolved fields pending.
 The current upstream wrapper reports `workflow="local_rag_ols"`. Per-run
 `harmonization_options` such as `target_paths`, `target_checker`,
 `direct_lookup_judge`, `rag_lookup`, `rag_lookup_judge`, `ols_lookup`,
@@ -2186,7 +2212,7 @@ For each normalized E-MTAB, E-GEOD, or E-MEXP accession it calls
 `ae2json().convert(source=accession, out=None, sdrf_sources=None)`, so BioStudies
 IDF/SDRF content remains in memory. It returns the common MINiML-compatible
 package as either a typed `MINiMLPackage` or mapping; the wrapper immediately
-decodes it strictly and encodes canonical JSON-native MINiML 2.0 before
+decodes it strictly and encodes canonical JSON-native MINiML 3.0 before
 building an Atlas record. MAGE-TAB protocols and assay paths therefore use the
 core `series.protocols` and `series.assay_paths` fields rather than a parallel
 `mage_tab.model` object. Records identify the adapter with
@@ -2220,7 +2246,7 @@ Resolution behavior:
 - `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
 - Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
 - If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
-- GEO metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=enrich_metadata, out=None)`. `enrich_metadata` defaults to `True`; setting it to `False` preserves parsed MINiML while suppressing PubMed/SRA/ENA identifier enrichment, including in checkpointed collection where the payload records `enrichment_mode="none"`. Typed or mapping results are strictly canonicalized as MINiML 2.0 before they are appended to an output record, traced, or checkpointed.
+- GEO metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=enrich_metadata, out=None)`. `enrich_metadata` defaults to `True`; setting it to `False` preserves parsed MINiML while suppressing PubMed/SRA/ENA identifier enrichment, including in checkpointed collection where the payload records `enrichment_mode="none"`. Typed or mapping results are strictly canonicalized as MINiML 3.0 before they are appended to an output record, traced, or checkpointed.
 - Related GEO super/subseries packages returned by `geo2json` become separate records, inherit the source record's `publications` and `original_datalinks`, and receive their own `accession_metadata` package.
 
 GEO metadata records add:
@@ -2267,7 +2293,7 @@ download or parse. Identifier failures leave partial GSE metadata available;
 later successful retries are merged into every affected cached package.
 
 Older, unversioned, or schema-mismatched metadata payloads are not replayed as
-MINiML 2.0: online collection recomputes them and offline availability marks
+MINiML 3.0: online collection recomputes them and offline availability marks
 them pending. The
 audit reports all-null PubMed summaries, SRA accessions without runs, and any
 SRA-linked sample with at least one run lacking FASTQ data. Only identifiers in
@@ -2316,8 +2342,9 @@ review filtering. Both public commands return/write Atlas v1 through
 `AtlasDocumentAdapter`. `create-atlas` then harmonizes and transactionally
 publishes the requested final JSON plus automatic summary. The standalone
 `harmonize-datasets` command requires Atlas v1 at `--file`, writes Atlas v1 at
-`--out`, and fails closed on legacy unversioned accessions envelopes. Both harmonizing commands can write the
-optional details sidecar.
+`--out`, and fails closed on legacy unversioned accessions envelopes. Both
+harmonizing commands can write the optional details sidecar and accept
+`--review-decisions-file`.
 
 `resume` selects `--run-id` or the newest incomplete v1 trace under
 `--dev-out-dir` (default `.dev`), optionally writes `--out`, and
@@ -2325,7 +2352,9 @@ optional details sidecar.
 `--retry-stage`, `--retry-item STAGE:KEY`, and `--retry-degraded-stage`
 requests are validated and forwarded to `Atlas.resume`; missing
 `atlas_run.sqlite3`, malformed item syntax, or unsupported selections raise
-rather than migrating state or silently requeueing other work.
+rather than migrating state or silently requeueing other work. A supplied
+`--review-decisions-file` must identify the selected run and a current MINiML
+source fingerprint before its matching item is selectively rerun.
 
 <a id="archive-reference"></a>
 ## Archive Reference
@@ -2340,7 +2369,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate last reported `603 passed, 4 skipped` on 2026-08-12. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, bounded evolving independent review, deterministic publication limits, main-phase yielding, metadata/text/model hard deadlines, cross-process provider pacing, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate reported `606 passed, 4 skipped` on 2026-08-14. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, MINiML 2.0 migration and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, bounded evolving independent review, deterministic publication limits, main-phase yielding, metadata/text/model hard deadlines, cross-process provider pacing, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

@@ -18,7 +18,7 @@ def record(accession="E-MTAB-1"):
 
 def package(accession="E-MTAB-1"):
     return {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "MAGE-TAB"},
         "database": [],
         "organization": [],

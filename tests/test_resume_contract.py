@@ -42,7 +42,7 @@ def _run_dir(tmp_path, manifest, *, run_id="run-1"):
     return run_dir
 
 
-def test_resume_cli_forwards_retry_selections(monkeypatch) -> None:
+def test_resume_cli_forwards_retry_selections(monkeypatch, tmp_path) -> None:
     calls = []
 
     class RecordingAtlas:
@@ -54,6 +54,9 @@ def test_resume_cli_forwards_retry_selections(monkeypatch) -> None:
             return {"accessions": [], "publication_texts": {}}
 
     monkeypatch.setattr(cli_atlas, "Atlas", RecordingAtlas)
+    decisions = {"schema_version": "1.0", "run_id": "run-7"}
+    decision_file = tmp_path / "review.json"
+    decision_file.write_text(json.dumps(decisions), encoding="utf-8")
 
     assert cli_atlas.main(
         [
@@ -70,6 +73,8 @@ def test_resume_cli_forwards_retry_selections(monkeypatch) -> None:
             "harmonization:work-1",
             "--retry-degraded-stage",
             "target_checker",
+            "--review-decisions-file",
+            str(decision_file),
         ]
     ) == 0
     assert calls == [
@@ -81,8 +86,35 @@ def test_resume_cli_forwards_retry_selections(monkeypatch) -> None:
             "retry_stages": ["thematic_review"],
             "retry_items": {"harmonization": ["work-1"]},
             "retry_degraded_stages": ["target_checker"],
+            "review_decisions": decisions,
         }
     ]
+
+
+def test_resume_rejects_review_decisions_for_a_different_run_before_mutation(
+    tmp_path,
+) -> None:
+    run_dir = _run_dir(tmp_path, {"atlas_out": None, "theme": None})
+    (run_dir / "06_final_atlas.json").write_text(
+        json.dumps({"accessions": [], "publication_texts": {}}),
+        encoding="utf-8",
+    )
+    store = AtlasRunStore(run_dir / "atlas_run.sqlite3")
+    before = store.get_run("run-1")
+
+    with pytest.raises(ValueError, match="belongs to run 'run-2'"):
+        Atlas(metadata={}).resume(
+            dev_out_dir=str(tmp_path / "trace"),
+            run_id="run-1",
+            review_decisions={
+                "schema_version": "1.0",
+                "run_id": "run-2",
+                "source_fingerprint": "a" * 64,
+                "decisions": [],
+            },
+        )
+
+    assert AtlasRunStore(run_dir / "atlas_run.sqlite3").get_run("run-1") == before
 
 
 def test_resume_retries_only_selected_harmonization_item(tmp_path) -> None:

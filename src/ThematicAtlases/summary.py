@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from meta_standards_converter.miniml import iter_harmonized_values
+
 
 FIXED_CHARACTERISTICS = {
     "tissues_organs": {"tissue", "organ", "organ part", "anatomical site"},
@@ -165,7 +167,7 @@ def _organism_values(channel: dict) -> set[str]:
     result = set()
     for organism in organisms:
         if isinstance(organism, dict):
-            annotated = _annotation_values(organism, {"organism", "species"})
+            annotated = _harmonized_values(organism, {"organism", "species"})
             if annotated:
                 result.update(annotated)
             else:
@@ -173,7 +175,7 @@ def _organism_values(channel: dict) -> set[str]:
                 result.update(_raw_field_values(organism, "value"))
         elif _normalized(organism):
             result.add(str(organism).strip())
-    result.update(_annotation_values(channel, {"organism", "species"}))
+    result.update(_harmonized_values(channel, {"organism", "species"}))
     return result
 
 
@@ -182,22 +184,31 @@ def _characteristics(channel: dict) -> dict[str, set[str]]:
     items = channel.get("characteristics", [])
     if isinstance(items, dict):
         items = [items]
+    harmonized: dict[str, set[str]] = defaultdict(set)
+    for value in iter_harmonized_values(items):
+        if _normalized(value.value):
+            harmonized[_normalized(value.field)].add(str(value.value).strip())
+    consumed: set[str] = set()
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
         name = _normalized(item.get("name"))
-        if not name:
+        if not name or name.startswith("hz "):
             continue
-        values = _annotation_values(item) or _raw_field_values(item, "value")
+        values = harmonized.get(name) or _raw_field_values(item, "value")
         grouped[name].update(values)
+        consumed.add(name)
+    for field, values in harmonized.items():
+        if field not in consumed:
+            grouped[field].update(values)
     return dict(grouped)
 
 
 def _field_values(item: dict, key: str) -> set[str]:
-    annotated = _annotation_values(item)
+    annotated = _harmonized_values(item)
     nested = item.get(key)
     if not annotated and isinstance(nested, dict):
-        annotated = _annotation_values(nested)
+        annotated = _harmonized_values(nested)
     return annotated or _raw_field_values(item, key)
 
 
@@ -216,20 +227,17 @@ def _raw_field_values(item: dict, key: str) -> set[str]:
     return result
 
 
-def _annotation_values(item: dict, fields: set[str] | None = None) -> set[str]:
-    result = set()
-    annotations = item.get("annotations", [])
-    if isinstance(annotations, dict):
-        annotations = [annotations]
-    for annotation in annotations if isinstance(annotations, list) else []:
-        if not isinstance(annotation, dict):
+def _harmonized_values(item: dict, fields: set[str] | None = None) -> set[str]:
+    result: set[str] = set()
+    normalized_fields = (
+        {_normalized(field) for field in fields} if fields is not None else None
+    )
+    for value in iter_harmonized_values(item):
+        field = _normalized(value.field)
+        if normalized_fields is not None and field not in normalized_fields:
             continue
-        field = _normalized(annotation.get("field"))
-        if fields is not None and field not in fields:
-            continue
-        value = annotation.get("value")
-        if _normalized(value):
-            result.add(str(value).strip())
+        if _normalized(value.value):
+            result.add(str(value.value).strip())
     return result
 
 

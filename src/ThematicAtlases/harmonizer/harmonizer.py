@@ -6,6 +6,8 @@ import json
 import logging
 from pathlib import Path
 
+from agentic_curator.contracts import miniml_source_fingerprint
+from agentic_curator.review_decisions import ReviewDecisionFile
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from meta_standards_converter.miniml import MINiMLCodec
 from meta_standards_converter.runtime_contracts import (
@@ -72,6 +74,7 @@ class AtlasHarmonizer:
         details_out: str | None = None,
         harmonization_options: dict | None = None,
         checkpoint_store=None,
+        review_decisions: dict | None = None,
     ) -> tuple[dict, list[dict]]:
         source_accessions = [dict(record) for record in datasets.get("accessions", [])]
         accessions = list(source_accessions)
@@ -81,6 +84,12 @@ class AtlasHarmonizer:
         work_by_key = {}
         ontology_harmonizer = None
         execution_identity = None
+        typed_review_decisions = (
+            ReviewDecisionFile.from_mapping(review_decisions)
+            if review_decisions is not None
+            else None
+        )
+        matched_review_source = False
 
         for index, record in enumerate(accessions):
             metadata = record.get("accession_metadata")
@@ -123,10 +132,19 @@ class AtlasHarmonizer:
                 execution_identity = self._harmonization_execution_identity(
                     ontology_harmonizer
                 )
+            item_options = dict(harmonization_options)
+            if typed_review_decisions is not None:
+                try:
+                    source_fingerprint = miniml_source_fingerprint(metadata)
+                except (TypeError, ValueError):
+                    source_fingerprint = None
+                if source_fingerprint == typed_review_decisions.source_fingerprint:
+                    item_options["review_decisions"] = typed_review_decisions.to_mapping()
+                    matched_review_source = True
             key = self._work_key(
                 metadata=metadata,
                 publication_context=context,
-                harmonization_options=harmonization_options,
+                harmonization_options=item_options,
                 execution_identity=execution_identity,
             )
             work_by_key.setdefault(
@@ -136,9 +154,13 @@ class AtlasHarmonizer:
                     "metadata": metadata,
                     "publication_context": context,
                     "execution_identity": execution_identity,
+                    "harmonization_options": item_options,
                     "indices": [],
                 },
             )["indices"].append(index)
+
+        if typed_review_decisions is not None and not matched_review_source:
+            raise ValueError("review decision source fingerprint is stale")
 
         if work_by_key:
             if ontology_harmonizer is None:
@@ -160,7 +182,7 @@ class AtlasHarmonizer:
                         ontology_harmonizer,
                         metadata=item["metadata"],
                         publication_context=item["publication_context"],
-                        options=harmonization_options,
+                        options=item["harmonization_options"],
                     )
                     self._validated_operation_status(harmonization)
                     return harmonization, None
@@ -204,6 +226,12 @@ class AtlasHarmonizer:
                     record["ontology_harmonization_status"] = status
                     record.pop("ontology_harmonization_quality_status", None)
                     record.pop("ontology_harmonization_error", None)
+                    record["ontology_harmonization_review_required"] = bool(
+                        harmonization.get("review_required")
+                    )
+                    record["ontology_harmonization_pending_review"] = list(
+                        harmonization.get("pending_review") or []
+                    )
                     details[index] = {
                         "datalink_id": datalink_id,
                         "run_status": "completed",
@@ -223,10 +251,15 @@ class AtlasHarmonizer:
                         ]
                     if "controls" in harmonization:
                         details[index]["controls"] = harmonization["controls"]
-                    if "annotation_patch" in harmonization:
-                        details[index]["annotation_patch"] = harmonization[
-                            "annotation_patch"
-                        ]
+                    for field in (
+                        "harmonization_patch",
+                        "pending_review",
+                        "extension_registry",
+                        "review_required",
+                        "review_decisions",
+                    ):
+                        if field in harmonization:
+                            details[index][field] = harmonization[field]
 
                 if checkpoint_store is None or cached:
                     return
@@ -471,7 +504,7 @@ class AtlasHarmonizer:
                 ),
             },
             "strategy": {"atlas_adapter_revision": "1"},
-            "preprocessing": {"miniml_boundary_revision": "2.0"},
+            "preprocessing": {"miniml_boundary_revision": "3.0"},
         }
 
     @staticmethod
@@ -487,7 +520,7 @@ class AtlasHarmonizer:
             ontology_harmonizer, "harmonize_miniml_annotations", None
         )
         apply_method = getattr(
-            ontology_harmonizer, "apply_miniml_annotation_patch", None
+            ontology_harmonizer, "apply_miniml_harmonization_patch", None
         )
         typed_provider = callable(patch_method) and callable(apply_method)
         declared_miniml = AtlasHarmonizer._declares_miniml(metadata)
@@ -522,7 +555,7 @@ class AtlasHarmonizer:
             miniml_json=document,
             **options,
         )
-        applied = apply_method(document, result["annotation_patch"])
+        applied = apply_method(document, result["harmonization_patch"])
         verified = codec.decode_many(applied, strict=True)
         encoded = codec.encode_many(verified.packages)
         result["miniml_json"] = encoded[0] if isinstance(metadata, dict) else encoded

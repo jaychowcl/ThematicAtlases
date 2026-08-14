@@ -1,4 +1,4 @@
-"""Strict JSON transport boundary for MSC MINiML 2.0 packages."""
+"""Strict JSON transport boundary for canonical MSC MINiML 3.0 packages."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ MINIML_CHECKPOINT_PAYLOAD_VERSION = 1
 
 
 def canonicalize_miniml_package(value: Mapping[str, Any] | MINiMLPackage) -> dict[str, Any]:
-    """Strictly decode and encode one package into JSON-native MSC MINiML 2.0."""
+    """Decode supported input and emit canonical JSON-native MSC MINiML 3.0."""
 
     if not isinstance(value, Mapping):
         raise TypeError("MSC MINiML package must be a mapping or MINiMLPackage")

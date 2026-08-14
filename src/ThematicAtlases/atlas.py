@@ -7,6 +7,7 @@ from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 
+from agentic_curator.review_decisions import ReviewDecisionFile
 from ThematicAtlases.checkpoint import (
     failure_category,
     is_retryable_error,
@@ -486,9 +487,20 @@ class Atlas:
         retry_stages=None,
         retry_items=None,
         retry_degraded_stages=None,
+        review_decisions: dict | None = None,
     ) -> dict:
         """Resume an incomplete development trace from its latest valid stage."""
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
+        if review_decisions is not None:
+            typed_review_decisions = ReviewDecisionFile.from_mapping(
+                review_decisions
+            )
+            if typed_review_decisions.run_id != run_dir.name:
+                raise ValueError(
+                    "review decision file belongs to run "
+                    f"{typed_review_decisions.run_id!r}, not {run_dir.name!r}"
+                )
+            review_decisions = typed_review_decisions.to_mapping()
         manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
         thematic_review = manifest.get(
             "thematic_review", manifest.get("theme") is not None
@@ -509,6 +521,11 @@ class Atlas:
                 "retry_stages": list(retry_stages or ()),
                 "retry_items": retry_items or {},
                 "retry_degraded_stages": list(retry_degraded_stages or ()),
+                "review_decisions_run_id": (
+                    review_decisions.get("run_id")
+                    if isinstance(review_decisions, dict)
+                    else None
+                ),
             },
         )
         output_path = out if out is not None else manifest.get("atlas_out")
@@ -585,6 +602,7 @@ class Atlas:
             final_path.exists()
             and not collection_retryable
             and not harmonization_retryable
+            and review_decisions is None
         ):
             result = self._read_checkpoint(final_path)
             logger.info("Atlas resume progress stage=final-atlas-complete")
@@ -597,6 +615,7 @@ class Atlas:
             harmonized_path.exists()
             and not collection_retryable
             and not harmonization_retryable
+            and review_decisions is None
         ):
             result = self._read_checkpoint(harmonized_path)
             logger.info("Atlas resume progress stage=harmonization-complete")
@@ -727,6 +746,11 @@ class Atlas:
                 datasets=datasets,
                 details_out=manifest.get("harmonization_details_out"),
                 harmonization_options=manifest.get("harmonization_options"),
+                **(
+                    {"review_decisions": review_decisions}
+                    if review_decisions is not None
+                    else {}
+                ),
                 **self._checkpoint_keyword(
                     self._harmonizer.harmonize_datasets,
                     checkpoint_store,
@@ -1370,6 +1394,7 @@ class Atlas:
         datasets: dict,
         harmonization_details_out: str | None = None,
         harmonization_options: dict | None = None,
+        review_decisions: dict | None = None,
     ) -> dict:
         document = AtlasDocument.from_mapping(datasets)
         legacy = self._documents.to_legacy(document)
@@ -1377,6 +1402,11 @@ class Atlas:
             datasets=legacy,
             details_out=harmonization_details_out,
             harmonization_options=harmonization_options,
+            **(
+                {"review_decisions": review_decisions}
+                if review_decisions is not None
+                else {}
+            ),
         )
         updated = self._documents.assemble(
             result,

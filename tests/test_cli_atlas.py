@@ -924,6 +924,37 @@ def test_harmonize_datasets_accepts_verbose_after_command(
     assert output.err == ""
 
 
+def test_harmonize_datasets_forwards_review_decision_file(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    infile = tmp_path / "datasets.json"
+    outfile = tmp_path / "harmonized.json"
+    decisions_file = tmp_path / "review.json"
+    infile.write_text('{"accessions": []}', encoding="utf-8")
+    decisions = {"schema_version": "1.0", "run_id": "run-1"}
+    decisions_file.write_text(json.dumps(decisions), encoding="utf-8")
+    calls = []
+
+    class RecordingAtlas:
+        def __init__(self, metadata):
+            pass
+
+        def harmonize_datasets(self, **kwargs):
+            calls.append(kwargs)
+            return kwargs["datasets"]
+
+    monkeypatch.setattr(cli_module, "Atlas", RecordingAtlas)
+
+    assert main([
+        "harmonize-datasets",
+        "--file", str(infile),
+        "--out", str(outfile),
+        "--review-decisions-file", str(decisions_file),
+    ]) == 0
+    assert calls[0]["review_decisions"] == decisions
+
+
 def test_unknown_command_exits_with_argparse_error() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["not-a-command"])
