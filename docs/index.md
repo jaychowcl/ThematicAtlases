@@ -307,7 +307,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, exact-platform hashed runtime lock, deterministic CycloneDX SBOM, fail-closed release evidence, independent v1 dependencies, editable install, tests, and console command.
-  keywords: pyproject, Python 3.10, version 4.1.0, pylock, SHA-256, CycloneDX, SBOM, advisory snapshot, signed artifact, security SLA, MSC MINiML 3.0, pytest, thematic-atlas
+  keywords: pyproject, Python 3.10, version 4.2.0, Agentic Curator 4.2, pylock, SHA-256, CycloneDX, SBOM, advisory snapshot, signed artifact, security SLA, MSC MINiML 3.0, pytest, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)
