@@ -44,7 +44,7 @@ The editable install provides the `thematic-atlas` console command. The equivale
 ### Requirements
 
 - Python 3.10 or newer.
-- Installable `agentic-curator>=4,<5` and `meta-standards-converter>=5,<6`
+- Installable `agentic-curator>=4.1,<5` and `meta-standards-converter>=5.1,<6`
   distributions. The package does not depend on sibling source checkouts or Git
   URLs at runtime or build time.
 - Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
@@ -452,6 +452,12 @@ candidate labels are the model's primary decision surface, optional ontology
 and accession values disambiguate only collisions, split-derived targets are
 additive, extension fields remain run-local, and hierarchy enrichment is on
 through depth two for every matched ontology.
+Semantic retrieval aliases remain attached to their source targets in the
+readable details sidecar and canonical harmonization checkpoint; they expand
+lookup only and never directly create a harmonized value. Harmonization and
+projection durations are emitted as structured INFO logs rather than persisted
+checkpoint fields, preserving deterministic work identities while allowing
+stage-level runtime analysis.
 
 Every accession receives `ontology_harmonization_status`, a status contract
 2.0 envelope with independent `execution`, `completeness`,

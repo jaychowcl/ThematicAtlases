@@ -84,6 +84,14 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
                 "id": "target-1",
                 "hz_field": "organism_part",
                 "hz_label": "lung",
+                "lookup_aliases": [
+                    {
+                        "label": "pulmonary tissue",
+                        "confidence": "high",
+                        "reason": "Semantic retrieval alias.",
+                        "source_target_id": "target-1",
+                    }
+                ],
                 "occurrences": [{
                     "pre_hz_field_path": "/sample/0/channel/0/source",
                     "pre_hz_label_path": "/sample/0/channel/0/source/value",
@@ -118,6 +126,14 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     assert source["hz_organism_part"] == "lung"
     assert details[0]["harmonization_patch"]["schema_version"] == "3.0"
     assert details[0]["pending_review"] == []
+    assert details[0]["harmonization_targets"][0]["lookup_aliases"] == [
+        {
+            "label": "pulmonary tissue",
+            "confidence": "high",
+            "reason": "Semantic retrieval alias.",
+            "source_target_id": "target-1",
+        }
+    ]
 
 
 def test_review_decisions_selectively_change_matching_work_key_and_are_forwarded(

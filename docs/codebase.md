@@ -911,7 +911,8 @@ dataset -> eligible? -- no --> not_run/original
    source-bound `MINiMLHarmonizationPatch` 3.0 to a copy, and decodes the
    MINiML 3.0 result again. Legacy injected
    test/adaptor harmonizers may still expose the mutating wrapper.
-6. Results and details, including execution identity provenance, are
+6. Results and details, including execution identity provenance and target-local
+   semantic `lookup_aliases`, are
    memoized/checkpointed; caught item failures remain local, retain original
    metadata, and persist only a safe error envelope.
    Successful and degraded provider results must contain a valid status 2.0
@@ -1415,12 +1416,12 @@ and trace output are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Package version metadata is `4.0.0`; the Atlas document wire schema remains 1.0 while embedded metadata is canonically MSC MINiML 3.0.
+- Package version metadata is `4.1.0`; the Atlas document wire schema remains 1.0 while embedded metadata is canonically MSC MINiML 3.0.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
-  `agentic-curator>=4,<5`, `google-auth>=2,<3`,
-  `meta-standards-converter>=5,<6`, and `requests>=2.31,<3`. MSC 5 supplies
+  `agentic-curator>=4.1,<5`, `google-auth>=2,<3`,
+  `meta-standards-converter>=5.1,<6`, and `requests>=2.31,<3`. MSC 5 supplies
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
@@ -1453,7 +1454,7 @@ and a fixed EBI/NCBI/preprint host allowlist. Run them with
 ## Public API
 
 `src/ThematicAtlases/__init__.py` intentionally exports only
-`__version__ == "4.0.0"`. Application and domain imports remain explicit, for
+`__version__ == "4.1.0"`. Application and domain imports remain explicit, for
 example `ThematicAtlases.atlas.Atlas` and
 `ThematicAtlases.domain.AtlasDocument`.
 
