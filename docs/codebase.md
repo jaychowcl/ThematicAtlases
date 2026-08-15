@@ -314,7 +314,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 | fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
-| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns fully enriched repository-context hydration and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; reduced-context cache rows refresh automatically; invalid global inputs fail without a report |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns retry-once, fully enriched repository-context hydration, complete-context eligibility, and one atomic JSON report; production TA components own public retrieval/review | only error-free rows with full text and complete accession metadata reach review; still-incomplete rows remain explicit and unscored; prior-policy cache rows refresh automatically; invalid global inputs fail without a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -484,9 +484,12 @@ the Python API, or the canonical parent-adapter workflow documented in the
 - The direct [`benchmark_fibrosis_meta_pubs_review.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py)
   runner owns labeled identifier validation, exact public hydration, row-level
   cache reuse/refresh, fully enriched GEO MINiML collection including
-  PubMed/SRA/ENA identifier enrichment, visible progress, production
+  PubMed/SRA/ENA identifier enrichment, one outer retry for failed or incomplete
+  hydration, complete-context gating, visible progress, production
   `PublicationTextReviewer` dispatch, three-class metrics, and atomic report
-  publication. It has no trace input.
+  publication. Reviewer input requires available full text, at least one
+  supported accession, non-empty metadata for every accession, only `available`
+  metadata statuses, and no hydration errors. It has no trace input.
   Its packaged labeled CSV is the all-relevant, identity-deduplicated projection
   of the shared recall TSV rather than another direct consumer of that TSV.
 
@@ -1273,8 +1276,10 @@ benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
   -> validate publication_id/DOI/PMID/expected_decision rows
   -> exact Europe PMC text + fully enriched accession metadata hydration
      (GEO PubMed/SRA/ENA identifier enrichment enabled)
-  -> atomically reuse/refresh dataset-bound CSV cache rows
+  -> retry any failed/incomplete hydration once
+  -> reuse only complete dataset-bound CSV cache rows; refresh incomplete rows
   -> with --verbose, log each cache/hydration action and review-stage status
+  -> skip still-incomplete rows before constructing reviewer inputs
   -> PublicationTextReviewer.review_publication_texts(theme=packaged fibrosis theme)
   -> score relevant/not_relevant/unsure; retain row failures outside metrics
   -> atomic schema 1.0 report replacement
@@ -1570,26 +1575,34 @@ theme is byte-identical to `docs/theme_fibrosis.txt`. An empty custom dataset
 fails before cache/report writes.
 
 The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
-requires one matching record, uses TA's full-text/abstract fallback, discovers
-supported accessions, collects fully enriched GEO and ArrayExpress context, and invokes
+requires one matching record, discovers supported accessions, collects fully
+enriched GEO and ArrayExpress context, and invokes
 `PublicationTextReviewer.review_publication_texts` with an explicitly public
-`ThematicReviewer`. Its benchmark-owned collector uses the ordinary
+`ThematicReviewer` only for complete contexts. Complete means full text status
+`available` from full-text or preprint XML, at least one supported accession,
+non-empty metadata for every accession, every metadata status exactly
+`available`, and no hydration error. The runner retries the entire public
+hydration once after any exception or incomplete result, then marks a still
+incomplete row `metadata_incomplete` and excludes it from reviewer inputs. Its benchmark-owned collector uses the ordinary
 `GEOWrapper` default `enrich_metadata=True`, so PubMed/SRA/ENA identifier
 enrichment is part of the context shown to the reviewer. `--verbose`
-emits an INFO event before and after each publication hydration/cache action,
-then reports review-stage start/completion/failure. It never reads a trace.
-Successful/degraded hydration is
+emits an INFO event before and after each publication hydration/cache action and
+for each outer hydration attempt, then reports review-stage
+start/completion/failure. It never reads a trace. Complete/incomplete hydration is
 frozen in a standard quoted CSV under the benchmark-specific Git-ignored output
 directory. The identity hash binds the hydration-policy version, so rows from
-the former reduced-context policy refresh automatically; unchanged fully
-enriched identifier rows are reused, changed/failed rows refresh, and
-`--refresh-cache` forces all rows. Source-label changes do not refetch text.
+the former reduced-context or permissive eligibility policies refresh
+automatically; unchanged complete rows are reused, while
+changed/failed/incomplete rows refresh, and `--refresh-cache` forces all rows.
+Source-label changes do not refetch text.
 
 Review report schema `1.0` records dataset/theme/cache hashes and counts,
 hydration/review coverage, expected/predicted counts, a three-by-three confusion
 matrix, accuracy, per-class precision/recall/F1, macro F1, and ordered row
 details without raw publication text. Retrieval/review failures remain visible
-but are excluded from classification denominators. Global input/cache failures
+but are excluded from classification denominators. `review_eligible_count` and
+`metadata_incomplete_count` distinguish complete reviewer inputs from rows
+skipped after the retry. Global input/cache failures
 exit one without a partial report; row failures still produce an atomic report.
 Because absent classes retain zero F1, perfect predictions on the packaged
 all-relevant fixture yield relevant recall and accuracy of `1.0` but three-class

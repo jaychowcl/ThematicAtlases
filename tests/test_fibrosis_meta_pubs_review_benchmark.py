@@ -112,6 +112,7 @@ class RecordingHydrator:
         self.calls.append(publication_id)
         if publication_id in self.failures:
             raise TimeoutError("provider detail must not enter the report")
+        accession = f"GSE-{publication_id}"
         return {
             "resolved_doi": row["doi"],
             "resolved_pmid": row["pmid"],
@@ -121,14 +122,58 @@ class RecordingHydrator:
             "full_text_status": "available",
             "review_context": {
                 "title": f"Title {publication_id}",
-                "metadata": [],
-                "accessions": [],
-                "metadata_statuses": {},
+                "metadata": [
+                    {
+                        "accession": accession,
+                        "status": "available",
+                        "context": {"series": {"title": f"Series {publication_id}"}},
+                    }
+                ],
+                "accessions": [accession],
+                "metadata_statuses": {accession: "available"},
             },
             "hydration_status": "available",
             "retrieval_provenance": {"provider": "fixture"},
             "errors": [],
         }
+
+
+class SequencedHydrator:
+    def __init__(self, responses: dict[str, list[dict | Exception]]):
+        self.responses = responses
+        self.calls: list[str] = []
+
+    def hydrate(self, row: dict) -> dict:
+        publication_id = row["publication_id"]
+        self.calls.append(publication_id)
+        response = self.responses[publication_id].pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def complete_hydration(publication_id: str, *, pmid: str = "1") -> dict:
+    row = dataset_row(publication_id, "relevant", pmid=pmid)
+    return RecordingHydrator().hydrate(row)
+
+
+def incomplete_hydration(publication_id: str, *, pmid: str = "1") -> dict:
+    hydration = complete_hydration(publication_id, pmid=pmid)
+    accession = hydration["review_context"]["accessions"][0]
+    hydration["review_context"] = {
+        "title": hydration["title"],
+        "metadata": [
+            {
+                "accession": accession,
+                "status": "degraded",
+                "context": {},
+            }
+        ],
+        "accessions": [accession],
+        "metadata_statuses": {accession: "degraded"},
+    }
+    hydration["hydration_status"] = "degraded"
+    return hydration
 
 
 class RecordingReviewRunner:
@@ -511,6 +556,129 @@ def test_row_failures_are_reported_and_excluded_from_metrics(tmp_path: Path) -> 
     assert "provider detail" not in serialized
 
 
+def test_retries_incomplete_hydration_once_and_only_reviews_complete_context(
+    tmp_path: Path, caplog
+) -> None:
+    runner = load_runner()
+    caplog.set_level(logging.INFO, logger=runner.__name__)
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(
+        dataset,
+        [
+            dataset_row("retry-complete", "relevant", pmid="1"),
+            dataset_row("still-incomplete", "relevant", pmid="2"),
+            dataset_row("exception-complete", "relevant", pmid="3"),
+        ],
+    )
+    hydrator = SequencedHydrator(
+        {
+            "retry-complete": [
+                incomplete_hydration("retry-complete", pmid="1"),
+                complete_hydration("retry-complete", pmid="1"),
+            ],
+            "still-incomplete": [
+                incomplete_hydration("still-incomplete", pmid="2"),
+                incomplete_hydration("still-incomplete", pmid="2"),
+            ],
+            "exception-complete": [
+                TimeoutError("private provider detail"),
+                complete_hydration("exception-complete", pmid="3"),
+            ],
+        }
+    )
+    reviewer = RecordingReviewRunner(
+        {
+            "retry-complete": "relevant",
+            "exception-complete": "relevant",
+        }
+    )
+
+    report = runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=tmp_path / CACHE_NAME,
+        theme_file=THEME,
+        hydrator=hydrator,
+        review_runner=reviewer,
+    )
+
+    assert hydrator.calls == [
+        "retry-complete",
+        "retry-complete",
+        "still-incomplete",
+        "still-incomplete",
+        "exception-complete",
+        "exception-complete",
+    ]
+    assert set(reviewer.calls[0]["publication_texts"]) == {
+        "retry-complete",
+        "exception-complete",
+    }
+    assert set(reviewer.calls[0]["contexts"]) == {
+        "retry-complete",
+        "exception-complete",
+    }
+    assert [row["status"] for row in report["publications"]] == [
+        "scored",
+        "metadata_incomplete",
+        "scored",
+    ]
+    assert report["summary"]["review_eligible_count"] == 2
+    assert report["summary"]["metadata_incomplete_count"] == 1
+    assert report["summary"]["review_completed_count"] == 2
+    assert (
+        "publication_id=still-incomplete review_eligibility=skipped "
+        "reason=metadata_incomplete"
+    ) in caplog.text
+    assert "private provider detail" not in json.dumps(report)
+
+
+def test_incomplete_cached_hydration_is_retried_instead_of_reused(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    cache = tmp_path / CACHE_NAME
+    write_dataset(dataset, [dataset_row("pub-1", "relevant", pmid="1")])
+    reviewer = RecordingReviewRunner({})
+
+    first = SequencedHydrator(
+        {
+            "pub-1": [
+                incomplete_hydration("pub-1"),
+                incomplete_hydration("pub-1"),
+            ]
+        }
+    )
+    runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=cache,
+        theme_file=THEME,
+        hydrator=first,
+        review_runner=reviewer,
+    )
+
+    second = SequencedHydrator(
+        {
+            "pub-1": [
+                incomplete_hydration("pub-1"),
+                incomplete_hydration("pub-1"),
+            ]
+        }
+    )
+    report = runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=cache,
+        theme_file=THEME,
+        hydrator=second,
+        review_runner=reviewer,
+    )
+
+    assert second.calls == ["pub-1", "pub-1"]
+    assert reviewer.calls == []
+    assert report["benchmark"]["cache"]["reused_count"] == 0
+    assert report["summary"]["metadata_incomplete_count"] == 1
+
+
 def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
     runner = load_runner()
 
@@ -572,7 +740,13 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
             return {
                 "123": {
                     "title": "Fetched title",
-                    "metadata": [{"accession": "GSE1", "context": "metadata"}],
+                    "metadata": [
+                        {
+                            "accession": "GSE1",
+                            "status": "available",
+                            "context": "metadata",
+                        }
+                    ],
                     "accessions": ["GSE1"],
                     "metadata_statuses": {"GSE1": "available"},
                 }

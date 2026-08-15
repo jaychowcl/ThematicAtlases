@@ -43,7 +43,8 @@ CACHE_COLUMNS = (
 )
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
-HYDRATION_POLICY_VERSION = "full-metadata-v1"
+HYDRATION_POLICY_VERSION = "complete-full-metadata-v2"
+HYDRATION_ATTEMPTS = 2
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", flags=re.IGNORECASE)
 DOI_PREFIX = re.compile(
@@ -178,12 +179,7 @@ class ProductionHydrator:
             context["title"] = title
 
         text_source = str(enriched_publication.get("text_source", "none"))
-        status = (
-            "available"
-            if text_source in {"fullTextXML", "preprintJATSXML"} and not errors
-            else "degraded"
-        )
-        return {
+        result = {
             "resolved_doi": _safe_doi(enriched_publication.get("doi")),
             "resolved_pmid": _safe_pmid(enriched_publication.get("pmid")),
             "title": title,
@@ -193,7 +189,7 @@ class ProductionHydrator:
                 enriched_publication.get("full_text_status", "unavailable")
             ),
             "review_context": context,
-            "hydration_status": status,
+            "hydration_status": "degraded",
             "retrieval_provenance": {
                 "provider": "Europe PMC",
                 "query": query,
@@ -202,6 +198,9 @@ class ProductionHydrator:
             },
             "errors": errors,
         }
+        if _hydration_downloads_complete(result):
+            result["hydration_status"] = "available"
+        return result
 
 
 def run_benchmark(
@@ -232,11 +231,14 @@ def run_benchmark(
     for index, row in enumerate(rows, start=1):
         identity_hash = _identity_hash(row)
         cached_row = cached.get(row["publication_id"])
+        cached_hydration = (
+            _hydration_from_cache(cached_row) if cached_row is not None else None
+        )
         reuse_cached = (
             not refresh_cache
             and cached_row is not None
             and cached_row["identity_sha256"] == identity_hash
-            and cached_row["hydration_status"] in {"available", "degraded"}
+            and _hydration_is_complete(cached_hydration)
         )
         logger.info(
             "Reviewer benchmark progress stage=hydrate publication_index=%s "
@@ -247,26 +249,29 @@ def run_benchmark(
             "reuse" if reuse_cached else "refresh",
         )
         if reuse_cached:
-            hydration = _hydration_from_cache(cached_row)
+            hydration = cached_hydration
             reused_count += 1
         else:
             refreshed_count += 1
-            try:
-                hydration = _validated_hydration(hydrator.hydrate(row))
-            except Exception as error:
-                hydration = _failed_hydration(error)
-                logger.warning(
-                    "Reviewer benchmark progress stage=hydrate publication_id=%s "
-                    "hydration_status=failed error_type=%s",
-                    row["publication_id"],
-                    type(error).__name__,
-                )
+            hydration = _hydrate_with_retry(hydrator, row)
         logger.info(
             "Reviewer benchmark progress stage=hydrate publication_id=%s "
             "hydration_status=%s",
             row["publication_id"],
             hydration["hydration_status"],
         )
+        if not _hydration_is_complete(hydration):
+            reason = (
+                "retrieval_failed"
+                if hydration["hydration_status"] == "failed"
+                else "metadata_incomplete"
+            )
+            logger.info(
+                "Reviewer benchmark progress stage=review publication_id=%s "
+                "review_eligibility=skipped reason=%s",
+                row["publication_id"],
+                reason,
+            )
         hydrated_rows.append({"dataset": row, "hydration": hydration})
         cache_rows.append(_cache_row(row, identity_hash, hydration))
     _write_csv_atomic(cache_path, CACHE_COLUMNS, cache_rows)
@@ -274,8 +279,7 @@ def run_benchmark(
     reviewable = [
         item
         for item in hydrated_rows
-        if item["hydration"]["hydration_status"] in {"available", "degraded"}
-        and item["hydration"]["publication_text"]
+        if _hydration_is_complete(item["hydration"])
     ]
     publication_texts = {
         item["dataset"]["publication_id"]: {
@@ -455,7 +459,96 @@ def _validated_hydration(value: object) -> dict:
         raise TypeError("hydrator review_context must be a dictionary")
     if not str(value["publication_text"] or "").strip():
         raise ValueError("hydrator result requires publication text")
-    return dict(value)
+    hydration = dict(value)
+    hydration["hydration_status"] = (
+        "available" if _hydration_downloads_complete(hydration) else "degraded"
+    )
+    return hydration
+
+
+def _hydrate_with_retry(hydrator, row: dict) -> dict:
+    hydration = None
+    for attempt in range(1, HYDRATION_ATTEMPTS + 1):
+        logger.info(
+            "Reviewer benchmark progress stage=hydrate publication_id=%s "
+            "hydration_attempt=%s hydration_attempt_total=%s",
+            row["publication_id"],
+            attempt,
+            HYDRATION_ATTEMPTS,
+        )
+        try:
+            hydration = _validated_hydration(hydrator.hydrate(row))
+        except Exception as error:
+            hydration = _failed_hydration(error)
+            logger.warning(
+                "Reviewer benchmark progress stage=hydrate publication_id=%s "
+                "hydration_attempt=%s hydration_status=failed error_type=%s",
+                row["publication_id"],
+                attempt,
+                type(error).__name__,
+            )
+        if _hydration_is_complete(hydration):
+            return hydration
+        if attempt < HYDRATION_ATTEMPTS:
+            logger.warning(
+                "Reviewer benchmark progress stage=hydrate publication_id=%s "
+                "hydration_attempt=%s hydration_status=incomplete retry=true",
+                row["publication_id"],
+                attempt,
+            )
+    return hydration
+
+
+def _hydration_downloads_complete(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if str(value.get("text_source") or "") not in {
+        "fullTextXML",
+        "preprintJATSXML",
+    }:
+        return False
+    if str(value.get("full_text_status") or "") != "available":
+        return False
+    if not str(value.get("publication_text") or "").strip():
+        return False
+    if value.get("errors"):
+        return False
+    return _review_context_complete(value.get("review_context"))
+
+
+def _review_context_complete(value: object) -> bool:
+    if not isinstance(value, dict) or not str(value.get("title") or "").strip():
+        return False
+    accessions = value.get("accessions")
+    statuses = value.get("metadata_statuses")
+    metadata = value.get("metadata")
+    if not isinstance(accessions, list) or not accessions:
+        return False
+    if not isinstance(statuses, dict) or not isinstance(metadata, list):
+        return False
+    accession_set = {
+        str(accession).strip() for accession in accessions if str(accession).strip()
+    }
+    if len(accession_set) != len(accessions) or set(statuses) != accession_set:
+        return False
+    if any(str(statuses[accession]).lower() != "available" for accession in accession_set):
+        return False
+    complete_metadata = {
+        str(item.get("accession") or "").strip()
+        for item in metadata
+        if isinstance(item, dict)
+        and str(item.get("status") or "").lower() == "available"
+        and item.get("context")
+    }
+    return complete_metadata == accession_set
+
+
+def _hydration_is_complete(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("hydration_status") == "available"
+        and _hydration_downloads_complete(value)
+    )
 
 
 def _failed_hydration(error: Exception) -> dict:
@@ -561,6 +654,8 @@ def _publication_result(item: dict, reviewed: dict, batch_error: dict | None) ->
     }
     if hydration["hydration_status"] == "failed":
         return {**base, "status": "retrieval_failed"}
+    if not _hydration_is_complete(hydration):
+        return {**base, "status": "metadata_incomplete"}
     if batch_error is not None:
         return {
             **base,
@@ -654,6 +749,12 @@ def _summary(publications: list[dict]) -> dict:
         ),
         "retrieval_failed_count": sum(
             row["status"] == "retrieval_failed" for row in publications
+        ),
+        "metadata_incomplete_count": sum(
+            row["status"] == "metadata_incomplete" for row in publications
+        ),
+        "review_eligible_count": sum(
+            row["hydration"]["status"] == "available" for row in publications
         ),
         "review_completed_count": len(scored),
         "review_failed_count": sum(
