@@ -44,7 +44,7 @@ The editable install provides the `thematic-atlas` console command. The equivale
 ### Requirements
 
 - Python 3.10 or newer.
-- Installable `agentic-curator>=4.2,<5` and `meta-standards-converter>=5.1,<6`
+- Installable `agentic-curator>=4.3,<5` and `meta-standards-converter>=5.2,<6`
   distributions. The package does not depend on sibling source checkouts or Git
   URLs at runtime or build time.
 - Runtime packages: `requests`, `google-auth`, `agentic-curator`, and `meta-standards-converter`.
@@ -445,9 +445,13 @@ Atlas.harmonize_datasets(
 )
 ```
 
-The default Agentic Curator 4 path emits a source-bound
-`MINiMLHarmonizationPatch` 3.0. Applying it preserves raw metadata and writes
-occurrence-local `hz_*` groups; `annotations` arrays are not emitted. Semantic
+The default Agentic Curator 4.3 path emits an MSC-owned, source-bound
+`MINiMLHarmonizationPatch` 3.1. Applying it preserves raw metadata, writes
+occurrence-local `hz_*` groups, and retains package-local applied fragments
+under `extensions.msc_harmonization`; `annotations` arrays are not emitted.
+The extension is transported unchanged through Atlas documents, checkpoints,
+resume, trace artifacts, and publication, while detailed target/resolution
+traces remain separate. Semantic
 candidate labels are the model's primary decision surface, optional ontology
 and accession values disambiguate only collisions, split-derived targets are
 additive, extension fields remain run-local, and hierarchy enrichment is on

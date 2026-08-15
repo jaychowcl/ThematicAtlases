@@ -503,8 +503,10 @@ class AtlasHarmonizer:
                     else "provider-owned"
                 ),
             },
-            "strategy": {"atlas_adapter_revision": "1"},
-            "preprocessing": {"miniml_boundary_revision": "3.0"},
+            "strategy": {"atlas_adapter_revision": "2"},
+            "preprocessing": {
+                "miniml_boundary_revision": "3.1-retained-patches-v1"
+            },
         }
 
     @staticmethod

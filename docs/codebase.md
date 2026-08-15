@@ -1416,12 +1416,12 @@ and trace output are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Package version metadata is `4.2.0`; the Atlas document wire schema remains 1.0 while embedded metadata is canonically MSC MINiML 3.0. Harmonization checkpoints include Agentic Curator 4.2 semantic target recovery and relation-aware hierarchy execution identity.
+- Package version metadata is `4.3.0`; the Atlas document wire schema remains 1.0 while embedded metadata is canonically MSC MINiML 3.0 with optional retained patch 3.1 provenance. Harmonization checkpoints include Agentic Curator 4.3 source-evidence generation and the coordinated retained-patch execution identity.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
-  `agentic-curator>=4.2,<5`, `google-auth>=2,<3`,
-  `meta-standards-converter>=5.1,<6`, and `requests>=2.31,<3`. MSC 5 supplies
+  `agentic-curator>=4.3,<5`, `google-auth>=2,<3`,
+  `meta-standards-converter>=5.2,<6`, and `requests>=2.31,<3`. MSC 5.2 supplies
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
@@ -1454,7 +1454,7 @@ and a fixed EBI/NCBI/preprint host allowlist. Run them with
 ## Public API
 
 `src/ThematicAtlases/__init__.py` intentionally exports only
-`__version__ == "4.2.0"`. Application and domain imports remain explicit, for
+`__version__ == "4.3.0"`. Application and domain imports remain explicit, for
 example `ThematicAtlases.atlas.Atlas` and
 `ThematicAtlases.domain.AtlasDocument`.
 
@@ -1828,10 +1828,14 @@ skipped, failed, full-text, fallback, and missing counts.
 `ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared
 `ontostore`, iterates atlas accessions, builds ordered publication context from
 non-empty publication titles and abstracts, canonicalizes dictionary or list
-`accession_metadata` with MSC 5, requests a versioned Agentic harmonization
-patch, applies it copy-on-write, and revalidates the resulting typed packages.
-Patch
-details are retained in the harmonization sidecar/checkpoint. Its lazily
+`accession_metadata` with MSC 5.2, requests an Agentic-built MSC patch 3.1,
+applies it copy-on-write, and revalidates the resulting typed packages. MSC
+partitions document operations and attaches immutable package-local fragments
+under `extensions.msc_harmonization`; the extension survives Atlas documents,
+item checkpoints, resume, trace artifacts, and publication. The separate
+bounded target/resolution details remain in the harmonization sidecar and
+checkpoint. Retained patches are evidence, not implicit override instructions.
+Its lazily
 created default harmonizer receives that same store.
 
 An injected `OntoStore` may configure ordered runtime-only

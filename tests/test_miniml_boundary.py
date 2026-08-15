@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from meta_standards_converter.miniml import MINiMLCodec
+from meta_standards_converter.miniml import (
+    MINiMLCodec,
+    MINiMLHarmonizationPatch,
+    apply_miniml_harmonization_patch,
+    miniml_source_fingerprint,
+)
 
 from ThematicAtlases.miniml_boundary import (
     MINIML_CHECKPOINT_PAYLOAD_VERSION,
@@ -69,3 +74,44 @@ def test_checkpoint_payload_requires_explicit_miniml_version_markers() -> None:
         {**package, "miniml_schema_version": "3.0"}
     ]
     assert checkpoint_packages({"checkpoint_version": 3, "packages": [package]}) is None
+
+
+def test_checkpoint_round_trip_preserves_retained_harmonization_fragments() -> None:
+    package = {**package_mapping(), "miniml_schema_version": "3.0"}
+    patch = MINiMLHarmonizationPatch(
+        base_sha256=miniml_source_fingerprint(package),
+        adds=(),
+    )
+    # Empty patches are valid but have no package-local operation to attach.
+    assert apply_miniml_harmonization_patch(package, patch) == package
+
+    package["sample"] = [
+        {"iid": "GSM1", "channel": [{"source": {"value": "lung"}}]}
+    ]
+    path = "/sample/0/channel/0/source"
+    patch = MINiMLHarmonizationPatch(
+        base_sha256=miniml_source_fingerprint(package),
+        adds=(
+            {
+                "path": path,
+                "harmonized_value": {"field": "tissue", "value": "lung"},
+                "source_evidence": {
+                    "target_id": "target-1",
+                    "source_field": "source",
+                    "source_label": "lung",
+                    "source_field_path": path,
+                    "source_value_path": f"{path}/value",
+                    "derivation": "direct",
+                    "match_kind": "exact_value",
+                },
+            },
+        ),
+    )
+    applied = apply_miniml_harmonization_patch(package, patch)
+    payload = checkpoint_payload([applied], checkpoint_version=3)
+
+    restored = checkpoint_packages(payload)
+    assert restored == [applied]
+    assert restored[0]["extensions"]["msc_harmonization"]["patches"][0][
+        "operations"
+    ][0]["source_evidence"]["source_label"] == "lung"

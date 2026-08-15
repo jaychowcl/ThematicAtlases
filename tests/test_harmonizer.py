@@ -5,7 +5,7 @@ import pytest
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.harmonizer import AtlasHarmonizer
 from agentic_curator.contracts import (
-    MINiMLHarmonizationPatch,
+    miniml_harmonization_patch_from_targets,
     miniml_source_fingerprint,
 )
 from meta_standards_converter.runtime_contracts import (
@@ -82,6 +82,8 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
             self.calls.append(kwargs["miniml_json"])
             target = {
                 "id": "target-1",
+                "pre_hz_field": "source",
+                "pre_hz_label": "lung",
                 "hz_field": "organism_part",
                 "hz_label": "lung",
                 "lookup_aliases": [
@@ -103,7 +105,7 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
                 "status": operation_status(),
                 "workflow": "local_exact",
                 "harmonization_targets": [target],
-                "harmonization_patch": MINiMLHarmonizationPatch.from_targets(
+                "harmonization_patch": miniml_harmonization_patch_from_targets(
                     kwargs["miniml_json"], [target]
                 ).to_mapping(),
                 "pending_review": [],
@@ -124,7 +126,11 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     metadata = result["accessions"][0]["accession_metadata"]
     source = metadata["sample"][0]["channel"][0]["source"]
     assert source["hz_organism_part"] == "lung"
-    assert details[0]["harmonization_patch"]["schema_version"] == "3.0"
+    assert details[0]["harmonization_patch"]["schema_version"] == "3.1"
+    retained = metadata["extensions"]["msc_harmonization"]["patches"]
+    assert retained[0]["operations"][0]["source_evidence"]["match_kind"] == (
+        "interpreted"
+    )
     assert details[0]["pending_review"] == []
     assert details[0]["harmonization_targets"][0]["lookup_aliases"] == [
         {
@@ -189,7 +195,7 @@ def test_review_decisions_selectively_change_matching_work_key_and_are_forwarded
                 "pending_review": [],
                 "extension_registry": [],
                 "review_required": False,
-                "harmonization_patch": MINiMLHarmonizationPatch.from_targets(
+                "harmonization_patch": miniml_harmonization_patch_from_targets(
                     kwargs["miniml_json"], []
                 ).to_mapping(),
             }
