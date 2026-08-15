@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 from datetime import datetime, timezone
-from functools import partial
 import hashlib
 import json
 import logging
@@ -44,6 +43,7 @@ CACHE_COLUMNS = (
 )
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
+HYDRATION_POLICY_VERSION = "full-metadata-v1"
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", flags=re.IGNORECASE)
 DOI_PREFIX = re.compile(
@@ -77,7 +77,7 @@ class ProductionHydrator:
             collector = AtlasCollector(
                 metadata_handlers={
                     "arrayexpress": ArrayExpressWrapper,
-                    "geo": partial(GEOWrapper, enrich_metadata=False),
+                    "geo": GEOWrapper,
                 }
             )
         if filterer is None:
@@ -734,7 +734,13 @@ def _safe_pmid(value: object) -> str:
 
 def _identity_hash(row: dict) -> str:
     return hashlib.sha256(
-        _canonical_json({"doi": row["doi"], "pmid": row["pmid"]}).encode()
+        _canonical_json(
+            {
+                "doi": row["doi"],
+                "pmid": row["pmid"],
+                "hydration_policy_version": HYDRATION_POLICY_VERSION,
+            }
+        ).encode()
     ).hexdigest()
 
 

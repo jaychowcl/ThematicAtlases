@@ -238,8 +238,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-fibrosis-meta-pubs-review-benchmark
   title: [Fibrosis meta-publication review benchmark](codebase.md#type-fibrosis-meta-pubs-review-benchmark)
   anchor: type-fibrosis-meta-pubs-review-benchmark
-  purpose: Trace-free reviewer positive control projecting the shared 92-row recall TSV into a separate 90-identity all-relevant CSV, with DOI/PMID hydration, raw repository context without identifier enrichment, visible progress, frozen context cache, production TA review, and three-class scoring.
-  keywords: benchmark_fibrosis_meta_pubs_review, CSV, TSV projection, 90 publications, all relevant, positive control, Europe PMC, full text, raw MINiML, no SRA ENA enrichment, verbose, progress, metadata context, cache, relevant recall, confusion matrix, macro F1
+  purpose: Trace-free reviewer positive control projecting the shared 92-row recall TSV into a separate 90-identity all-relevant CSV, with DOI/PMID hydration, fully enriched repository context, visible progress, policy-versioned frozen context cache, production TA review, and three-class scoring.
+  keywords: benchmark_fibrosis_meta_pubs_review, CSV, TSV projection, 90 publications, all relevant, positive control, Europe PMC, full text, enriched MINiML, PubMed, SRA, ENA, hydration policy, cache refresh, verbose, progress, metadata context, relevant recall, confusion matrix, macro F1
 
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib.util
 import json
 import logging
@@ -407,6 +408,54 @@ def test_cache_reuses_unchanged_hydration_and_refreshes_changed_rows(
     assert refreshed.calls == ["pub-1"]
 
 
+def test_cache_refreshes_rows_from_reduced_metadata_hydration_policy(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    cache = tmp_path / CACHE_NAME
+    reviews = RecordingReviewRunner({"pub-1": "relevant"})
+    row = dataset_row("pub-1", "relevant", doi="10.1000/one")
+    write_dataset(dataset, [row])
+
+    initial = RecordingHydrator()
+    runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=cache,
+        theme_file=THEME,
+        hydrator=initial,
+        review_runner=reviews,
+    )
+
+    with cache.open(encoding="utf-8", newline="") as handle:
+        cache_rows = list(csv.DictReader(handle))
+    legacy_identity = hashlib.sha256(
+        runner._canonical_json({"doi": row["doi"], "pmid": row["pmid"]}).encode()
+    ).hexdigest()
+    cache_rows[0]["identity_sha256"] = legacy_identity
+    with cache.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=runner.CACHE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(cache_rows)
+
+    refreshed = RecordingHydrator()
+    report = runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=cache,
+        theme_file=THEME,
+        hydrator=refreshed,
+        review_runner=reviews,
+    )
+
+    assert refreshed.calls == ["pub-1"]
+    assert report["benchmark"]["cache"] == {
+        "artifact": str(cache),
+        "schema_version": runner.CACHE_SCHEMA_VERSION,
+        "reused_count": 0,
+        "refreshed_count": 1,
+    }
+
+
 def test_cache_must_not_overwrite_the_dataset(tmp_path: Path) -> None:
     runner = load_runner()
     dataset = tmp_path / "dataset.csv"
@@ -552,7 +601,7 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
     assert result["hydration_status"] == "available"
 
 
-def test_default_production_hydrator_skips_geo_identifier_enrichment(
+def test_default_production_hydrator_uses_full_geo_identifier_enrichment(
     monkeypatch,
 ) -> None:
     runner = load_runner()
@@ -574,7 +623,7 @@ def test_default_production_hydrator_skips_geo_identifier_enrichment(
 
     handlers = captured["metadata_handlers"]
     assert set(handlers) == {"arrayexpress", "geo"}
-    assert handlers["geo"]()._enrich_metadata is False
+    assert handlers["geo"]()._enrich_metadata is True
 
 
 def test_run_benchmark_logs_hydration_and_review_progress(

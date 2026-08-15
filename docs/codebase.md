@@ -314,7 +314,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 | fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
-| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns raw repository-context hydration without PubMed/SRA/ENA identifier enrichment and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; invalid global inputs fail without a report |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme and generated cache | runner owns fully enriched repository-context hydration and one atomic JSON report; production TA components own public retrieval/review | row failures remain explicit and unscored; reduced-context cache rows refresh automatically; invalid global inputs fail without a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -483,7 +483,7 @@ the Python API, or the canonical parent-adapter workflow documented in the
 <a id="type-fibrosis-meta-pubs-review-benchmark"></a>
 - The direct [`benchmark_fibrosis_meta_pubs_review.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py)
   runner owns labeled identifier validation, exact public hydration, row-level
-  cache reuse/refresh, raw GEO MINiML collection without unrelated
+  cache reuse/refresh, fully enriched GEO MINiML collection including
   PubMed/SRA/ENA identifier enrichment, visible progress, production
   `PublicationTextReviewer` dispatch, three-class metrics, and atomic report
   publication. It has no trace input.
@@ -1271,8 +1271,8 @@ benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR
 benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
     [--cache CSV] [--refresh-cache] [--verbose]
   -> validate publication_id/DOI/PMID/expected_decision rows
-  -> exact Europe PMC text + raw accession metadata hydration
-     (GEO PubMed/SRA/ENA identifier enrichment disabled)
+  -> exact Europe PMC text + fully enriched accession metadata hydration
+     (GEO PubMed/SRA/ENA identifier enrichment enabled)
   -> atomically reuse/refresh dataset-bound CSV cache rows
   -> with --verbose, log each cache/hydration action and review-stage status
   -> PublicationTextReviewer.review_publication_texts(theme=packaged fibrosis theme)
@@ -1571,18 +1571,19 @@ fails before cache/report writes.
 
 The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
 requires one matching record, uses TA's full-text/abstract fallback, discovers
-supported accessions, collects raw GEO/ArrayExpress context, and invokes
+supported accessions, collects fully enriched GEO and ArrayExpress context, and invokes
 `PublicationTextReviewer.review_publication_texts` with an explicitly public
-`ThematicReviewer`. Its benchmark-owned GEO handler sets
-`enrich_metadata=False`: parsed MINiML remains available to the reviewer, but
-the unrelated PubMed/SRA/ENA identifier-enrichment requests are suppressed.
-The normal `AtlasCollector` still defaults to full enrichment. `--verbose`
+`ThematicReviewer`. Its benchmark-owned collector uses the ordinary
+`GEOWrapper` default `enrich_metadata=True`, so PubMed/SRA/ENA identifier
+enrichment is part of the context shown to the reviewer. `--verbose`
 emits an INFO event before and after each publication hydration/cache action,
 then reports review-stage start/completion/failure. It never reads a trace.
 Successful/degraded hydration is
 frozen in a standard quoted CSV under the benchmark-specific Git-ignored output
-directory; unchanged identifier rows are reused, changed/failed rows refresh,
-and `--refresh-cache` forces all rows. Source-label changes do not refetch text.
+directory. The identity hash binds the hydration-policy version, so rows from
+the former reduced-context policy refresh automatically; unchanged fully
+enriched identifier rows are reused, changed/failed rows refresh, and
+`--refresh-cache` forces all rows. Source-label changes do not refetch text.
 
 Review report schema `1.0` records dataset/theme/cache hashes and counts,
 hydration/review coverage, expected/predicted counts, a three-by-three confusion
