@@ -16,6 +16,7 @@ from ThematicAtlases.checkpoint import (
 from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.runtime_contracts import safe_error_json
 from ThematicAtlases.wrappers.publication_policy import PublicationRecordPolicy
+from ThematicAtlases.wrappers.pubmed_gds import PubMedGDSLinkGraphWrapper
 from ThematicAtlases.accession_extraction import (
     extract_accessions_from_links,
     extract_accessions_from_text,
@@ -58,6 +59,7 @@ class EuropePMCWrapper:
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides=None,
         publication_policy: PublicationRecordPolicy | None = None,
+        link_graph_provider=None,
     ):
         if request_delay < 0:
             raise ValueError("request_delay must not be negative")
@@ -100,6 +102,12 @@ class EuropePMCWrapper:
             resource_profile=self.resource_profile,
         )
         self._publication_policy = publication_policy or PublicationRecordPolicy()
+        self._link_graph_provider = link_graph_provider or PubMedGDSLinkGraphWrapper(
+            timeout=effective_timeout,
+            request_delay=request_delay,
+            max_retries=max_retries,
+            resource_profile=self.resource_profile,
+        )
 
     def collect_accessions(
         self,
@@ -136,21 +144,26 @@ class EuropePMCWrapper:
                 "main_pipeline_phase",
                 {"phase": "downstream"},
             )
-        if not scrape_fulltext_accessions:
-            return accessions
-        text_options = {"publications": publications}
-        if checkpoint_store is not None:
-            text_options["checkpoint_store"] = checkpoint_store
-        enriched_publications = self.collect_publication_texts(**text_options)
-        accessions = self._accessions_with_enriched_publications(
-            accessions,
-            enriched_publications,
-        )
-        scraped = self.accessions_from_fulltexts(
+        enriched_publications = publications
+        scraped = []
+        if scrape_fulltext_accessions:
+            text_options = {"publications": publications}
+            if checkpoint_store is not None:
+                text_options["checkpoint_store"] = checkpoint_store
+            enriched_publications = self.collect_publication_texts(**text_options)
+            accessions = self._accessions_with_enriched_publications(
+                accessions,
+                enriched_publications,
+            )
+            scraped = self.accessions_from_fulltexts(
+                enriched_publications,
+                checkpoint_store=checkpoint_store,
+            )
+        graph = self.accessions_from_link_graph(
             enriched_publications,
             checkpoint_store=checkpoint_store,
         )
-        return self.merge_accessions(accessions, scraped)
+        return self.merge_accessions(accessions, scraped, graph)
 
     def accessions_from_fulltexts(
         self,
@@ -258,11 +271,33 @@ class EuropePMCWrapper:
         self,
         datalink_accessions: list[dict],
         scraped_accessions: list[dict],
+        link_graph_accessions: list[dict] | None = None,
     ) -> list[dict]:
-        """Merge datalink and full-text discoveries without losing provenance."""
+        """Merge all publication discovery sources without losing provenance."""
+        if link_graph_accessions is None:
+            return self._publication_policy.merge_accessions(
+                datalink_accessions,
+                scraped_accessions,
+            )
         return self._publication_policy.merge_accessions(
             datalink_accessions,
             scraped_accessions,
+            link_graph_accessions,
+        )
+
+    def accessions_from_link_graph(
+        self,
+        publications: list[dict],
+        *,
+        checkpoint_store=None,
+        cached_only: bool = False,
+    ) -> list[dict]:
+        """Resolve exact PubMed→GDS links through the injected NCBI provider."""
+
+        return self._link_graph_provider.discover(
+            publications,
+            checkpoint_store=checkpoint_store,
+            cached_only=cached_only,
         )
 
     def _merge_accession_publications(

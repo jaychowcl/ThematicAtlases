@@ -30,6 +30,34 @@ def test_epmc_wrapper_accepts_an_injected_publication_policy() -> None:
     ]
 
 
+def test_collect_accessions_adds_injected_link_graph_after_text(monkeypatch) -> None:
+    class LinkGraph:
+        def discover(self, publications, checkpoint_store=None, cached_only=False):
+            assert [publication["pmid"] for publication in publications] == ["1"]
+            assert checkpoint_store is None
+            assert cached_only is False
+            return [{
+                "datalink_id": "GSE3",
+                "discovery_sources": ["ncbi_pubmed_gds"],
+                "publications": publications,
+            }]
+
+    wrapper = EuropePMCWrapper(
+        request_delay=0,
+        link_graph_provider=LinkGraph(),
+    )
+    publication = {"source": "MED", "epmc_id": "1", "pmid": "1"}
+    monkeypatch.setattr(wrapper, "collect_publications", lambda **_kwargs: [publication])
+    monkeypatch.setattr(wrapper, "collect_datalinks", lambda **_kwargs: [])
+    monkeypatch.setattr(wrapper, "collect_publication_texts", lambda **_kwargs: [publication])
+    monkeypatch.setattr(wrapper, "accessions_from_fulltexts", lambda *_args, **_kwargs: [])
+
+    records = wrapper.collect_accessions(["query"])
+
+    assert [record["datalink_id"] for record in records] == ["GSE3"]
+    assert records[0]["discovery_sources"] == ["ncbi_pubmed_gds"]
+
+
 def test_collect_accessions_publishes_main_phase_transition_before_text(
     tmp_path,
     monkeypatch,

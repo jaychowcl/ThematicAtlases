@@ -65,6 +65,25 @@ def test_request_policy_retries_declared_status_with_retry_after():
     ]
 
 
+def test_request_policy_preserves_repeated_parameter_pairs():
+    calls = []
+    parameters = [
+        ("dbfrom", "pubmed"),
+        ("linkname", "pubmed_gds"),
+        ("id", "1"),
+        ("id", "2"),
+    ]
+    policy = RequestPolicy(
+        max_retries=0,
+        request_get=lambda **kwargs: calls.append(kwargs) or Response(),
+        allowed_hosts={"example.test"},
+    )
+
+    policy.get("https://example.test/elink.fcgi", params=parameters)
+
+    assert calls[0]["params"] == parameters
+
+
 def test_request_policy_per_call_retry_limit_does_not_mutate_default():
     responses = [Response(503), Response(200)]
     sleeps = []

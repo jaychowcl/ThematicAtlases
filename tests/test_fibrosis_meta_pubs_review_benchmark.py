@@ -366,6 +366,9 @@ def test_report_scores_three_classes_and_writes_hydration_cache(
     assert report["benchmark"]["method"] == "fibrosis_meta_publication_review"
     assert report["benchmark"]["runtime"] == {
         "hydration_policy_version": runner.HYDRATION_POLICY_VERSION,
+        "accession_discovery_policy_version": (
+            runner.PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+        ),
         "miniml_strict_compatibility_policy_version": (
             "miniml-3.0-source-compat-v1"
         ),
@@ -736,7 +739,7 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
             ]
 
         def collect_datalinks(self, publications):
-            return [{"datalink_id": "GSE1", "publications": publications}]
+            return []
 
         def accessions_from_datalinks(self, datalinks):
             return datalinks
@@ -744,8 +747,19 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
         def accessions_from_fulltexts(self, publications):
             return []
 
-        def merge_accessions(self, datalink_accessions, scraped_accessions):
-            return datalink_accessions + scraped_accessions
+        def accessions_from_link_graph(
+            self, publications, checkpoint_store=None, cached_only=False
+        ):
+            return [{
+                "datalink_id": "GSE1",
+                "publications": publications,
+                "discovery_sources": ["ncbi_pubmed_gds"],
+            }]
+
+        def merge_accessions(
+            self, datalink_accessions, scraped_accessions, graph_accessions
+        ):
+            return datalink_accessions + scraped_accessions + graph_accessions
 
     class FakeCollector:
         def filter_accessions(self, accessions):
@@ -837,8 +851,17 @@ def test_production_hydrator_passes_raw_checkpoint_store_to_every_download(
             observed.append(("fulltext_accessions", checkpoint_store))
             return []
 
-        def merge_accessions(self, datalink_accessions, scraped_accessions):
-            return datalink_accessions + scraped_accessions
+        def accessions_from_link_graph(
+            self, publications, checkpoint_store=None, cached_only=False
+        ):
+            observed.append(("link_graph", checkpoint_store))
+            assert cached_only is False
+            return []
+
+        def merge_accessions(
+            self, datalink_accessions, scraped_accessions, graph_accessions
+        ):
+            return datalink_accessions + scraped_accessions + graph_accessions
 
     class FakeCollector:
         def filter_accessions(self, accessions):
@@ -874,7 +897,8 @@ def test_production_hydrator_passes_raw_checkpoint_store_to_every_download(
 
     assert hydration["hydration_status"] == "available"
     assert [stage for stage, _store in observed] == [
-        "search", "text", "datalinks", "fulltext_accessions", "metadata",
+        "search", "text", "datalinks", "fulltext_accessions", "link_graph",
+        "metadata",
     ]
     assert all(observed_store is store for _stage, observed_store in observed)
 
@@ -1081,6 +1105,9 @@ def test_targeted_retry_reprojects_all_rows_from_cached_stages_only(
         "dataset_sha256": runner._file_sha256(dataset),
         "record_count": 1,
         "hydration_policy_version": runner.PREVIOUS_HYDRATION_POLICY_VERSION,
+        "miniml_strict_compatibility_policy_version": (
+            runner.MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+        ),
         "production_sources": [
             "Europe PMC", "PMC", "preprint", "NCBI GEO", "ArrayExpress",
             "BioStudies", "PubMed", "SRA", "ENA",
@@ -1238,7 +1265,7 @@ def test_metadata_evidence_audit_counts_accepted_warnings_without_contents(
     assert "PRIVATE-SAMPLE-TITLE" not in serialized
 
 
-def test_evidence_policy_amends_v4_fingerprint_without_losing_items(tmp_path: Path) -> None:
+def test_link_graph_policy_amends_previous_fingerprint_without_losing_items(tmp_path: Path) -> None:
     runner = load_runner()
     from ThematicAtlases.checkpoint import CheckpointStore
 
@@ -1246,6 +1273,9 @@ def test_evidence_policy_amends_v4_fingerprint_without_losing_items(tmp_path: Pa
     current = {
         "benchmark": "benchmark",
         "hydration_policy_version": runner.HYDRATION_POLICY_VERSION,
+        "accession_discovery_policy_version": (
+            runner.PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+        ),
         "miniml_strict_compatibility_policy_version": (
             runner.MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
         ),
@@ -1253,6 +1283,9 @@ def test_evidence_policy_amends_v4_fingerprint_without_losing_items(tmp_path: Pa
     previous = {
         "benchmark": "benchmark",
         "hydration_policy_version": runner.PREVIOUS_HYDRATION_POLICY_VERSION,
+        "miniml_strict_compatibility_policy_version": (
+            runner.MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+        ),
     }
     store.validate_fingerprint(previous)
     store.put("search_queries", "query", 1, "available", payload={"rows": []})
@@ -1261,7 +1294,64 @@ def test_evidence_policy_amends_v4_fingerprint_without_losing_items(tmp_path: Pa
 
     assert store.get("search_queries", "query")["status"] == "available"
     amendments = store.get_meta("run_configuration_amendments")
-    assert amendments[0]["amendment_id"] == "reviewer-miniml-source-compat-v2"
+    assert amendments[0]["amendment_id"] == "reviewer-pubmed-gds-link-graph-v1"
+
+
+def test_link_graph_audit_counts_graph_only_merges_and_failures_without_titles(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    store.put(
+        "pubmed_gds_links", "1", 1, "available",
+        payload={"contract_version": "1.0", "target_uids": ["101", "102"]},
+    )
+    store.put(
+        "pubmed_gds_links", "2", 2, "no_data",
+        payload={"contract_version": "1.0", "target_uids": []},
+    )
+    store.put(
+        "pubmed_gds_links", "3", 3, "retryable_error",
+        error_type="Timeout", failure_category="transient",
+    )
+    store.put(
+        "gds_summaries", "101", 1, "available",
+        payload={
+            "contract_version": "1.0", "uid": "101", "accession": "GSE1",
+            "entrytype": "GSE", "accepted": True,
+        },
+    )
+    store.put(
+        "gds_summaries", "102", 2, "no_data",
+        payload={
+            "contract_version": "1.0", "uid": "102", "accession": "GDS2",
+            "entrytype": "GDS", "accepted": False,
+            "rejection_reason": "non_gse_entrytype",
+        },
+    )
+    store.put(
+        "datalinks", "MED:1", 1, "available",
+        payload={"rows": [{"datalink_id": "GSE1", "pmid": "1"}]},
+    )
+
+    audit = runner._link_graph_audit(store)
+
+    assert audit["summary"] == {
+        "publication_checkpoint_count": 3,
+        "publication_no_data_count": 1,
+        "linked_uid_count": 2,
+        "accepted_gse_count": 1,
+        "rejected_summary_count": 1,
+        "link_failure_count": 1,
+        "summary_failure_count": 0,
+        "graph_only_publication_accession_count": 0,
+        "duplicate_source_publication_accession_count": 1,
+    }
+    assert audit["accepted_accessions"] == ["GSE1"]
+    assert audit["rejection_reason_counts"] == {"non_gse_entrytype": 1}
+    assert "title" not in json.dumps(audit).lower()
 
 
 def test_targeted_retry_uses_staging_copy(tmp_path: Path) -> None:

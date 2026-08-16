@@ -29,6 +29,8 @@ STAGE_POLICIES = {
     "search_queries": "discovery",
     "datalinks": "discovery",
     "fulltext_accession_discovery": "discovery",
+    "pubmed_gds_links": "discovery",
+    "gds_summaries": "discovery",
     "publication_text": "review",
     "geo_resolution": "metadata",
     "geo_metadata": "metadata",
@@ -1056,6 +1058,7 @@ def is_retryable_error(error: Exception) -> bool:
         return True
     trace = getattr(error, "request_trace", None)
     message = str(error).lower()
+    error_type = type(error).__name__.lower()
     markers = (
         "timeout",
         "temporar",
@@ -1068,8 +1071,11 @@ def is_retryable_error(error: Exception) -> bool:
         "504",
         "resource_exhausted",
     )
-    return bool(trace and trace.get("status") == "failed") or any(
-        marker in message for marker in markers
+    return (
+        bool(trace and trace.get("status") == "failed")
+        or "timeout" in error_type
+        or "connection" in error_type
+        or any(marker in message for marker in markers)
     )
 
 

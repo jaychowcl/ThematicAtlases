@@ -190,8 +190,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-atlas-collector
   title: [AtlasCollector](codebase.md#type-atlas-collector)
   anchor: type-atlas-collector
-  purpose: Discovery, repository routing, metadata collection, and metadata-resume ownership.
-  keywords: AtlasCollector, TraceMetadataResumer, GEO, ArrayExpress
+  purpose: Three-source accession discovery, repository routing, metadata collection, and metadata-resume ownership.
+  keywords: AtlasCollector, TraceMetadataResumer, Europe PMC, PubMed GDS, link graph, GEO, ArrayExpress
 
 - id: type-publication-text-reviewer
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
@@ -208,14 +208,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-checkpoint-store
   title: [CheckpointStore](codebase.md#type-checkpoint-store)
   anchor: type-checkpoint-store
-  purpose: SQLite schema, fingerprints, item history, retry selection, comparison archives, cross-process locks, and provider pacing.
-  keywords: CheckpointStore, SQLite, request_retries, atomic batch, status index, history index, item lock, bounded wait, provider slot
+  purpose: SQLite schema, fingerprints, item history, retry selection, discovery checkpoints, comparison archives, cross-process locks, and provider pacing.
+  keywords: CheckpointStore, SQLite, pubmed_gds_links, gds_summaries, request_retries, atomic batch, status index, history index, item lock, bounded wait, provider slot
 
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
   anchor: type-europe-pmc-wrapper
-  purpose: Europe PMC network boundary with injected pure publication identity, cross-process pacing, phase advertisement, limit, merge, deduplication, and projection policy.
-  keywords: EuropePMCWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, provider slot, main_pipeline_phase, publication text lock, abstract, identity, deduplication
+  purpose: Europe PMC network boundary and composition point for Datalinks, publication-text scanning, and injected official PubMed-GDS graph discovery.
+  keywords: EuropePMCWrapper, PubMedGDSLinkGraphWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, ELink, ESummary, pubmed_gds, provider slot, main_pipeline_phase, publication text lock, abstract, identity, deduplication
 
 - id: type-geo-wrapper
   title: [GEOWrapper](codebase.md#type-geo-wrapper)
@@ -324,8 +324,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  purpose: Direct fibrosis query-recall, reviewed-recall, and review-classification runners, including shared inputs, read-only trace checkpoints, resumable reviewer hydration/evidence checkpoints, targeted metadata retry, privacy-safe audit, scoring, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, SQLite, raw hydration cache, hydrate-only, retry-terminal-metadata, pre-validation evidence, diagnostics, cache audit, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, benchmarks directory
+  purpose: Direct fibrosis query-recall, reviewed-recall, and review-classification runners, including shared inputs, read-only trace checkpoints, resumable link-graph/hydration/evidence checkpoints, targeted metadata retry, privacy-safe audit, scoring, and generated output policy.
+  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, PubMed GDS, link graph, SQLite, raw hydration cache, hydrate-only, retry-terminal-metadata, pre-validation evidence, diagnostics, cache audit, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, benchmarks directory
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)
@@ -366,8 +366,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: collector
   title: [Collector](codebase.md#collector)
   anchor: collector
-  purpose: Discovery, repository routing, metadata collection, independent resume, and repair detail.
-  keywords: AtlasCollector, TraceMetadataResumer, metadata_repository, GEO, ArrayExpress, retry tags
+  purpose: Datalink, text, and PubMed-GDS discovery, repository routing, metadata collection, independent resume, and repair detail.
+  keywords: AtlasCollector, TraceMetadataResumer, metadata_repository, PubMed GDS, link graph, GEO, ArrayExpress, retry tags
 
 - id: filterer
   title: [Filterer](codebase.md#filterer)
@@ -384,14 +384,20 @@ Use `--query <keyword>` when the id is unknown.
 - id: epmc-wrapper
   title: [Europe PMC Wrapper](codebase.md#epmc-wrapper)
   anchor: epmc-wrapper
-  purpose: Search, pagination, deduplication, paced alternating XML/JSON Datalinks retries, publication text, checkpoint, and endpoint detail.
-  keywords: EuropePMCWrapper, search, datalinks, XML primary, JSON fallback, alternating rounds, request_delay, Retry-After, Scholix, fail closed, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
+  purpose: Search, pagination, deduplication, Datalinks/text/graph composition, publication text, checkpoint, and endpoint detail.
+  keywords: EuropePMCWrapper, PubMedGDSLinkGraphWrapper, search, datalinks, PubMed GDS, ELink, ESummary, XML primary, JSON fallback, alternating rounds, request_delay, Retry-After, Scholix, fail closed, fullTextXML, preprintJATSXML, bioRxiv, medRxiv, accession extraction, abstract_regex, max_publications_per_query
+
+- id: pubmed-gds-link-graph
+  title: [PubMed-GDS Link Graph](codebase.md#pubmed-gds-link-graph)
+  anchor: pubmed-gds-link-graph
+  purpose: Exact batched NCBI PubMed-to-GDS-to-GSE discovery, checkpointing, provenance, filtering, and trace-version behavior.
+  keywords: PubMedGDSLinkGraphWrapper, NCBI, ELink, ESummary, pubmed_gds, GDS UID, GSE, repeated id, checkpoint, discovery contract
 
 - id: fulltext-accession-discovery
   title: [Publication-text Accession Discovery](codebase.md#fulltext-accession-discovery)
   anchor: fulltext-accession-discovery
-  purpose: Default-on deterministic publication-text accession extraction, registry families, provenance merging, checkpointing, and repository filtering.
-  keywords: scrape_fulltext_accessions, fulltext_regex, abstract_regex, preprint JATS, discovery_sources, GEO, ArrayExpress, BioStudies, BioProject, INSDC, BioSample
+  purpose: Default-on deterministic publication-text accession extraction and its merge boundary with Datalinks and always-on PubMed-GDS discovery.
+  keywords: scrape_fulltext_accessions, fulltext_regex, abstract_regex, ncbi_pubmed_gds, preprint JATS, discovery_sources, GEO, ArrayExpress, BioStudies, BioProject, INSDC, BioSample
 
 - id: rate-handling
   title: [Rate Handling](codebase.md#rate-handling)

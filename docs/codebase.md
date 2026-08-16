@@ -304,7 +304,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | --- | --- | --- | --- | --- |
 | CLI/runners | `Atlas` | synchronous Python calls | caller owns inputs; `Atlas` owns run ordering | parser/validation error ends invocation |
 | `Atlas` | `AtlasCollector` | `collect_jsons` / `resume_metadata` | collector owns repository selection and metadata stage | item errors represented/checkpointed |
-| collector | Europe PMC/GEO/AE wrappers | adapter calls, outbound HTTP where implemented | wrappers own response normalization; shared `RequestPolicy` owns bounded GET retries | transient requests retry; unsupported handler statuses become terminal inventory without invocation |
+| collector | Europe PMC/NCBI/GEO/AE wrappers | adapter calls, outbound HTTP where implemented | wrappers own response normalization; shared `RequestPolicy` owns bounded GET retries; the NCBI provider owns exact PubMed→GDS→GSE graph projection | transient requests retry; unsupported handler statuses become terminal inventory without invocation |
 | `Atlas` | `AtlasFilterer` | atlas-shaped mappings | filterer owns text map, review context, and filtering | review failures remain item-local in trace |
 | filterer | `PublicationTextReviewer` | publication/context mappings | reviewer owns judgement contract; filterer applies outcome filter | strategy/fingerprint mismatches fail |
 | `Atlas` | `AtlasHarmonizer` | dataset mappings and controls | harmonizer owns per-work-key cache and details | original metadata retained on failure |
@@ -314,7 +314,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 | fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
-| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme, raw SQLite, derived CSV, and audit | runner owns resumable public hydration, provider-stage/raw-package checkpoints, compressed pre-validation source evidence, terminal-negative reuse, compact projection, complete-context eligibility, and atomic artifact replacement; production TA components own public retrieval/review | hydrate-only never initializes a model; targeted retry reuses captured source and isolates terminal metadata; retained base GEO packages become partial after exhausted enrichment; only error-free rows with non-empty full text/preprint/abstract and complete accession metadata reach review; invalid global inputs fail without replacing a report |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme, raw SQLite, derived CSV, and audit | runner owns resumable public hydration, PubMed→GDS link/summary checkpoints, provider-stage/raw-package checkpoints, compressed pre-validation source evidence, terminal-negative reuse, compact projection, complete-context eligibility, and atomic artifact replacement; production TA components own public retrieval/review | hydrate-only never initializes a model; targeted retry reuses captured source and isolates terminal metadata; retained base GEO packages become partial after exhausted enrichment; only error-free rows with non-empty full text/preprint/abstract and complete accession metadata reach review; invalid global inputs fail without replacing a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -444,8 +444,9 @@ the Python API, or the canonical parent-adapter workflow documented in the
   related artifact bundle.
 <a id="type-atlas-collector"></a>
 - [`AtlasCollector`](../src/ThematicAtlases/collector/collector.py) owns Europe
-  PMC discovery, accession filtering, metadata repository routing, and
-  metadata collection. `TraceMetadataResumer` advances or audits a saved trace.
+  PMC discovery, default-on official PubMed→GDS→GSE discovery, accession
+  filtering, metadata repository routing, and metadata collection.
+  `TraceMetadataResumer` advances or audits a saved trace.
 <a id="type-publication-text-reviewer"></a>
 - [`AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) owns text
   collection/reference attachment, review dispatch, review filtering, and final
@@ -460,9 +461,13 @@ the Python API, or the canonical parent-adapter workflow documented in the
   fingerprint validation/amendment, item state/history, retry selection, item
   locks, and comparison archives. `DevTraceWriter` owns the readable run layout.
 <a id="type-europe-pmc-wrapper"></a>
-- [`EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py),
+- [`EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) composes Europe
+  PMC Datalinks, publication-text scanning, and the injectable
+  [`PubMedGDSLinkGraphWrapper`](../src/ThematicAtlases/wrappers/pubmed_gds.py).
+  The graph wrapper isolates exact NCBI ELink/ESummary projection and is
+  independently injectable for tests or composing applications.
 <a id="type-geo-wrapper"></a>
-  [`GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py), and
+- [`GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) and
   [`ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) isolate remote
   or repository-specific behavior. Europe PMC delegates publication identity,
   limits, merge/deduplication, and record projection to
@@ -645,7 +650,11 @@ Complete public-member signatures for the exported classes:
   `publication_text_sections(text) -> list[dict]`;
   `collect_publication_texts(publications, checkpoint_store=None) -> dict`;
   `collect_datalinks(publications, checkpoint_store=None) -> list[dict]`;
-  `accessions_from_datalinks(datalinks) -> list[dict]`.
+  `accessions_from_datalinks(datalinks) -> list[dict]`;
+  `accessions_from_link_graph(publications, checkpoint_store=None,
+  cached_only=False) -> list[dict]`.
+- [`PubMedGDSLinkGraphWrapper`](../src/ThematicAtlases/wrappers/pubmed_gds.py):
+  `discover(publications, checkpoint_store=None, cached_only=False) -> list[dict]`.
 - [`GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py):
   `collect_accession_metadata(jsons, checkpoint_store=None,
   retry_tags=None) -> list[dict]`;
@@ -1588,8 +1597,9 @@ theme is byte-identical to `docs/theme_fibrosis.txt`. An empty custom dataset
 fails before cache/report writes.
 
 The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
-requires one matching record, discovers supported accessions, collects fully
-enriched GEO and ArrayExpress context, and invokes
+requires one matching record, discovers supported accessions from Datalinks,
+publication text, and exact official PubMed→GDS links, collects fully enriched
+GEO and ArrayExpress context, and invokes
 `PublicationTextReviewer.review_publication_texts` with an explicitly public
 `ThematicReviewer` only for complete contexts. Complete means non-empty text from
 full-text XML, preprint XML, or `abstractText`, at least one supported accession,
@@ -1600,7 +1610,8 @@ incomplete row `metadata_incomplete` and excludes it from reviewer inputs. Its b
 `GEOWrapper` default `enrich_metadata=True`, so PubMed/SRA/ENA identifier
 enrichment is part of the context shown to the reviewer. A benchmark-owned
 `CheckpointStore` retains search pages, publication text, Datalinks, full-text
-accession discovery, checksum-verified gzip-compressed GEO MINiML XML or
+accession discovery, PubMed→GDS link results keyed by PMID, GDS summaries keyed
+by UID, checksum-verified gzip-compressed GEO MINiML XML or
 ArrayExpress IDF/SDRF resources, parser-produced pre-canonical mappings,
 structured strict-validation diagnostics, canonical packages, PubMed/SRA/ENA
 enrichment, sanitized failures, statuses, and attempt history. Source evidence
@@ -1608,7 +1619,9 @@ is captured immediately after download and reused after deterministic parse or
 canonicalization failures. Source-compatible duplicate sample titles retain
 their exact values and unique iids, while accepted `xsd_uniqueness` warnings
 and the `miniml-3.0-source-compat-v1` policy identity remain in diagnostic and
-runtime provenance. Successful and
+runtime provenance. Exact graph-linked GSEs need no textual corroboration, but
+remain reviewer-ineligible unless canonical metadata is non-empty and
+`available`. Successful and
 authoritative-negative stages are reused. After two hydration attempts,
 transient provider errors become explicit terminal outcomes; a successfully
 downloaded GEO base package is retained with `partial` derived status when only
@@ -1618,8 +1631,8 @@ stages explicitly.
 `--retry-terminal-metadata` is valid only with `--hydrate-only`. It snapshots
 terminal GEO and ArrayExpress metadata checkpoints, makes two construction
 attempts per unique accession through the unchanged production parsers, and
-does not retry publication lookup/text, Datalinks, PubMed, SRA, ENA, or any
-review stage. Exhausted construction is terminalized before all 90 publication
+does not retry publication lookup/text, Datalinks, PubMed→GDS, PubMed, SRA,
+ENA, or any review stage. Exhausted construction is terminalized before all 90 publication
 rows are reprojected through checkpoint-only hydration under the new policy.
 The run operates in a resumable staging copy and publishes the SQLite, derived
 CSV, and audit together only after that terminal reprojection.
@@ -1631,7 +1644,8 @@ compact CSV, and `fibrosis_meta_pubs_review_cache_audit.json` only after every
 publication has a terminal hydration record and no pending stage remains. The
 audit contains identifiers, download/parse/canonicalization statuses, attempt
 counts, accepted/blocking diagnostic codes/paths/severities, compatibility
-policy identity, coverage, and sanitized failure
+policy identity, coverage, graph query/UID/GSE/merge/rejection/failure counts,
+and sanitized failure
 categories, but excludes publication text, XML/MAGE-TAB resources,
 pre-canonical/canonical package contents, and diagnostic messages.
 The SQLite cache retains raw evidence and packages; the CSV retains publication text and only
@@ -1640,8 +1654,9 @@ emits an INFO event before and after each publication hydration/cache action and
 for each outer hydration attempt, then reports review-stage
 start/completion/failure. It never reads a trace. Complete/incomplete hydration is
 frozen in a standard quoted CSV under the benchmark-specific Git-ignored output
-directory. The identity hash binds the hydration-policy version, so the former
-compact-only policy refreshes once. Thereafter every terminal raw outcome is
+directory. The identity hash binds the hydration/discovery-policy version, so
+the pre-graph policy refreshes each row once while retaining successful text
+and metadata checkpoints. Thereafter every terminal raw outcome is
 reused; `--refresh-cache` forces compact reprojection and requeues exhausted raw
 provider stages while retaining successful downloads. Source-label changes do
 not refetch text.
@@ -1708,7 +1723,7 @@ Public methods:
 - `resume(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None, review_decisions=None)`: resumes an explicit trace or the newest incomplete valid trace from its latest atomic checkpoint. It reuses collected accessions, per-publication review progress, reviewed datasets, per-dataset harmonizations, or the final atlas without repeating completed work; transient checkpoint errors are retried. Incremental review progress contributes cached publication texts and review checkpoints but is merged with the complete `01_collected_accessions.json`, so an early subset never replaces the finished collection. `stop_before_review=True` overrides an older combined-workflow manifest and returns after accession and publication-text collection without reading or modifying thematic-review rows. Review decisions must name the same run and a current source fingerprint; only that source's work key is invalidated.
 - `amend_queries(dev_out_dir, run_id, queries, max_publications_per_query)`: explicitly replaces an existing trace's query configuration while atomically archiving its prior fingerprint and writing a readable query archive. Existing item checkpoints remain live, and repeating the same amendment is idempotent.
 - `archive_existing_runs(dev_out_dir, archive_root, workflow, artifact_paths=())`: archives every inactive trace under one workflow root, attaches fixed artifacts to the newest trace, verifies the copy, and returns the ordered archive paths. It is a no-op when neither traces nor artifacts exist, refuses unsafe workflow names, symlinks, active workflows, and destination collisions, and never overwrites an archive.
-- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", prune_accessions=False, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v1 with run status `running`. Full-text and curated-link discovery are on by default; accession pruning requires explicit opt-in. Unsupported capabilities are partitioned before review and can be written to the explicit sidecar. With review-before-metadata enabled, supported GEO and ArrayExpress accessions use registry-defined review identity, are filtered without metadata, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
+- `collect_datasets(..., max_publications=None, max_publications_per_query=None, review_strategy="direct", prune_accessions=False, generate_queries=False, max_generated_queries=3, dev_trace=False, dev_out_dir=".dev", run_id=None, review_before_metadata=False, stop_before_review=False, scrape_fulltext_accessions=True, unsupported_accessions_out=None)`: owns explicit/file/generated query ordering and validation before collection, metadata enrichment, text mapping, and optional thematic review, then returns Atlas v1 with run status `running`. Publication-text, curated-link, and exact official PubMed→GDS→GSE discovery are on by default; accession pruning requires explicit opt-in. The PubMed-GDS discovery-contract version is part of trace manifests and fingerprints, so a pre-graph trace must fork rather than silently changing dataset membership. Unsupported capabilities are partitioned before review and can be written to the explicit sidecar. With review-before-metadata enabled, supported GEO and ArrayExpress accessions use registry-defined review identity, are filtered without metadata, and only survivors are enriched. `stop_before_review=True` defers review and metadata. A traced public collection writes `collection_snapshot.json`, never a final-atlas role.
 - `harmonize_datasets(datasets, harmonization_details_out=None, harmonization_options=None, review_decisions=None)`: requires an Atlas v1 mapping, delegates its projected metadata to `AtlasHarmonizer`, returns validated Atlas v1, and optionally writes a details sidecar. A review-decision contract selectively changes the matching source work key. Legacy unversioned mappings fail closed.
 
 `Atlas` no longer exposes `collect_jsons()`, `filter_jsons()`, or `harmonize_jsons()` as public methods. Helper-level behavior belongs to the component classes below.
@@ -1785,7 +1800,7 @@ Current responsibilities:
 
 - Build query lists from repeated API/CLI query values and optional UTF-8 query files.
 - Ignore blank query-file lines and lines beginning with `#`.
-- Call `EuropePMCWrapper.collect_accessions(queries=..., max_publications=..., max_publications_per_query=...)`.
+- Call `EuropePMCWrapper.collect_accessions(queries=..., max_publications=..., max_publications_per_query=...)`, which merges Datalinks, optional publication-text matches, and exact official PubMed→GDS→GSE links before repository filtering.
 - Keep records handled by selected supported metadata repositories and retain
   scanner-identified unsupported repositories as terminal records.
   `metadata_repositories=None` selects GEO and ArrayExpress.
@@ -2036,12 +2051,13 @@ resume without refetching completed pages.
 
 Current public methods:
 
-- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, advertises main phase `datalinks`, fetches Datalinks, changes the phase to `downstream`, scans Europe PMC XML, supported preprint JATS, or abstract fallback by default, merges normalized accession records with provenance, and returns candidates before repository filtering.
+- `collect_accessions(queries, max_publications=None, max_publications_per_query=None, checkpoint_store=None, scrape_fulltext_accessions=True) -> list[dict]`: searches and deduplicates publications, advertises main phase `datalinks`, fetches Datalinks, changes the phase to `downstream`, optionally scans Europe PMC XML, supported preprint JATS, or abstract fallback, resolves exact official PubMed→GDS links, merges normalized accession records with provenance, and returns candidates before repository filtering.
 - `collect_publications(queries, max_publications=None, max_publications_per_query=None) -> list[dict]`: searches Europe PMC for each query and returns normalized, cross-query-deduplicated publication rows. The per-query limit list aligns with query order; configured limits can expand pagination beyond the default five pages.
 - `collect_publication_texts(publications: list[dict], checkpoint_store=None) -> list[dict]`: fetches Europe PMC `fullTextXML`, then official bioRxiv/medRxiv JATS for supported preprints, and otherwise falls back to abstracts. With a checkpoint store, each publication is locked and a busy bounded lock defers that item.
 - `collect_datalinks(publications: list[dict], checkpoint_store=None) -> list[dict]`: calls only the Europe PMC datalinks API for publication rows, flattens datalink rows internally, deduplicates by accession, and returns accession records; publication-text fetching belongs to `collect_accessions`. Datalinks and Europe PMC full-text request starts share the run-local cross-process provider interval.
 - `accessions_from_fulltexts(publications, checkpoint_store=None) -> list[dict]`: extracts registry matches from available Europe PMC XML or preprint JATS with `fulltext_regex` provenance and from abstract fallback with `abstract_regex` provenance, then checkpoints each publication.
-- `merge_accessions(datalink_accessions, scraped_accessions) -> list[dict]`: performs case-insensitive accession and publication merging while retaining discovery provenance.
+- `accessions_from_link_graph(publications, checkpoint_store=None, cached_only=False) -> list[dict]`: delegates numeric-PMID discovery to the injected NCBI graph provider and can replay only existing graph checkpoints without network calls.
+- `merge_accessions(datalink_accessions, scraped_accessions, link_graph_accessions=None) -> list[dict]`: performs deterministic Datalinks → text → graph, case-insensitive accession/publication merging while retaining every discovery source and graph provenance.
 - `publication_text_sections(text: str) -> list[dict]`: parses section-delimited publication text into ordered section dictionaries.
 
 The wrapper uses `requests.get()` against:
@@ -2053,6 +2069,8 @@ https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML
 https://api.biorxiv.org/details/{biorxiv|medrxiv}/{doi}/na/json
 https://www.biorxiv.org/...source.xml
 https://www.medrxiv.org/...source.xml
+https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi
+https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi
 ```
 
 Preprint JATS fetching is limited to Europe PMC `PPR` rows with bioRxiv or
@@ -2093,15 +2111,41 @@ firstPublicationDate
 `collect_publications()` and `collect_datalinks()` are intermediate stages inside
 `collect_accessions()`. With scraping enabled, `collect_publication_texts()` is
 also called there so publications with no Datalinks can still contribute
-accessions. The enriched publication rows are carried forward and reused by
+accessions. PubMed→GDS discovery remains active whether scraping is enabled or
+disabled. The enriched publication rows are carried forward and reused by
 `AtlasFilterer`, avoiding a second full-text request.
+
+<a id="pubmed-gds-link-graph"></a>
+#### PubMed→GDS link-graph discovery
+
+`PubMedGDSLinkGraphWrapper` batches numeric PMIDs through NCBI ELink using
+repeated `id` parameters, `dbfrom=pubmed`, `db=gds`, and
+`linkname=pubmed_gds`. It validates an exact one-to-one LinkSet mapping back to
+the requested PMIDs, then batches the linked UIDs through GDS ESummary. Only a
+summary with `entrytype=GSE`, an accession matching `GSE\d+`, and an identity
+accepted by `RepositoryCapabilityRegistry.review_identity()` is projected.
+Titles, related articles, computational neighbours, GDS/GSM/GPL entries, and
+DOI-only fuzzy searches are not inference sources.
+
+Link results are checkpointed under `pubmed_gds_links` by PMID and summaries
+under `gds_summaries` by GDS UID. Successful and authoritative `no_data`
+outcomes replay within the trace; retryable request failures use the existing
+request policy and shared `ncbi_eutils` provider pacing. Public records retain
+only the PMID, `pubmed_gds` link name, target UID, normalized GSE, provider, and
+discovery-contract version rather than raw API responses. Exact official graph
+evidence is sufficient for discovery without a text match. Suitability remains
+strictly downstream: unavailable, empty, or invalid metadata packages never
+become reviewer inputs. The contract version is part of new trace fingerprints,
+so pre-graph production traces must fork instead of silently changing dataset
+membership.
 
 <a id="fulltext-accession-discovery"></a>
 #### Publication-text accession discovery
 
 The option is enabled by default across Python, the installed CLI, and fixed
-fibrosis runners. `--no-scrape-fulltext-accessions` restores Datalinks-only
-discovery. Resume treats a missing manifest field as the legacy disabled
+fibrosis runners. `--no-scrape-fulltext-accessions` disables only publication-
+text scanning; Europe PMC Datalinks and PubMed→GDS graph discovery remain
+active. Resume treats a missing manifest field as the legacy disabled text-scan
 behavior; new enabled traces include the field in the fingerprint.
 
 The registry accepts canonical contiguous tokens, case-insensitively, and
@@ -2120,8 +2164,8 @@ fallback uses `abstract_regex`. JATS parsing includes body and back-matter
 sections such as Data Availability but excludes the reference list. Datalink
 fields win conflicts, while
 `discovery_sources` and nested `accession_discovery_sources` retain
-`europe_pmc_datalink`, `fulltext_regex`, `abstract_regex`, or their applicable
-combination. Each publication's normalized
+`europe_pmc_datalink`, `fulltext_regex`, `abstract_regex`,
+`ncbi_pubmed_gds`, or their applicable combination. Each publication's normalized
 candidates are stored under `fulltext_accession_discovery`, a retryable
 discovery boundary. The existing `AtlasCollector.filter_accessions()` remains
 authoritative: currently supported GEO and selected ArrayExpress experiment

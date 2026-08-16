@@ -37,6 +37,9 @@ from ThematicAtlases.unsupported_accessions import (
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 from ThematicAtlases.wrappers.geo import GEOWrapper
+from ThematicAtlases.wrappers.pubmed_gds import (
+    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +274,9 @@ class Atlas:
                     "harmonization_details_out": harmonization_details_out,
                     "review_before_metadata": review_before_metadata,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                    "pubmed_gds_discovery_contract": (
+                        PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                    ),
                     "unsupported_accessions_out": unsupported_accessions_out,
                     "thematic_review": thematic_review,
                     "stop_after": stop_after,
@@ -1086,6 +1092,9 @@ class Atlas:
                     "review_before_metadata": review_before_metadata,
                     "stop_before_review": stop_before_review,
                     "scrape_fulltext_accessions": scrape_fulltext_accessions,
+                    "pubmed_gds_discovery_contract": (
+                        PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                    ),
                     "unsupported_accessions_out": unsupported_accessions_out,
                     "resource_profile": asdict(self._resource_profile),
                     "runtime_provenance": self._runtime_provenance,
@@ -1202,6 +1211,9 @@ class Atlas:
                 "metadata_repositories": metadata_repositories,
                 "max_publications": max_publications,
                 "collect_metadata": collect_metadata,
+                "pubmed_gds_discovery_contract": (
+                    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                ),
             }
             if prune_accessions:
                 fingerprint_configuration["prune_accessions"] = True

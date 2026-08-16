@@ -17,6 +17,9 @@ import tempfile
 from meta_standards_converter.miniml import (
     MINIML_STRICT_COMPATIBILITY_POLICY_VERSION,
 )
+from ThematicAtlases.wrappers.pubmed_gds import (
+    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION,
+)
 
 
 REPORT_NAME = "fibrosis_meta_pubs_review_report.json"
@@ -52,8 +55,8 @@ CACHE_COLUMNS = (
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
 CACHE_FIELD_SIZE_LIMIT = 256 * 1024 * 1024
-PREVIOUS_HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v4-raw-evidence"
-HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v5-miniml-source-compat"
+PREVIOUS_HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v5-miniml-source-compat"
+HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v6-pubmed-gds-link-graph"
 HYDRATION_ATTEMPTS = 2
 METADATA_RETRY_ATTEMPTS = 2
 RAW_HYDRATION_STAGE = "review_benchmark_hydration"
@@ -63,6 +66,8 @@ RAW_SOURCE_STAGES = (
     "publication_text",
     "datalinks",
     "fulltext_accession_discovery",
+    "pubmed_gds_links",
+    "gds_summaries",
     "geo_resolution",
     "geo_metadata",
     "arrayexpress_metadata",
@@ -249,7 +254,12 @@ class ProductionHydrator:
         scraped = self._epmc.accessions_from_fulltexts(
             [enriched_publication], **checkpoint_options
         )
-        accessions = self._epmc.merge_accessions(linked, scraped)
+        graph = self._epmc.accessions_from_link_graph(
+            [enriched_publication],
+            **checkpoint_options,
+            cached_only=cached_metadata_only,
+        )
+        accessions = self._epmc.merge_accessions(linked, scraped, graph)
         accessions = self._collector.filter_accessions(accessions)
 
         errors = []
@@ -364,12 +374,16 @@ def hydrate_cache(
         "dataset_sha256": _file_sha256(dataset_path),
         "record_count": len(rows),
         "hydration_policy_version": HYDRATION_POLICY_VERSION,
+        "accession_discovery_policy_version": (
+            PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+        ),
         "miniml_strict_compatibility_policy_version": (
             MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
         ),
         "production_sources": [
             "Europe PMC", "PMC", "preprint", "NCBI GEO", "ArrayExpress",
             "BioStudies", "PubMed", "SRA", "ENA",
+            "NCBI PubMed-GDS link graph",
         ],
     }
     _validate_or_amend_hydration_fingerprint(store, fingerprint)
@@ -432,6 +446,9 @@ def hydrate_cache(
                 "available",
                 payload={
                     "contract_version": "1.0",
+                    "accession_discovery_policy_version": (
+                        PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                    ),
                     "identity_sha256": identity_hash,
                     "hydration": hydration,
                     "terminal_outcome": (
@@ -455,6 +472,9 @@ def hydrate_cache(
                 "available",
                 payload={
                     "contract_version": "1.0",
+                    "accession_discovery_policy_version": (
+                        PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                    ),
                     "identity_sha256": identity_hash,
                     "hydration": hydration,
                     "terminal_outcome": (
@@ -531,15 +551,21 @@ def _validate_or_amend_hydration_fingerprint(store, fingerprint: dict) -> None:
     existing_configuration = existing.get("configuration") or {}
     previous = dict(fingerprint)
     previous["hydration_policy_version"] = PREVIOUS_HYDRATION_POLICY_VERSION
-    previous.pop("miniml_strict_compatibility_policy_version", None)
+    previous.pop("accession_discovery_policy_version", None)
+    if "production_sources" in previous:
+        previous["production_sources"] = [
+            source
+            for source in previous["production_sources"]
+            if source != "NCBI PubMed-GDS link graph"
+        ]
     if existing_configuration == previous:
         store.amend_fingerprint(
             fingerprint,
-            amendment_id="reviewer-miniml-source-compat-v2",
+            amendment_id="reviewer-pubmed-gds-link-graph-v1",
             metadata={
                 "reason": (
-                    "retain provider checkpoints while accepting source-compatible "
-                    "duplicate sample-title warnings"
+                    "retain successful provider checkpoints while adding exact "
+                    "PubMed-to-GDS accession discovery"
                 ),
             },
         )
@@ -712,6 +738,9 @@ def _reproject_terminal_hydrations(hydrated_rows: list[dict], hydrator, store) -
             "available",
             payload={
                 "contract_version": "1.0",
+                "accession_discovery_policy_version": (
+                    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                ),
                 "identity_sha256": _identity_hash(row),
                 "hydration": candidate,
                 "terminal_outcome": (
@@ -861,6 +890,7 @@ def _cache_audit(
         "exhausted_failure_count": len(failures),
     }
     metadata_evidence = _metadata_evidence_audit(store)
+    link_graph = _link_graph_audit(store)
     return {
         "schema_version": "1.0",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -888,7 +918,93 @@ def _cache_audit(
         },
         "failures": failures,
         "metadata_evidence": metadata_evidence,
+        "link_graph": link_graph,
         "publications": publication_audit,
+    }
+
+
+def _link_graph_audit(store) -> dict:
+    link_items = store.items("pubmed_gds_links")
+    summary_items = store.items("gds_summaries")
+    summary_by_uid = {
+        str(item["key"]): item for item in summary_items
+    }
+    accepted_accessions = set()
+    rejection_reason_counts = {}
+    linked_uids = set()
+    graph_pairs = set()
+    for item in link_items:
+        pmid = str(item["key"])
+        payload = item.get("payload") or {}
+        for uid in payload.get("target_uids", []) or []:
+            uid = str(uid)
+            linked_uids.add(uid)
+            summary = summary_by_uid.get(uid) or {}
+            summary_payload = summary.get("payload") or {}
+            if summary_payload.get("accepted"):
+                accession = str(summary_payload.get("accession") or "").upper()
+                if accession:
+                    accepted_accessions.add(accession)
+                    graph_pairs.add((pmid, accession))
+
+    for item in summary_items:
+        payload = item.get("payload") or {}
+        reason = payload.get("rejection_reason")
+        if reason:
+            reason = str(reason)
+            rejection_reason_counts[reason] = (
+                rejection_reason_counts.get(reason, 0) + 1
+            )
+
+    other_pairs = set()
+    for item in store.items("datalinks"):
+        for row in (item.get("payload") or {}).get("rows", []) or []:
+            if not isinstance(row, dict):
+                continue
+            pmid = str(row.get("pmid") or "").strip()
+            accession = str(row.get("datalink_id") or "").strip().upper()
+            if pmid and accession:
+                other_pairs.add((pmid, accession))
+    for item in store.items("fulltext_accession_discovery"):
+        for record in (item.get("payload") or {}).get("records", []) or []:
+            if not isinstance(record, dict):
+                continue
+            accession = str(record.get("datalink_id") or "").strip().upper()
+            for publication in record.get("publications", []) or []:
+                pmid = str(publication.get("pmid") or "").strip()
+                if pmid and accession:
+                    other_pairs.add((pmid, accession))
+
+    graph_only = graph_pairs - other_pairs
+    duplicate_source = graph_pairs & other_pairs
+    return {
+        "schema_version": "1.0",
+        "contract_version": PUBMED_GDS_DISCOVERY_CONTRACT_VERSION,
+        "summary": {
+            "publication_checkpoint_count": len(link_items),
+            "publication_no_data_count": sum(
+                item["status"] == "no_data" for item in link_items
+            ),
+            "linked_uid_count": len(linked_uids),
+            "accepted_gse_count": len(accepted_accessions),
+            "rejected_summary_count": sum(
+                bool((item.get("payload") or {}).get("rejection_reason"))
+                for item in summary_items
+            ),
+            "link_failure_count": sum(
+                item["status"] in {"retryable_error", "terminal_error"}
+                for item in link_items
+            ),
+            "summary_failure_count": sum(
+                item["status"] in {"retryable_error", "terminal_error"}
+                for item in summary_items
+            ),
+            "graph_only_publication_accession_count": len(graph_only),
+            "duplicate_source_publication_accession_count": len(duplicate_source),
+        },
+        "accepted_accessions": sorted(accepted_accessions),
+        "graph_only_accessions": sorted({accession for _pmid, accession in graph_only}),
+        "rejection_reason_counts": dict(sorted(rejection_reason_counts.items())),
     }
 
 
@@ -1226,6 +1342,9 @@ def run_benchmark(
             },
             "runtime": {
                 "hydration_policy_version": HYDRATION_POLICY_VERSION,
+                "accession_discovery_policy_version": (
+                    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                ),
                 "miniml_strict_compatibility_policy_version": (
                     MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
                 ),
@@ -1731,6 +1850,9 @@ def _identity_hash(row: dict) -> str:
                 "doi": row["doi"],
                 "pmid": row["pmid"],
                 "hydration_policy_version": HYDRATION_POLICY_VERSION,
+                "accession_discovery_policy_version": (
+                    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+                ),
             }
         ).encode()
     ).hexdigest()

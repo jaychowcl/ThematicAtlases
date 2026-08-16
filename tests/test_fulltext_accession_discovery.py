@@ -469,7 +469,15 @@ def test_preprint_jats_rejects_untrusted_host_and_uses_abstract() -> None:
 def test_collect_accessions_can_disable_fulltext_scraping(monkeypatch) -> None:
     wrapper = EuropePMCWrapper(request_delay=0)
     publication = {"query": "q", "source": "MED", "epmc_id": "1"}
-    expected = [{"datalink_id": "GSE1", "publications": [publication]}]
+    datalinks = [{"datalink_id": "GSE1", "publications": [publication]}]
+    expected = [{
+        "datalink_id": "GSE1",
+        "publications": [{
+            **publication,
+            "accession_discovery_sources": ["europe_pmc_datalink"],
+        }],
+        "discovery_sources": ["europe_pmc_datalink"],
+    }]
     monkeypatch.setattr(
         wrapper,
         "collect_publications",
@@ -478,7 +486,7 @@ def test_collect_accessions_can_disable_fulltext_scraping(monkeypatch) -> None:
     monkeypatch.setattr(
         wrapper,
         "collect_datalinks",
-        lambda **kwargs: expected,
+        lambda **kwargs: datalinks,
     )
     monkeypatch.setattr(
         wrapper,

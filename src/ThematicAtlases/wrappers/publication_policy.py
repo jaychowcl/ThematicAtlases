@@ -10,12 +10,14 @@ class PublicationRecordPolicy:
         self,
         datalink_accessions: list[dict],
         scraped_accessions: list[dict],
+        link_graph_accessions: list[dict] | None = None,
     ) -> list[dict]:
         merged: list[dict] = []
         indexes: dict[str, int] = {}
         for record, source in (
             *((record, "europe_pmc_datalink") for record in datalink_accessions),
             *((record, None) for record in scraped_accessions),
+            *((record, None) for record in (link_graph_accessions or [])),
         ):
             accession = str(record.get("datalink_id", "")).strip()
             if not accession:
@@ -63,6 +65,14 @@ class PublicationRecordPolicy:
                     *normalized.get("discovery_sources", []),
                 ]
             )
+            graph_provenance = self.ordered_unique_records(
+                [
+                    *current.get("link_graph_provenance", []),
+                    *normalized.get("link_graph_provenance", []),
+                ]
+            )
+            if graph_provenance:
+                current["link_graph_provenance"] = graph_provenance
             self.merge_accession_publications(current, normalized)
         return merged
 
@@ -85,6 +95,12 @@ class PublicationRecordPolicy:
                     *publication.get("accession_discovery_sources", []),
                 ]
             )
+            graph_provenance = self.ordered_unique_records(
+                [
+                    *existing.get("link_graph_provenance", []),
+                    *publication.get("link_graph_provenance", []),
+                ]
+            )
             current["publications"][index] = {
                 **existing,
                 **{
@@ -93,6 +109,10 @@ class PublicationRecordPolicy:
                     if value
                 },
                 "accession_discovery_sources": sources,
+                **(
+                    {"link_graph_provenance": graph_provenance}
+                    if graph_provenance else {}
+                ),
             }
 
     def accessions_with_enriched_publications(
@@ -121,6 +141,14 @@ class PublicationRecordPolicy:
     @staticmethod
     def ordered_unique(values: list[str]) -> list[str]:
         return list(dict.fromkeys(value for value in values if value))
+
+    @staticmethod
+    def ordered_unique_records(values: list[dict]) -> list[dict]:
+        return [
+            value
+            for index, value in enumerate(values)
+            if value and value not in values[:index]
+        ]
 
     @staticmethod
     def normalized_max_publications(max_publications: int | None) -> int | None:

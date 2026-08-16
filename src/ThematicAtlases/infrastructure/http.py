@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import inspect
@@ -26,6 +26,7 @@ DEFAULT_ALLOWED_HOST_SUFFIXES = frozenset(
         "medrxiv.org",
     }
 )
+RequestParameters = Mapping[str, Any] | Sequence[tuple[str, Any]]
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
@@ -97,7 +98,7 @@ class RequestPolicy:
         self,
         url: str,
         *,
-        params: Mapping[str, Any] | None = None,
+        params: RequestParameters | None = None,
         retry_exceptions: bool = False,
         raise_for_status: bool = True,
         max_retries: int | None = None,
@@ -154,7 +155,7 @@ class RequestPolicy:
         self,
         url: str,
         *,
-        params: Mapping[str, Any] | None,
+        params: RequestParameters | None,
     ) -> Any:
         current = url
         for redirect_count in range(self.resource_profile.max_redirects + 1):
@@ -164,7 +165,9 @@ class RequestPolicy:
                 "timeout": self.timeout,
             }
             if redirect_count == 0 and params is not None:
-                arguments["params"] = dict(params)
+                arguments["params"] = (
+                    dict(params) if isinstance(params, Mapping) else list(params)
+                )
             request_get = self._request_get or requests.get
             self._add_supported_argument(
                 request_get, arguments, "allow_redirects", False

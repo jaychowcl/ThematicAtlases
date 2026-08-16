@@ -9,6 +9,9 @@ from ThematicAtlases.document_adapter import AtlasDocumentAdapter
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer.review import REVIEW_CONTRACT_VERSION
 from ThematicAtlases.run_store import AtlasRunStore
+from ThematicAtlases.wrappers.pubmed_gds import (
+    PUBMED_GDS_DISCOVERY_CONTRACT_VERSION,
+)
 
 
 def initialize_run_store(run_dir, status="running"):
@@ -917,6 +920,62 @@ def test_collect_datasets_can_own_resumable_discovery_trace(tmp_path) -> None:
     assert not (run_dir / "resume_state.sqlite").exists()
     assert json.loads((run_dir / "collection_snapshot.json").read_text()) == result
     assert not (run_dir / "06_final_atlas.json").exists()
+
+
+def test_collect_datasets_fingerprint_versions_pubmed_gds_discovery(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.trace import DevTraceWriter
+
+    trace = DevTraceWriter(str(tmp_path), "run", {})
+    Atlas(
+        metadata={},
+        collector=RecordingCollector(),
+        filterer=RecordingFilterer(),
+    ).collect_datasets(
+        query=["fibrosis"],
+        _trace_writer=trace,
+    )
+
+    configuration = trace.checkpoint_store.get_meta("run_fingerprint")[
+        "configuration"
+    ]
+    assert configuration["pubmed_gds_discovery_contract"] == (
+        PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+    )
+
+
+def test_collect_datasets_rejects_trace_from_pre_link_graph_policy(
+    tmp_path,
+) -> None:
+    from ThematicAtlases.trace import DevTraceWriter
+
+    trace = DevTraceWriter(str(tmp_path), "run", {})
+    trace.checkpoint_store.validate_fingerprint(
+        {
+            "query": ["fibrosis"],
+            "query_file": None,
+            "theme": None,
+            "review_filter": "none",
+            "metadata_repositories": None,
+            "max_publications": None,
+            "collect_metadata": True,
+            "scrape_fulltext_accessions": True,
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="checkpoint configuration does not match",
+    ):
+        Atlas(
+            metadata={},
+            collector=RecordingCollector(),
+            filterer=RecordingFilterer(),
+        ).collect_datasets(
+            query=["fibrosis"],
+            _trace_writer=trace,
+        )
 
 
 def test_amend_queries_archives_manifest_and_updates_resumable_configuration(
