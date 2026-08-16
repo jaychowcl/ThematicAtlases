@@ -918,6 +918,25 @@ def test_hydrate_only_publishes_terminal_raw_csv_and_private_audit_without_revie
     assert json.loads(cache_rows[0]["review_context_json"])["accessions"]
 
 
+def test_audit_lifts_sanitized_provider_failure_fields_from_error_contract() -> None:
+    runner = load_runner()
+    item = {
+        "error": json.dumps({
+            "error_type": "MINiMLCompatibilityError",
+            "failure_category": "metadata_compatibility",
+            "correlation_id": "safe-correlation-id",
+        }),
+        "error_type": None,
+        "failure_category": None,
+    }
+
+    assert runner._sanitized_failure_fields(item) == {
+        "error_type": "MINiMLCompatibilityError",
+        "failure_category": "metadata_compatibility",
+        "correlation_id": "safe-correlation-id",
+    }
+
+
 def test_terminal_incomplete_raw_hydration_is_reused_without_download(
     tmp_path: Path,
 ) -> None:

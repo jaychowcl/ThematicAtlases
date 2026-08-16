@@ -611,8 +611,7 @@ def _cache_audit(
                         "item_id": item["key"],
                         "status": item["status"],
                         "attempt_count": item.get("attempt_count", 0),
-                        "error_type": item.get("error_type"),
-                        "failure_category": item.get("failure_category"),
+                        **_sanitized_failure_fields(item),
                     }
                 )
         stage_counts[stage] = counts
@@ -734,6 +733,36 @@ def _cache_audit(
         },
         "failures": failures,
         "publications": publication_audit,
+    }
+
+
+def _sanitized_failure_fields(item: dict) -> dict:
+    """Project only non-sensitive provider error contract fields into the audit."""
+
+    contract = {}
+    raw_error = item.get("error")
+    if isinstance(raw_error, str):
+        try:
+            parsed = json.loads(raw_error)
+        except (TypeError, ValueError):
+            parsed = None
+        if isinstance(parsed, dict):
+            contract = parsed
+    elif isinstance(raw_error, dict):
+        contract = raw_error
+
+    error_type = item.get("error_type") or contract.get("error_type")
+    failure_category = (
+        item.get("failure_category") or contract.get("failure_category")
+    )
+    if not failure_category and error_type == "MINiMLCompatibilityError":
+        failure_category = "metadata_compatibility"
+    if not failure_category and contract.get("retry_category"):
+        failure_category = f"provider_{contract['retry_category']}"
+    return {
+        "error_type": error_type,
+        "failure_category": failure_category,
+        "correlation_id": contract.get("correlation_id"),
     }
 
 
