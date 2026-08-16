@@ -6,9 +6,11 @@ import gzip
 import hashlib
 from uuid import uuid4
 
-from meta_standards_converter.miniml import MINiMLCompatibilityError
-
-from ThematicAtlases.miniml_boundary import canonicalize_miniml_package
+from meta_standards_converter.miniml import (
+    MINIML_STRICT_COMPATIBILITY_POLICY_VERSION,
+    MINiMLCodec,
+    MINiMLCompatibilityError,
+)
 
 
 GEO_SOURCE_STAGE = "geo_miniml_source"
@@ -76,13 +78,26 @@ def canonicalize_with_diagnostics(
 ) -> list[dict]:
     canonical = []
     diagnostics = []
+    accepted_diagnostics = []
     issues = []
+    codec = MINiMLCodec()
     diagnostic_key = f"{provider}:{key}"
     previous_diagnostic = store.get(VALIDATION_DIAGNOSTICS_STAGE, diagnostic_key)
     attempt_count = int((previous_diagnostic or {}).get("attempt_count", 0)) + 1
     for package_index, package in enumerate(packages):
         try:
-            canonical.append(canonicalize_miniml_package(package))
+            result = codec.decode(package, strict=True)
+            canonical.append(codec.encode(result.package))
+            accepted_diagnostics.extend(
+                {
+                    "package_index": package_index,
+                    "code": issue.code,
+                    "path": issue.path,
+                    "severity": issue.severity,
+                }
+                for issue in result.diagnostics
+                if issue.code != "schema_migrated"
+            )
         except MINiMLCompatibilityError as error:
             issues.extend(error.diagnostics)
             diagnostics.extend(
@@ -108,6 +123,11 @@ def canonicalize_with_diagnostics(
                     "failure_stage": "canonicalization",
                     "attempt_count": attempt_count,
                     "correlation_id": correlation_id,
+                    "accepted_warning_count": len(accepted_diagnostics),
+                    "accepted_diagnostics": accepted_diagnostics,
+                    "compatibility_policy_version": (
+                        MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+                    ),
                     "diagnostics": [
                         {
                             "package_index": package_index,
@@ -135,6 +155,11 @@ def canonicalize_with_diagnostics(
                 "failure_stage": "canonicalization",
                 "attempt_count": attempt_count,
                 "correlation_id": correlation_id,
+                "accepted_warning_count": len(accepted_diagnostics),
+                "accepted_diagnostics": accepted_diagnostics,
+                "compatibility_policy_version": (
+                    MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+                ),
                 "diagnostics": diagnostics,
             },
             error_type="MINiMLCompatibilityError",
@@ -153,7 +178,11 @@ def canonicalize_with_diagnostics(
             "failure_stage": None,
             "attempt_count": attempt_count,
             "correlation_id": None,
-            "diagnostics": [],
+            "accepted_warning_count": len(accepted_diagnostics),
+            "compatibility_policy_version": (
+                MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+            ),
+            "diagnostics": accepted_diagnostics,
         },
     )
     return canonical

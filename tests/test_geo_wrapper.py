@@ -185,6 +185,60 @@ def test_geo_checkpoint_captures_source_precanonical_and_diagnostics_before_fail
     assert Fetcher.calls == 1
 
 
+def test_geo_checkpoint_retains_accepted_duplicate_sample_title_warnings(
+    tmp_path, monkeypatch
+) -> None:
+    store = CheckpointStore(tmp_path / "raw.sqlite3")
+    package = v2_package("GSE1")
+    package["sample"] = [
+        {"iid": "GSM1", "title": "paired donor"},
+        {"iid": "GSM2", "title": "paired donor"},
+    ]
+    package["series"]["sample_ref"] = [{"ref": "GSM1"}, {"ref": "GSM2"}]
+
+    class Fetcher:
+        def fetch_gse_miniml(self, gse):
+            return f"<MINiML accession='{gse}'/>"
+
+    class Parser:
+        def parse(self, **_kwargs):
+            return [MINiMLCodec().decode(package).package]
+
+    class Enricher:
+        @staticmethod
+        def enrich(data):
+            return data
+
+    class Converter:
+        def __init__(self, **_kwargs):
+            self.geo_fetcher = Fetcher()
+            self.parser = Parser()
+            self.enricher = Enricher()
+
+    monkeypatch.setattr(geo_module, "geo2json", Converter)
+    result = GEOWrapper().collect_accession_metadata(
+        [{"datalink_id": "GSE1", "publications": []}], checkpoint_store=store
+    )
+
+    assert result[0]["metadata_status"] == "available"
+    assert [sample["title"] for sample in result[0]["accession_metadata"]["sample"]] == [
+        "paired donor",
+        "paired donor",
+    ]
+    diagnostics = store.get("metadata_validation_diagnostics", "geo:GSE1")
+    assert diagnostics["status"] == "available"
+    assert diagnostics["payload"]["accepted_warning_count"] == 1
+    assert diagnostics["payload"]["compatibility_policy_version"] == (
+        "miniml-3.0-source-compat-v1"
+    )
+    assert diagnostics["payload"]["diagnostics"] == [{
+        "package_index": 0,
+        "code": "xsd_uniqueness",
+        "path": "/sample/1/title",
+        "severity": "warning",
+    }]
+
+
 def test_geo_metadata_checkpoint_rebuilds_latest_publication_provenance(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume_state.sqlite")
     wrapper = FakeGEOWrapper()

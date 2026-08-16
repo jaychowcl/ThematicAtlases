@@ -13,7 +13,7 @@ authors = []
 dependencies = [
     "agentic-curator>=4.3,<5",
     "google-auth>=2,<3",
-    "meta-standards-converter>=5.2,<6",
+    "meta-standards-converter>=5.2.1,<6",
     "requests>=2.31,<3",
 ]
 

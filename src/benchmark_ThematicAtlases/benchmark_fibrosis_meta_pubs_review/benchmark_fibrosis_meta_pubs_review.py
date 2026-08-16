@@ -14,6 +14,10 @@ import sqlite3
 import sys
 import tempfile
 
+from meta_standards_converter.miniml import (
+    MINIML_STRICT_COMPATIBILITY_POLICY_VERSION,
+)
+
 
 REPORT_NAME = "fibrosis_meta_pubs_review_report.json"
 CACHE_NAME = "fibrosis_meta_pubs_review_cache.csv"
@@ -48,8 +52,8 @@ CACHE_COLUMNS = (
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
 CACHE_FIELD_SIZE_LIMIT = 256 * 1024 * 1024
-PREVIOUS_HYDRATION_POLICY_VERSION = "complete-full-metadata-v3-raw-checkpoints"
-HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v4-raw-evidence"
+PREVIOUS_HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v4-raw-evidence"
+HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v5-miniml-source-compat"
 HYDRATION_ATTEMPTS = 2
 METADATA_RETRY_ATTEMPTS = 2
 RAW_HYDRATION_STAGE = "review_benchmark_hydration"
@@ -360,6 +364,9 @@ def hydrate_cache(
         "dataset_sha256": _file_sha256(dataset_path),
         "record_count": len(rows),
         "hydration_policy_version": HYDRATION_POLICY_VERSION,
+        "miniml_strict_compatibility_policy_version": (
+            MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+        ),
         "production_sources": [
             "Europe PMC", "PMC", "preprint", "NCBI GEO", "ArrayExpress",
             "BioStudies", "PubMed", "SRA", "ENA",
@@ -522,16 +529,18 @@ def _validate_or_amend_hydration_fingerprint(store, fingerprint: dict) -> None:
         store.validate_fingerprint(fingerprint)
         return
     existing_configuration = existing.get("configuration") or {}
-    previous = {
-        **fingerprint,
-        "hydration_policy_version": PREVIOUS_HYDRATION_POLICY_VERSION,
-    }
+    previous = dict(fingerprint)
+    previous["hydration_policy_version"] = PREVIOUS_HYDRATION_POLICY_VERSION
+    previous.pop("miniml_strict_compatibility_policy_version", None)
     if existing_configuration == previous:
         store.amend_fingerprint(
             fingerprint,
-            amendment_id="reviewer-metadata-evidence-v1",
+            amendment_id="reviewer-miniml-source-compat-v2",
             metadata={
-                "reason": "retain provider checkpoints while adding raw evidence and abstract eligibility",
+                "reason": (
+                    "retain provider checkpoints while accepting source-compatible "
+                    "duplicate sample-title warnings"
+                ),
             },
         )
     store.validate_fingerprint(fingerprint)
@@ -886,6 +895,10 @@ def _cache_audit(
 def _metadata_evidence_audit(store) -> dict:
     records = []
     code_counts = {}
+    accepted_code_counts = {}
+    accepted_warning_count = 0
+    accepted_warning_accession_count = 0
+    compatibility_policy_versions = set()
     failure_stage_counts = {}
     accessions = set()
     for provider, stage in (
@@ -942,6 +955,18 @@ def _metadata_evidence_audit(store) -> dict:
             diagnostics.append(projected)
             code = str(projected.get("code") or "unknown")
             code_counts[code] = code_counts.get(code, 0) + 1
+        item_accepted_warning_count = int(
+            payload.get("accepted_warning_count", 0) or 0
+        )
+        if item_accepted_warning_count:
+            accepted_warning_count += item_accepted_warning_count
+            accepted_warning_accession_count += 1
+            for projected in diagnostics:
+                code = str(projected.get("code") or "unknown")
+                accepted_code_counts[code] = accepted_code_counts.get(code, 0) + 1
+        policy_version = payload.get("compatibility_policy_version")
+        if policy_version:
+            compatibility_policy_versions.add(str(policy_version))
         for counts, status in (
             (download_status_counts, source.get("status", "missing")),
             (parse_status_counts, precanonical.get("status", "missing")),
@@ -961,6 +986,8 @@ def _metadata_evidence_audit(store) -> dict:
                 "attempt_count", canonical.get("attempt_count", 0)
             ),
             "correlation_id": payload.get("correlation_id"),
+            "accepted_warning_count": item_accepted_warning_count,
+            "compatibility_policy_version": policy_version,
             "diagnostics": diagnostics,
         })
     retry = store.get_meta("terminal_metadata_retry") or {}
@@ -973,6 +1000,12 @@ def _metadata_evidence_audit(store) -> dict:
             "diagnostic_status_counts": diagnostic_status_counts,
             "failure_stage_counts": failure_stage_counts,
             "diagnostic_code_counts": code_counts,
+            "accepted_warning_count": accepted_warning_count,
+            "accepted_warning_accession_count": accepted_warning_accession_count,
+            "accepted_diagnostic_code_counts": accepted_code_counts,
+            "compatibility_policy_versions": sorted(
+                compatibility_policy_versions
+            ),
         },
         "retry": {
             "attempts_per_accession": retry.get("attempts_per_accession"),
@@ -1190,6 +1223,13 @@ def run_benchmark(
                 "schema_version": CACHE_SCHEMA_VERSION,
                 "reused_count": reused_count,
                 "refreshed_count": refreshed_count,
+            },
+            "runtime": {
+                "hydration_policy_version": HYDRATION_POLICY_VERSION,
+                "miniml_strict_compatibility_policy_version": (
+                    MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+                ),
+                "full_metadata_enrichment": True,
             },
         },
         "summary": summary,

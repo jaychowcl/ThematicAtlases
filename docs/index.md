@@ -238,8 +238,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-fibrosis-meta-pubs-review-benchmark
   title: [Fibrosis meta-publication review benchmark](codebase.md#type-fibrosis-meta-pubs-review-benchmark)
   anchor: type-fibrosis-meta-pubs-review-benchmark
-  purpose: Trace-free reviewer positive control with resumable raw provider SQLite, pre-validation GEO/ArrayExpress evidence, targeted terminal-metadata retry, compact derived CSV, privacy-safe diagnostics audit, abstract/full-text complete-context gating, production TA review, and three-class scoring over 90 all-relevant identities.
-  keywords: benchmark_fibrosis_meta_pubs_review, raw cache, SQLite, CheckpointStore, hydrate-only, retry-terminal-metadata, gzip, checksum, MINiML XML, IDF, SDRF, pre-canonical, validation diagnostics, abstractText, cache audit, terminal negative, partial enrichment, CSV, 90 publications, all relevant, Europe PMC, enriched MINiML, PubMed, SRA, ENA, complete metadata gate, metadata_incomplete, relevant recall, confusion matrix, macro F1
+  purpose: Trace-free reviewer positive control with resumable raw provider SQLite, pre-validation GEO/ArrayExpress evidence, source-compatible duplicate sample-title warnings, targeted terminal-metadata retry, compact derived CSV, privacy-safe diagnostics audit, abstract/full-text complete-context gating, production TA review, and three-class scoring over 90 all-relevant identities.
+  keywords: benchmark_fibrosis_meta_pubs_review, raw cache, SQLite, CheckpointStore, hydrate-only, retry-terminal-metadata, miniml-3.0-source-compat-v1, duplicate sample title, unique iid, accepted warning, xsd_uniqueness, gzip, checksum, MINiML XML, IDF, SDRF, pre-canonical, validation diagnostics, abstractText, cache audit, terminal negative, partial enrichment, CSV, 90 publications, all relevant, Europe PMC, enriched MINiML, PubMed, SRA, ENA, complete metadata gate, metadata_incomplete, relevant recall, confusion matrix, macro F1
 
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
@@ -307,7 +307,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Runtime And Packaging](codebase.md#runtime-and-packaging)
   anchor: runtime-and-packaging
   purpose: Python, setuptools, exact-platform hashed runtime lock, deterministic CycloneDX SBOM, fail-closed release evidence, independent v1 dependencies, editable install, tests, and console command.
-  keywords: pyproject, Python 3.10, version 4.3.0, Agentic Curator 4.3, MSC 5.2, retained patch 3.1, msc_harmonization, pylock, SHA-256, CycloneDX, SBOM, advisory snapshot, signed artifact, security SLA, MSC MINiML 3.0, pytest, thematic-atlas
+  keywords: pyproject, Python 3.10, version 4.3.0, Agentic Curator 4.3, MSC 5.2.1, retained patch 3.1, msc_harmonization, pylock, SHA-256, CycloneDX, SBOM, advisory snapshot, signed artifact, security SLA, MSC MINiML 3.0, pytest, thematic-atlas
 
 - id: public-api
   title: [Public API Route](codebase.md#public-api)

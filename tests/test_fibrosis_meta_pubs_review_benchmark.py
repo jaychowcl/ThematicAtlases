@@ -364,6 +364,13 @@ def test_report_scores_three_classes_and_writes_hydration_cache(
 
     assert report["schema_version"] == "1.0"
     assert report["benchmark"]["method"] == "fibrosis_meta_publication_review"
+    assert report["benchmark"]["runtime"] == {
+        "hydration_policy_version": runner.HYDRATION_POLICY_VERSION,
+        "miniml_strict_compatibility_policy_version": (
+            "miniml-3.0-source-compat-v1"
+        ),
+        "full_metadata_enrichment": True,
+    }
     assert report["summary"]["input_count"] == 3
     assert report["summary"]["hydrated_count"] == 3
     assert report["summary"]["review_completed_count"] == 3
@@ -1186,7 +1193,52 @@ def test_metadata_evidence_audit_excludes_raw_and_package_contents(tmp_path: Pat
     assert "PRIVATE-RETRY-DETAIL" not in serialized
 
 
-def test_evidence_policy_amends_v3_fingerprint_without_losing_items(tmp_path: Path) -> None:
+def test_metadata_evidence_audit_counts_accepted_warnings_without_contents(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    store.put("geo_miniml_source", "GSE1", 1, "available", payload={})
+    store.put("geo_precanonical_metadata", "GSE1", 1, "available", payload={})
+    store.put("geo_metadata", "GSE1", 1, "available", payload={"packages": []})
+    store.put(
+        "metadata_validation_diagnostics", "geo:GSE1", 1, "available",
+        payload={
+            "provider": "geo",
+            "accession": "GSE1",
+            "failure_stage": None,
+            "attempt_count": 2,
+            "correlation_id": None,
+            "accepted_warning_count": 1,
+            "compatibility_policy_version": "miniml-3.0-source-compat-v1",
+            "diagnostics": [{
+                "package_index": 0,
+                "code": "xsd_uniqueness",
+                "path": "/sample/1/title",
+                "severity": "warning",
+                "message": "PRIVATE-SAMPLE-TITLE",
+            }],
+        },
+    )
+
+    audit = runner._metadata_evidence_audit(store)
+    serialized = json.dumps(audit)
+
+    assert audit["summary"]["accepted_warning_count"] == 1
+    assert audit["summary"]["accepted_warning_accession_count"] == 1
+    assert audit["summary"]["accepted_diagnostic_code_counts"] == {
+        "xsd_uniqueness": 1
+    }
+    assert audit["summary"]["compatibility_policy_versions"] == [
+        "miniml-3.0-source-compat-v1"
+    ]
+    assert audit["accessions"][0]["accepted_warning_count"] == 1
+    assert "PRIVATE-SAMPLE-TITLE" not in serialized
+
+
+def test_evidence_policy_amends_v4_fingerprint_without_losing_items(tmp_path: Path) -> None:
     runner = load_runner()
     from ThematicAtlases.checkpoint import CheckpointStore
 
@@ -1194,9 +1246,12 @@ def test_evidence_policy_amends_v3_fingerprint_without_losing_items(tmp_path: Pa
     current = {
         "benchmark": "benchmark",
         "hydration_policy_version": runner.HYDRATION_POLICY_VERSION,
+        "miniml_strict_compatibility_policy_version": (
+            runner.MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
+        ),
     }
     previous = {
-        **current,
+        "benchmark": "benchmark",
         "hydration_policy_version": runner.PREVIOUS_HYDRATION_POLICY_VERSION,
     }
     store.validate_fingerprint(previous)
@@ -1206,7 +1261,7 @@ def test_evidence_policy_amends_v3_fingerprint_without_losing_items(tmp_path: Pa
 
     assert store.get("search_queries", "query")["status"] == "available"
     amendments = store.get_meta("run_configuration_amendments")
-    assert amendments[0]["amendment_id"] == "reviewer-metadata-evidence-v1"
+    assert amendments[0]["amendment_id"] == "reviewer-miniml-source-compat-v2"
 
 
 def test_targeted_retry_uses_staging_copy(tmp_path: Path) -> None:

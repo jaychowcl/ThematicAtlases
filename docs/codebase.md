@@ -488,9 +488,13 @@ the Python API, or the canonical parent-adapter workflow documented in the
   hydration, terminal negative caching, interruption/resume, privacy-safe cache
   audit, model-free hydration-only execution, complete-context gating, visible progress, production
   `PublicationTextReviewer` dispatch, three-class metrics, and atomic report
-  publication. Reviewer input requires available full text, at least one
+  publication. Reviewer input requires non-empty full text, preprint text, or
+  abstract text, at least one
   supported accession, non-empty metadata for every accession, only `available`
-  metadata statuses, and no hydration errors. It has no trace input.
+  metadata statuses, and no hydration errors. MSC policy
+  `miniml-3.0-source-compat-v1` preserves duplicate sample titles only when
+  unique non-empty iids retain identity; accepted warnings are audited while
+  all other strict diagnostics remain blocking. It has no trace input.
   Its packaged labeled CSV is the all-relevant, identity-deduplicated projection
   of the shared recall TSV rather than another direct consumer of that TSV.
 
@@ -1435,7 +1439,7 @@ and trace output are not part of the tracked source tree.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
   `agentic-curator>=4.3,<5`, `google-auth>=2,<3`,
-  `meta-standards-converter>=5.2,<6`, and `requests>=2.31,<3`. MSC 5.2 supplies
+  `meta-standards-converter>=5.2.1,<6`, and `requests>=2.31,<3`. MSC 5.2.1 supplies
   canonical H5AD metadata schema 1.0 while retaining the public GEO conversion
   interfaces used by this repository. No build or
   runtime dependency resolves through a sibling checkout or Git URL.
@@ -1601,7 +1605,10 @@ ArrayExpress IDF/SDRF resources, parser-produced pre-canonical mappings,
 structured strict-validation diagnostics, canonical packages, PubMed/SRA/ENA
 enrichment, sanitized failures, statuses, and attempt history. Source evidence
 is captured immediately after download and reused after deterministic parse or
-canonicalization failures. Successful and
+canonicalization failures. Source-compatible duplicate sample titles retain
+their exact values and unique iids, while accepted `xsd_uniqueness` warnings
+and the `miniml-3.0-source-compat-v1` policy identity remain in diagnostic and
+runtime provenance. Successful and
 authoritative-negative stages are reused. After two hydration attempts,
 transient provider errors become explicit terminal outcomes; a successfully
 downloaded GEO base package is retained with `partial` derived status when only
@@ -1623,7 +1630,8 @@ hidden SQLite staging file, then publishes the raw database, existing-contract
 compact CSV, and `fibrosis_meta_pubs_review_cache_audit.json` only after every
 publication has a terminal hydration record and no pending stage remains. The
 audit contains identifiers, download/parse/canonicalization statuses, attempt
-counts, diagnostic codes/paths/severities, coverage, and sanitized failure
+counts, accepted/blocking diagnostic codes/paths/severities, compatibility
+policy identity, coverage, and sanitized failure
 categories, but excludes publication text, XML/MAGE-TAB resources,
 pre-canonical/canonical package contents, and diagnostic messages.
 The SQLite cache retains raw evidence and packages; the CSV retains publication text and only

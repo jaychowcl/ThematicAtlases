@@ -40,6 +40,29 @@ def test_canonicalization_accepts_mapping_and_typed_package() -> None:
     assert canonicalize_miniml_package(typed) == canonical
 
 
+def test_canonicalization_preserves_source_duplicate_sample_titles_with_unique_iids() -> None:
+    mapping = package_mapping()
+    mapping["sample"] = [
+        {"iid": "GSM1", "title": "paired donor"},
+        {"iid": "GSM2", "title": "paired donor"},
+    ]
+    mapping["series"]["sample_ref"] = [
+        {"ref": "GSM1"},
+        {"ref": "GSM2"},
+    ]
+
+    canonical = canonicalize_miniml_package(mapping)
+
+    assert [sample["iid"] for sample in canonical["sample"]] == ["GSM1", "GSM2"]
+    assert [sample["title"] for sample in canonical["sample"]] == [
+        "paired donor",
+        "paired donor",
+    ]
+    assert checkpoint_packages(checkpoint_payload([canonical], checkpoint_version=4)) == [
+        canonical
+    ]
+
+
 @pytest.mark.parametrize(
     "value",
     [
