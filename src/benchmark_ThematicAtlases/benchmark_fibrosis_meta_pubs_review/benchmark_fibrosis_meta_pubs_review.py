@@ -47,6 +47,7 @@ CACHE_COLUMNS = (
 )
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
+CACHE_FIELD_SIZE_LIMIT = 256 * 1024 * 1024
 HYDRATION_POLICY_VERSION = "complete-full-metadata-v3-raw-checkpoints"
 HYDRATION_ATTEMPTS = 2
 RAW_HYDRATION_STAGE = "review_benchmark_hydration"
@@ -965,11 +966,16 @@ def _load_dataset(path: Path) -> list[dict]:
 def _load_cache(path: Path) -> dict[str, dict]:
     if not path.exists():
         return {}
-    with path.open(encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if tuple(reader.fieldnames or ()) != CACHE_COLUMNS:
-            raise ValueError("hydration cache has an unsupported column contract")
-        rows = [dict(row) for row in reader]
+    previous_field_limit = csv.field_size_limit()
+    try:
+        csv.field_size_limit(max(previous_field_limit, CACHE_FIELD_SIZE_LIMIT))
+        with path.open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if tuple(reader.fieldnames or ()) != CACHE_COLUMNS:
+                raise ValueError("hydration cache has an unsupported column contract")
+            rows = [dict(row) for row in reader]
+    finally:
+        csv.field_size_limit(previous_field_limit)
     result = {}
     for index, row in enumerate(rows, start=2):
         if row.get("cache_schema_version") != CACHE_SCHEMA_VERSION:

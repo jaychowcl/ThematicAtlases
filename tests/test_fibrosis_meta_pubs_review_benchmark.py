@@ -524,6 +524,23 @@ def test_cache_must_not_overwrite_the_dataset(tmp_path: Path) -> None:
     assert dataset.read_bytes() == original
 
 
+def test_existing_cache_accepts_large_publication_text_fields(tmp_path: Path) -> None:
+    runner = load_runner()
+    cache = tmp_path / CACHE_NAME
+    hydration = complete_hydration("large")
+    hydration["publication_text"] = "A" * 200_000
+    row = dataset_row("large", "relevant", pmid="1")
+    runner._write_csv_atomic(
+        cache,
+        runner.CACHE_COLUMNS,
+        [runner._cache_row(row, runner._identity_hash(row), hydration)],
+    )
+
+    loaded = runner._load_cache(cache)
+
+    assert loaded["large"]["publication_text"] == "A" * 200_000
+
+
 def test_row_failures_are_reported_and_excluded_from_metrics(tmp_path: Path) -> None:
     runner = load_runner()
     dataset = tmp_path / "dataset.csv"
