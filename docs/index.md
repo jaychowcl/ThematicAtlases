@@ -238,8 +238,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-fibrosis-meta-pubs-review-benchmark
   title: [Fibrosis meta-publication review benchmark](codebase.md#type-fibrosis-meta-pubs-review-benchmark)
   anchor: type-fibrosis-meta-pubs-review-benchmark
-  purpose: Trace-free reviewer positive control projecting the shared 92-row recall TSV into a separate 90-identity all-relevant CSV, with retry-once complete DOI/PMID and repository hydration, incomplete-row skipping, a policy-versioned frozen context cache, production TA review, and three-class scoring.
-  keywords: benchmark_fibrosis_meta_pubs_review, CSV, TSV projection, 90 publications, all relevant, positive control, Europe PMC, complete full text, enriched MINiML, PubMed, SRA, ENA, hydration retry, complete metadata gate, metadata_incomplete, cache refresh, verbose, relevant recall, confusion matrix, macro F1
+  purpose: Trace-free reviewer positive control with resumable raw provider SQLite, compact derived CSV, privacy-safe cache audit, model-free hydration-only mode, complete-context gating, production TA review, and three-class scoring over 90 all-relevant identities.
+  keywords: benchmark_fibrosis_meta_pubs_review, raw cache, SQLite, CheckpointStore, hydrate-only, cache audit, terminal negative, partial enrichment, CSV, 90 publications, all relevant, Europe PMC, enriched MINiML, PubMed, SRA, ENA, complete metadata gate, metadata_incomplete, relevant recall, confusion matrix, macro F1
 
 - id: workflow-collection
   title: [Collection workflow](codebase.md#workflow-collection)
@@ -324,8 +324,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: benchmark-package
   title: [Benchmark Package](codebase.md#benchmark-package)
   anchor: benchmark-package
-  purpose: Direct fibrosis query-recall, reviewed-recall, and review-classification runners, shared inputs, read-only trace checkpoints, frozen runtime cache, scoring, and generated output policy.
-  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, SQLite, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, cache, benchmarks directory, Leonie, Taylor, He, Jaimes Campos, ILD
+  purpose: Direct fibrosis query-recall, reviewed-recall, and review-classification runners, including shared inputs, read-only trace checkpoints, resumable reviewer hydration checkpoints, privacy-safe audit, scoring, and generated output policy.
+  keywords: benchmark_fibrosis_meta_pubs_query_recall, benchmark_fibrosis_meta_pubs_recall, benchmark_fibrosis_meta_pubs_review, SQLite, raw hydration cache, hydrate-only, cache audit, search_pages, TSV, CSV, DOI, PMID, reference set, recall, classification, partial, benchmarks directory
 
 - id: fibrosis-curation-theme
   title: [Fibrosis Curation Theme](codebase.md#fibrosis-curation-theme)

@@ -9,12 +9,16 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
+import sqlite3
 import sys
 import tempfile
 
 
 REPORT_NAME = "fibrosis_meta_pubs_review_report.json"
 CACHE_NAME = "fibrosis_meta_pubs_review_cache.csv"
+RAW_CACHE_NAME = "fibrosis_meta_pubs_review_raw_cache.sqlite3"
+AUDIT_NAME = "fibrosis_meta_pubs_review_cache_audit.json"
 DEFAULT_DATASET = Path(__file__).with_name("fibrosis_meta_publications_review.csv")
 DEFAULT_THEME = Path(__file__).with_name("theme_fibrosis.txt")
 DEFAULT_OUTPUT_DIRECTORY = Path("benchmarks") / "benchmark_fibrosis_meta_pubs_review"
@@ -43,8 +47,22 @@ CACHE_COLUMNS = (
 )
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
-HYDRATION_POLICY_VERSION = "complete-full-metadata-v2"
+HYDRATION_POLICY_VERSION = "complete-full-metadata-v3-raw-checkpoints"
 HYDRATION_ATTEMPTS = 2
+RAW_HYDRATION_STAGE = "review_benchmark_hydration"
+RAW_SOURCE_STAGES = (
+    "search_queries",
+    "search_pages",
+    "publication_text",
+    "datalinks",
+    "fulltext_accession_discovery",
+    "geo_resolution",
+    "geo_metadata",
+    "arrayexpress_metadata",
+    "pubmed_enrichment",
+    "sra_xml",
+    "ena_fastq",
+)
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", flags=re.IGNORECASE)
 DOI_PREFIX = re.compile(
@@ -65,6 +83,7 @@ class ProductionHydrator:
         collector=None,
         filterer=None,
         review_service=None,
+        checkpoint_store=None,
     ) -> None:
         if epmc_wrapper is None:
             from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
@@ -93,15 +112,28 @@ class ProductionHydrator:
         self._collector = collector
         self._filterer = filterer
         self._review_service = review_service
+        self._checkpoint_store = checkpoint_store
 
     def hydrate(self, row: dict) -> dict:
+        return self._hydrate(row, cached_metadata_only=False)
+
+    def hydrate_cached(self, row: dict) -> dict:
+        """Rebuild compact context strictly from already checkpointed payloads."""
+
+        return self._hydrate(row, cached_metadata_only=True)
+
+    def _hydrate(self, row: dict, *, cached_metadata_only: bool) -> dict:
         query = (
             f"EXT_ID:{row['pmid']} AND SRC:MED"
             if row["pmid"]
             else f"DOI:{row['doi']}"
         )
+        checkpoint_options = (
+            {} if self._checkpoint_store is None
+            else {"checkpoint_store": self._checkpoint_store}
+        )
         publications = self._epmc.collect_publications(
-            [query], max_publications=2
+            [query], max_publications=2, **checkpoint_options
         )
         matches = [
             publication
@@ -114,7 +146,9 @@ class ProductionHydrator:
                 f"{len(matches)} exact matches"
             )
         publication = matches[0]
-        enriched = self._epmc.collect_publication_texts([publication])
+        enriched = self._epmc.collect_publication_texts(
+            [publication], **checkpoint_options
+        )
         if len(enriched) != 1:
             raise ValueError(
                 f"publication text lookup for {row['publication_id']!r} "
@@ -129,17 +163,28 @@ class ProductionHydrator:
                 f"publication {row['publication_id']!r} has no full text or abstract"
             )
 
-        datalinks = self._epmc.collect_datalinks([enriched_publication])
+        datalinks = self._epmc.collect_datalinks(
+            [enriched_publication], **checkpoint_options
+        )
         linked = self._epmc.accessions_from_datalinks(datalinks)
-        scraped = self._epmc.accessions_from_fulltexts([enriched_publication])
+        scraped = self._epmc.accessions_from_fulltexts(
+            [enriched_publication], **checkpoint_options
+        )
         accessions = self._epmc.merge_accessions(linked, scraped)
         accessions = self._collector.filter_accessions(accessions)
 
         errors = []
         try:
-            accessions = self._collector.collect_accession_metadata(
-                jsons=accessions
-            )
+            if cached_metadata_only:
+                accessions = self._collector.available_accession_metadata(
+                    jsons=accessions,
+                    checkpoint_store=self._checkpoint_store,
+                )
+            else:
+                accessions = self._collector.collect_accession_metadata(
+                    jsons=accessions,
+                    **checkpoint_options,
+                )
         except Exception as error:
             errors.append(
                 {
@@ -203,12 +248,510 @@ class ProductionHydrator:
         return result
 
 
+def hydrate_cache(
+    *,
+    dataset_csv: str | Path,
+    cache_csv: str | Path,
+    raw_cache: str | Path,
+    audit_json: str | Path,
+    refresh_cache: bool = False,
+    hydrator=None,
+) -> dict:
+    """Fill the benchmark hydration cache without constructing a reviewer."""
+
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    dataset_path = Path(dataset_csv)
+    cache_path = Path(cache_csv)
+    raw_cache_path = Path(raw_cache)
+    audit_path = Path(audit_json)
+    protected = {dataset_path.resolve(), cache_path.resolve(), audit_path.resolve()}
+    if raw_cache_path.resolve() in protected:
+        raise ValueError("raw cache path must differ from dataset, CSV cache, and audit")
+    if cache_path.resolve() in {dataset_path.resolve(), audit_path.resolve()}:
+        raise ValueError("cache path must differ from dataset and audit paths")
+
+    rows = _load_dataset(dataset_path)
+    previous_cache = _load_cache(cache_path)
+    working_path, requires_publish = _raw_cache_working_path(
+        raw_cache_path, refresh_cache=refresh_cache
+    )
+    store = CheckpointStore(working_path)
+    fingerprint = {
+        "benchmark": "fibrosis_meta_publication_review_hydration",
+        "dataset_sha256": _file_sha256(dataset_path),
+        "record_count": len(rows),
+        "hydration_policy_version": HYDRATION_POLICY_VERSION,
+        "production_sources": [
+            "Europe PMC", "PMC", "preprint", "NCBI GEO", "ArrayExpress",
+            "BioStudies", "PubMed", "SRA", "ENA",
+        ],
+    }
+    store.validate_fingerprint(fingerprint)
+    store.set_meta("cache_fill_state", {"status": "running", "record_count": len(rows)})
+    if refresh_cache:
+        _requeue_terminal_checkpoints(store)
+    hydrator = hydrator or ProductionHydrator(checkpoint_store=store)
+
+    hydrated_rows = []
+    reused_count = 0
+    refreshed_count = 0
+    for index, row in enumerate(rows, start=1):
+        identity_hash = _identity_hash(row)
+        checkpoint = store.get(RAW_HYDRATION_STAGE, row["publication_id"])
+        payload = (checkpoint or {}).get("payload") or {}
+        reuse = (
+            not refresh_cache
+            and checkpoint is not None
+            and checkpoint.get("status") == "available"
+            and payload.get("identity_sha256") == identity_hash
+            and isinstance(payload.get("hydration"), dict)
+        )
+        logger.info(
+            "Reviewer benchmark progress stage=hydrate publication_index=%s "
+            "publication_total=%s publication_id=%s raw_cache_action=%s",
+            index, len(rows), row["publication_id"], "reuse" if reuse else "refresh",
+        )
+        if reuse:
+            hydration = payload["hydration"]
+            reused_count += 1
+        else:
+            hydration = _hydrate_with_retry(hydrator, row)
+            refreshed_count += 1
+            store.put(
+                RAW_HYDRATION_STAGE,
+                row["publication_id"],
+                index,
+                "available",
+                payload={
+                    "contract_version": "1.0",
+                    "identity_sha256": identity_hash,
+                    "hydration": hydration,
+                    "terminal_outcome": (
+                        "complete" if _hydration_is_complete(hydration)
+                        else "retrieval_failed" if hydration.get("hydration_status") == "failed"
+                        else "incomplete"
+                    ),
+                },
+            )
+        hydrated_rows.append({"dataset": row, "hydration": hydration})
+
+    _terminalize_exhausted_checkpoints(store)
+    _reproject_terminal_hydrations(hydrated_rows, hydrator, store)
+    cache_rows = [
+        _cache_row(item["dataset"], _identity_hash(item["dataset"]), item["hydration"])
+        for item in hydrated_rows
+    ]
+    store.set_meta(
+        "cache_fill_state",
+        {
+            "status": "complete",
+            "record_count": len(rows),
+            "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    if requires_publish:
+        _publish_sqlite_cache(working_path, raw_cache_path)
+        store = CheckpointStore(raw_cache_path)
+
+    _write_csv_atomic(cache_path, CACHE_COLUMNS, cache_rows)
+    audit = _cache_audit(
+        rows=rows,
+        hydrated_rows=hydrated_rows,
+        previous_cache=previous_cache,
+        store=store,
+        dataset_path=dataset_path,
+        raw_cache_path=raw_cache_path,
+        cache_path=cache_path,
+    )
+    _write_json_atomic(audit_path, audit)
+    return {
+        "audit_path": audit_path,
+        "cache_path": cache_path,
+        "raw_cache_path": raw_cache_path,
+        "reused_count": reused_count,
+        "refreshed_count": refreshed_count,
+        "hydrated_rows": hydrated_rows,
+        "audit": audit,
+    }
+
+
+def _raw_cache_working_path(
+    raw_cache_path: Path, *, refresh_cache: bool
+) -> tuple[Path, bool]:
+    raw_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    staging = raw_cache_path.with_name(f".{raw_cache_path.name}.building")
+    if staging.exists():
+        return staging, True
+    if raw_cache_path.exists() and not refresh_cache:
+        return raw_cache_path, False
+    if raw_cache_path.exists():
+        _checkpoint_sqlite(raw_cache_path)
+        shutil.copy2(raw_cache_path, staging)
+    return staging, True
+
+
+def _checkpoint_sqlite(path: Path) -> None:
+    if not path.exists():
+        return
+    connection = sqlite3.connect(path, timeout=30)
+    try:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+    finally:
+        connection.close()
+
+
+def _publish_sqlite_cache(working_path: Path, raw_cache_path: Path) -> None:
+    _checkpoint_sqlite(working_path)
+    raw_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(working_path, raw_cache_path)
+    for suffix in ("-wal", "-shm"):
+        Path(f"{working_path}{suffix}").unlink(missing_ok=True)
+
+
+def _requeue_terminal_checkpoints(store) -> None:
+    """Make only exhausted provider work eligible for an explicit refresh."""
+
+    for stage in RAW_SOURCE_STAGES:
+        for item in store.items(stage):
+            payload = item.get("payload")
+            is_partial_geo = (
+                stage == "geo_metadata"
+                and item["status"] == "available"
+                and isinstance(payload, dict)
+                and payload.get("enrichment_mode") == "partial"
+            )
+            if item["status"] != "terminal_error" and not is_partial_geo:
+                continue
+            store.put(
+                stage,
+                item["key"],
+                item["ordinal"],
+                "retryable_error",
+                payload=payload,
+                error="explicit benchmark cache refresh requested",
+                error_type="ManualRetry",
+                failure_category="manual_retry",
+            )
+
+
+def _terminalize_exhausted_checkpoints(store) -> None:
+    """Close provider work after the benchmark retry allowance is exhausted."""
+
+    failed_enrichment = {}
+    for stage in ("pubmed_enrichment", "sra_xml", "ena_fastq"):
+        for item in store.items(stage):
+            if item["status"] in {"pending", "retryable_error", "terminal_error"}:
+                failed_enrichment[str(item["key"]).upper()] = {
+                    "stage": stage,
+                    "identifier": item["key"],
+                    "status": "failed",
+                    "error_type": item.get("error_type"),
+                    "failure_category": item.get("failure_category"),
+                }
+
+    for stage in RAW_SOURCE_STAGES:
+        for item in store.items(stage):
+            payload = item.get("payload")
+            packages = payload.get("packages") if isinstance(payload, dict) else None
+            matching_enrichment_failures = []
+            if stage == "geo_metadata" and isinstance(packages, list) and packages:
+                serialized_packages = _canonical_json(packages).upper()
+                matching_enrichment_failures = [
+                    failure
+                    for identifier, failure in failed_enrichment.items()
+                    if identifier in serialized_packages
+                ]
+            needs_partial = (
+                stage == "geo_metadata"
+                and isinstance(packages, list)
+                and packages
+                and (
+                    item["status"] in {"pending", "retryable_error"}
+                    or bool(matching_enrichment_failures)
+                )
+            )
+            if not needs_partial and item["status"] not in {"pending", "retryable_error"}:
+                continue
+            if needs_partial:
+                repair_summary = dict(payload.get("repair_summary") or {})
+                outcomes = list(repair_summary.get("outcomes", []))
+                observed = {
+                    (str(value.get("stage")), str(value.get("identifier")))
+                    for value in outcomes if isinstance(value, dict)
+                }
+                outcomes.extend(
+                    failure
+                    for failure in matching_enrichment_failures
+                    if (failure["stage"], str(failure["identifier"])) not in observed
+                )
+                repair_summary.update(
+                    {
+                        "contract_version": "1.0",
+                        "attempt_count": max(
+                            int(repair_summary.get("attempt_count", 0)),
+                            int(item.get("attempt_count", 0)),
+                            1,
+                        ),
+                        "failed_count": max(
+                            int(repair_summary.get("failed_count", 0)),
+                            len(matching_enrichment_failures),
+                            1,
+                        ),
+                        "succeeded_count": int(
+                            repair_summary.get("succeeded_count", 0)
+                        ),
+                        "outcomes": outcomes,
+                    }
+                )
+                store.put(
+                    stage,
+                    item["key"],
+                    item["ordinal"],
+                    "available",
+                    payload={
+                        **payload,
+                        "enrichment_mode": "partial",
+                        "enrichment_state": "complete",
+                        "repair_summary": repair_summary,
+                    },
+                )
+                continue
+            store.put(
+                stage,
+                item["key"],
+                item["ordinal"],
+                "terminal_error",
+                payload=payload,
+                error=item.get("error") or _canonical_json(
+                    {
+                        "error_type": item.get("error_type") or "ExhaustedStage",
+                        "failure_category": item.get("failure_category") or "exhausted",
+                    }
+                ),
+                error_type=item.get("error_type") or "ExhaustedStage",
+                failure_category=item.get("failure_category") or "exhausted",
+            )
+
+
+def _reproject_terminal_hydrations(hydrated_rows: list[dict], hydrator, store) -> None:
+    cached_hydrator = getattr(hydrator, "hydrate_cached", None)
+    if not callable(cached_hydrator):
+        return
+    for index, item in enumerate(hydrated_rows, start=1):
+        current = item["hydration"]
+        if _hydration_is_complete(current):
+            continue
+        try:
+            candidate = _validated_hydration(cached_hydrator(item["dataset"]))
+        except Exception:
+            continue
+        if _hydration_context_score(candidate) <= _hydration_context_score(current):
+            continue
+        item["hydration"] = candidate
+        row = item["dataset"]
+        store.put(
+            RAW_HYDRATION_STAGE,
+            row["publication_id"],
+            index,
+            "available",
+            payload={
+                "contract_version": "1.0",
+                "identity_sha256": _identity_hash(row),
+                "hydration": candidate,
+                "terminal_outcome": (
+                    "complete" if _hydration_is_complete(candidate) else "incomplete"
+                ),
+            },
+        )
+
+
+def _hydration_context_score(hydration: dict) -> tuple[int, int, int, int]:
+    context = hydration.get("review_context") or {}
+    statuses = context.get("metadata_statuses") or {}
+    usable = sum(
+        str(status).lower() in {"available", "partial"}
+        for status in statuses.values()
+    )
+    return (
+        int(_full_text_available(hydration)),
+        len(context.get("accessions") or []),
+        usable,
+        -len(hydration.get("errors") or []),
+    )
+
+
+def _cache_audit(
+    *,
+    rows: list[dict],
+    hydrated_rows: list[dict],
+    previous_cache: dict[str, dict],
+    store,
+    dataset_path: Path,
+    raw_cache_path: Path,
+    cache_path: Path,
+) -> dict:
+    stage_counts = {}
+    failures = []
+    pending_stage_count = 0
+    for stage in (*RAW_SOURCE_STAGES, RAW_HYDRATION_STAGE):
+        items = store.items(stage)
+        if not items:
+            continue
+        counts = {}
+        for item in items:
+            counts[item["status"]] = counts.get(item["status"], 0) + 1
+            if item["status"] in {"pending", "retryable_error"}:
+                pending_stage_count += 1
+            if item["status"] in {"retryable_error", "terminal_error"}:
+                failures.append(
+                    {
+                        "stage": stage,
+                        "item_id": item["key"],
+                        "status": item["status"],
+                        "attempt_count": item.get("attempt_count", 0),
+                        "error_type": item.get("error_type"),
+                        "failure_category": item.get("failure_category"),
+                    }
+                )
+        stage_counts[stage] = counts
+
+    accession_status_counts = {}
+    unique_accessions = set()
+    publication_audit = []
+    recovered_full_texts = 0
+    newly_discovered_accessions = set()
+    recovered_metadata_packages = set()
+    for item in hydrated_rows:
+        row = item["dataset"]
+        hydration = item["hydration"]
+        context = hydration.get("review_context") or {}
+        accessions = [str(value) for value in context.get("accessions", [])]
+        statuses = {
+            str(key): str(value)
+            for key, value in (context.get("metadata_statuses") or {}).items()
+        }
+        unique_accessions.update(accessions)
+        for status in statuses.values():
+            accession_status_counts[status] = accession_status_counts.get(status, 0) + 1
+
+        previous_row = previous_cache.get(row["publication_id"])
+        previous = _hydration_from_cache(previous_row) if previous_row else None
+        previous_context = (previous or {}).get("review_context") or {}
+        previous_accessions = {
+            str(value) for value in previous_context.get("accessions", [])
+        }
+        newly_discovered_accessions.update(set(accessions) - previous_accessions)
+        if (
+            previous is not None
+            and not _full_text_available(previous)
+            and _full_text_available(hydration)
+        ):
+            recovered_full_texts += 1
+        previous_statuses = previous_context.get("metadata_statuses") or {}
+        for accession, status in statuses.items():
+            if status == "available" and previous_statuses.get(accession) != "available":
+                recovered_metadata_packages.add(accession)
+
+        publication_audit.append(
+            {
+                "publication_id": row["publication_id"],
+                "identifiers": {"doi": row["doi"], "pmid": row["pmid"]},
+                "text_source": hydration.get("text_source", "none"),
+                "full_text_status": hydration.get("full_text_status", "unavailable"),
+                "hydration_status": hydration.get("hydration_status", "failed"),
+                "terminal_outcome": (
+                    "complete" if _hydration_is_complete(hydration)
+                    else "retrieval_failed" if hydration.get("hydration_status") == "failed"
+                    else "incomplete"
+                ),
+                "accessions": [
+                    {"accession": accession, "metadata_status": statuses.get(accession, "missing")}
+                    for accession in accessions
+                ],
+                "errors": [
+                    {
+                        "stage": error.get("stage"),
+                        "error_type": error.get("error_type"),
+                    }
+                    for error in hydration.get("errors", [])
+                    if isinstance(error, dict)
+                ],
+            }
+        )
+
+    terminal_publications = store.items(RAW_HYDRATION_STAGE)
+    summary = {
+        "input_count": len(rows),
+        "terminal_publication_count": sum(
+            item["status"] in {"available", "no_data", "terminal_error"}
+            for item in terminal_publications
+        ),
+        "pending_stage_count": pending_stage_count,
+        "complete_count": sum(
+            _hydration_is_complete(item["hydration"]) for item in hydrated_rows
+        ),
+        "degraded_count": sum(
+            item["hydration"].get("hydration_status") == "degraded"
+            for item in hydrated_rows
+        ),
+        "retrieval_failed_count": sum(
+            item["hydration"].get("hydration_status") == "failed"
+            for item in hydrated_rows
+        ),
+        "supported_accession_count": len(unique_accessions),
+        "accession_status_counts": accession_status_counts,
+        "recovered_full_text_count": recovered_full_texts,
+        "newly_discovered_accession_count": len(newly_discovered_accessions),
+        "recovered_metadata_package_count": len(recovered_metadata_packages),
+        "exhausted_failure_count": len(failures),
+    }
+    return {
+        "schema_version": "1.0",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "hydration_policy_version": HYDRATION_POLICY_VERSION,
+        "dataset": {
+            "artifact": str(dataset_path),
+            "sha256": _file_sha256(dataset_path),
+            "record_count": len(rows),
+        },
+        "artifacts": {
+            "raw_cache": {
+                "artifact": str(raw_cache_path),
+                "size_bytes": raw_cache_path.stat().st_size,
+            },
+            "derived_cache": {
+                "artifact": str(cache_path),
+                "size_bytes": cache_path.stat().st_size,
+            },
+        },
+        "summary": summary,
+        "stage_status_counts": stage_counts,
+        "recovered_identifiers": {
+            "new_accessions": sorted(newly_discovered_accessions),
+            "metadata_packages": sorted(recovered_metadata_packages),
+        },
+        "failures": failures,
+        "publications": publication_audit,
+    }
+
+
+def _full_text_available(hydration: dict) -> bool:
+    return (
+        hydration.get("text_source") in {"fullTextXML", "preprintJATSXML"}
+        and hydration.get("full_text_status") == "available"
+        and bool(str(hydration.get("publication_text") or "").strip())
+    )
+
+
 def run_benchmark(
     *,
     dataset_csv: str | Path,
     cache_csv: str | Path,
     theme_file: str | Path = DEFAULT_THEME,
     refresh_cache: bool = False,
+    raw_cache: str | Path | None = None,
+    audit_json: str | Path | None = None,
     hydrator=None,
     review_runner=None,
 ) -> dict:
@@ -222,59 +765,72 @@ def run_benchmark(
     if not theme:
         raise ValueError("fibrosis review theme must not be empty")
 
-    cached = _load_cache(cache_path)
-    hydrator = hydrator or ProductionHydrator()
-    hydrated_rows = []
-    cache_rows = []
-    reused_count = 0
-    refreshed_count = 0
-    for index, row in enumerate(rows, start=1):
-        identity_hash = _identity_hash(row)
-        cached_row = cached.get(row["publication_id"])
-        cached_hydration = (
-            _hydration_from_cache(cached_row) if cached_row is not None else None
+    if raw_cache is not None:
+        fill = hydrate_cache(
+            dataset_csv=dataset_path,
+            cache_csv=cache_path,
+            raw_cache=raw_cache,
+            audit_json=(
+                Path(audit_json)
+                if audit_json is not None
+                else cache_path.with_name(AUDIT_NAME)
+            ),
+            refresh_cache=refresh_cache,
+            hydrator=hydrator,
         )
-        reuse_cached = (
-            not refresh_cache
-            and cached_row is not None
-            and cached_row["identity_sha256"] == identity_hash
-            and _hydration_is_complete(cached_hydration)
-        )
-        logger.info(
-            "Reviewer benchmark progress stage=hydrate publication_index=%s "
-            "publication_total=%s publication_id=%s cache_action=%s",
-            index,
-            len(rows),
-            row["publication_id"],
-            "reuse" if reuse_cached else "refresh",
-        )
-        if reuse_cached:
-            hydration = cached_hydration
-            reused_count += 1
-        else:
-            refreshed_count += 1
-            hydration = _hydrate_with_retry(hydrator, row)
-        logger.info(
-            "Reviewer benchmark progress stage=hydrate publication_id=%s "
-            "hydration_status=%s",
-            row["publication_id"],
-            hydration["hydration_status"],
-        )
-        if not _hydration_is_complete(hydration):
-            reason = (
-                "retrieval_failed"
-                if hydration["hydration_status"] == "failed"
-                else "metadata_incomplete"
+        hydrated_rows = fill["hydrated_rows"]
+        reused_count = fill["reused_count"]
+        refreshed_count = fill["refreshed_count"]
+    else:
+        cached = _load_cache(cache_path)
+        hydrator = hydrator or ProductionHydrator()
+        hydrated_rows = []
+        cache_rows = []
+        reused_count = 0
+        refreshed_count = 0
+        for index, row in enumerate(rows, start=1):
+            identity_hash = _identity_hash(row)
+            cached_row = cached.get(row["publication_id"])
+            cached_hydration = (
+                _hydration_from_cache(cached_row) if cached_row is not None else None
+            )
+            reuse_cached = (
+                not refresh_cache
+                and cached_row is not None
+                and cached_row["identity_sha256"] == identity_hash
+                and _hydration_is_complete(cached_hydration)
             )
             logger.info(
-                "Reviewer benchmark progress stage=review publication_id=%s "
-                "review_eligibility=skipped reason=%s",
-                row["publication_id"],
-                reason,
+                "Reviewer benchmark progress stage=hydrate publication_index=%s "
+                "publication_total=%s publication_id=%s cache_action=%s",
+                index, len(rows), row["publication_id"],
+                "reuse" if reuse_cached else "refresh",
             )
-        hydrated_rows.append({"dataset": row, "hydration": hydration})
-        cache_rows.append(_cache_row(row, identity_hash, hydration))
-    _write_csv_atomic(cache_path, CACHE_COLUMNS, cache_rows)
+            if reuse_cached:
+                hydration = cached_hydration
+                reused_count += 1
+            else:
+                refreshed_count += 1
+                hydration = _hydrate_with_retry(hydrator, row)
+            logger.info(
+                "Reviewer benchmark progress stage=hydrate publication_id=%s "
+                "hydration_status=%s",
+                row["publication_id"], hydration["hydration_status"],
+            )
+            if not _hydration_is_complete(hydration):
+                reason = (
+                    "retrieval_failed"
+                    if hydration["hydration_status"] == "failed"
+                    else "metadata_incomplete"
+                )
+                logger.info(
+                    "Reviewer benchmark progress stage=review publication_id=%s "
+                    "review_eligibility=skipped reason=%s",
+                    row["publication_id"], reason,
+                )
+            hydrated_rows.append({"dataset": row, "hydration": hydration})
+            cache_rows.append(_cache_row(row, identity_hash, hydration))
+        _write_csv_atomic(cache_path, CACHE_COLUMNS, cache_rows)
 
     reviewable = [
         item
@@ -882,27 +1438,32 @@ def _write_csv_atomic(path: Path, columns: tuple[str, ...], rows: list[dict]) ->
 def _write_report(report: dict, output_directory: Path) -> Path:
     output_directory.mkdir(parents=True, exist_ok=True)
     report_path = output_directory / REPORT_NAME
+    _write_json_atomic(report_path, report)
+    return report_path
+
+
+def _write_json_atomic(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None
     try:
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
-            dir=output_directory,
-            prefix=f".{REPORT_NAME}.",
+            dir=path.parent,
+            prefix=f".{path.name}.",
             suffix=".tmp",
             delete=False,
         ) as handle:
             temporary_path = Path(handle.name)
-            json.dump(report, handle, ensure_ascii=False, indent=2)
+            json.dump(value, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, report_path)
+        os.replace(temporary_path, path)
     except Exception:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         raise
-    return report_path
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -915,6 +1476,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("dataset_csv", nargs="?", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT_DIRECTORY)
     parser.add_argument("--cache", type=Path, default=None)
+    parser.add_argument("--raw-cache", type=Path, default=None)
+    parser.add_argument("--hydrate-only", action="store_true")
     parser.add_argument("--refresh-cache", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
@@ -934,19 +1497,39 @@ def main(argv: list[str] | None = None) -> int:
         if args.cache is not None
         else output_directory / CACHE_NAME
     )
+    raw_cache_path = (
+        args.raw_cache.resolve()
+        if args.raw_cache is not None
+        else output_directory / RAW_CACHE_NAME
+    )
+    audit_path = output_directory / AUDIT_NAME
     try:
         protected_inputs = {
             args.dataset_csv.resolve(),
             DEFAULT_THEME.resolve(),
             cache_path.resolve(),
+            raw_cache_path.resolve(),
+            audit_path.resolve(),
         }
         if report_path.resolve() in protected_inputs:
-            raise ValueError("report path must differ from dataset, theme, and cache paths")
+            raise ValueError("report path must differ from benchmark inputs and caches")
+        if args.hydrate_only:
+            fill = hydrate_cache(
+                dataset_csv=args.dataset_csv,
+                cache_csv=cache_path,
+                raw_cache=raw_cache_path,
+                audit_json=audit_path,
+                refresh_cache=args.refresh_cache,
+            )
+            print(fill["audit_path"])
+            return 0
         report = run_benchmark(
             dataset_csv=args.dataset_csv,
             cache_csv=cache_path,
             theme_file=DEFAULT_THEME,
             refresh_cache=args.refresh_cache,
+            raw_cache=raw_cache_path,
+            audit_json=audit_path,
         )
         report_path = _write_report(report, output_directory)
     except (OSError, TypeError, ValueError) as error:

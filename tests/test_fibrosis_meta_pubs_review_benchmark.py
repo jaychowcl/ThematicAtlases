@@ -39,6 +39,8 @@ RECALL_DATASET = (
 )
 REPORT_NAME = "fibrosis_meta_pubs_review_report.json"
 CACHE_NAME = "fibrosis_meta_pubs_review_cache.csv"
+RAW_CACHE_NAME = "fibrosis_meta_pubs_review_raw_cache.sqlite3"
+AUDIT_NAME = "fibrosis_meta_pubs_review_cache_audit.json"
 
 DATASET_COLUMNS = (
     "publication_id",
@@ -147,7 +149,7 @@ class SequencedHydrator:
         publication_id = row["publication_id"]
         self.calls.append(publication_id)
         response = self.responses[publication_id].pop(0)
-        if isinstance(response, Exception):
+        if isinstance(response, BaseException):
             raise response
         return response
 
@@ -773,6 +775,246 @@ def test_production_hydrator_uses_exact_query_and_ta_context() -> None:
     assert result["publication_text"] == "Full text"
     assert result["review_context"]["accessions"] == ["GSE1"]
     assert result["hydration_status"] == "available"
+
+
+def test_production_hydrator_passes_raw_checkpoint_store_to_every_download(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    observed = []
+
+    class FakeEPMC:
+        def collect_publications(self, queries, max_publications, checkpoint_store=None):
+            observed.append(("search", checkpoint_store))
+            return [{
+                "source": "MED", "epmc_id": "123", "pmid": "123",
+                "doi": "10.1000/test", "title": "Fetched title",
+                "abstractText": "Abstract",
+            }]
+
+        def collect_publication_texts(self, publications, checkpoint_store=None):
+            observed.append(("text", checkpoint_store))
+            return [{
+                **publications[0], "text": "Full text", "text_source": "fullTextXML",
+                "full_text_status": "available",
+            }]
+
+        def collect_datalinks(self, publications, checkpoint_store=None):
+            observed.append(("datalinks", checkpoint_store))
+            return [{"datalink_id": "GSE1", "publications": publications}]
+
+        def accessions_from_datalinks(self, datalinks):
+            return datalinks
+
+        def accessions_from_fulltexts(self, publications, checkpoint_store=None):
+            observed.append(("fulltext_accessions", checkpoint_store))
+            return []
+
+        def merge_accessions(self, datalink_accessions, scraped_accessions):
+            return datalink_accessions + scraped_accessions
+
+    class FakeCollector:
+        def filter_accessions(self, accessions):
+            return accessions
+
+        def collect_accession_metadata(self, jsons, checkpoint_store=None):
+            observed.append(("metadata", checkpoint_store))
+            return [{**jsons[0], "metadata_status": "available"}]
+
+    class FakeFilterer:
+        def publication_text_ref(self, publication):
+            return publication["pmid"]
+
+        def accessions_with_publication_text_refs(self, jsons, publication_texts):
+            return jsons
+
+    class FakeReviewService:
+        def publication_review_contexts(self, accessions):
+            return {"123": {
+                "title": "Fetched title",
+                "metadata": [{"accession": "GSE1", "status": "available", "context": "metadata"}],
+                "accessions": ["GSE1"],
+                "metadata_statuses": {"GSE1": "available"},
+            }}
+
+    hydration = runner.ProductionHydrator(
+        checkpoint_store=store,
+        epmc_wrapper=FakeEPMC(),
+        collector=FakeCollector(),
+        filterer=FakeFilterer(),
+        review_service=FakeReviewService(),
+    ).hydrate(dataset_row("pub-1", "relevant", doi="10.1000/test", pmid="123"))
+
+    assert hydration["hydration_status"] == "available"
+    assert [stage for stage, _store in observed] == [
+        "search", "text", "datalinks", "fulltext_accessions", "metadata",
+    ]
+    assert all(observed_store is store for _stage, observed_store in observed)
+
+
+def test_hydrate_only_publishes_terminal_raw_csv_and_private_audit_without_review(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(dataset, [
+        dataset_row("complete", "relevant", pmid="1"),
+        dataset_row("terminal-gap", "relevant", pmid="2"),
+    ])
+    cache = tmp_path / CACHE_NAME
+    raw_cache = tmp_path / RAW_CACHE_NAME
+    audit = tmp_path / AUDIT_NAME
+    hydrator = SequencedHydrator({
+        "complete": [complete_hydration("complete" )],
+        "terminal-gap": [
+            incomplete_hydration("terminal-gap", pmid="2"),
+            incomplete_hydration("terminal-gap", pmid="2"),
+        ],
+    })
+
+    result = runner.hydrate_cache(
+        dataset_csv=dataset,
+        cache_csv=cache,
+        raw_cache=raw_cache,
+        audit_json=audit,
+        hydrator=hydrator,
+    )
+
+    assert result["audit_path"] == audit
+    assert raw_cache.is_file() and cache.is_file() and audit.is_file()
+    audit_payload = json.loads(audit.read_text(encoding="utf-8"))
+    assert audit_payload["summary"]["input_count"] == 2
+    assert audit_payload["summary"]["pending_stage_count"] == 0
+    assert audit_payload["summary"]["terminal_publication_count"] == 2
+    serialized_audit = json.dumps(audit_payload)
+    assert "Text complete" not in serialized_audit
+    assert "Series complete" not in serialized_audit
+    assert "publication_text" not in serialized_audit
+
+    with cache.open(encoding="utf-8", newline="") as handle:
+        cache_rows = list(csv.DictReader(handle))
+    assert len(cache_rows) == 2
+    assert cache_rows[0]["publication_text"] == "Text complete"
+    assert json.loads(cache_rows[0]["review_context_json"])["accessions"]
+
+
+def test_terminal_incomplete_raw_hydration_is_reused_without_download(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(dataset, [dataset_row("pub-1", "relevant", pmid="1")])
+    cache = tmp_path / CACHE_NAME
+    raw_cache = tmp_path / RAW_CACHE_NAME
+    audit = tmp_path / AUDIT_NAME
+    first = SequencedHydrator({
+        "pub-1": [incomplete_hydration("pub-1"), incomplete_hydration("pub-1")]
+    })
+    runner.hydrate_cache(
+        dataset_csv=dataset, cache_csv=cache, raw_cache=raw_cache,
+        audit_json=audit, hydrator=first,
+    )
+
+    reused = SequencedHydrator({"pub-1": []})
+    result = runner.hydrate_cache(
+        dataset_csv=dataset, cache_csv=cache, raw_cache=raw_cache,
+        audit_json=audit, hydrator=reused,
+    )
+
+    assert reused.calls == []
+    assert result["reused_count"] == 1
+    assert result["refreshed_count"] == 0
+
+
+def test_raw_cache_resumes_after_interruption_without_repeating_completed_row(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(dataset, [
+        dataset_row("first", "relevant", pmid="1"),
+        dataset_row("second", "relevant", pmid="2"),
+    ])
+    cache = tmp_path / CACHE_NAME
+    raw_cache = tmp_path / RAW_CACHE_NAME
+    audit = tmp_path / AUDIT_NAME
+
+    interrupted = SequencedHydrator({
+        "first": [complete_hydration("first")],
+        "second": [KeyboardInterrupt()],
+    })
+    with pytest.raises(KeyboardInterrupt):
+        runner.hydrate_cache(
+            dataset_csv=dataset, cache_csv=cache, raw_cache=raw_cache,
+            audit_json=audit, hydrator=interrupted,
+        )
+    assert not raw_cache.exists()
+
+    resumed = SequencedHydrator({"second": [complete_hydration("second", pmid="2")]})
+    result = runner.hydrate_cache(
+        dataset_csv=dataset, cache_csv=cache, raw_cache=raw_cache,
+        audit_json=audit, hydrator=resumed,
+    )
+    assert resumed.calls == ["second"]
+    assert result["reused_count"] == 1
+    assert raw_cache.is_file()
+
+
+def test_exhausted_geo_enrichment_retains_base_package_as_partial(tmp_path: Path) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    package = {"series": {"accession": [{"value": "GSE1"}], "title": "Base"}}
+    store.put(
+        "geo_metadata", "GSE1", 1, "retryable_error",
+        payload={
+            "packages": [package],
+            "enrichment_mode": "all",
+            "enrichment_state": "pending",
+        },
+        error="sanitized enrichment failure",
+        error_type="TimeoutError",
+        failure_category="provider_timeout",
+    )
+
+    runner._terminalize_exhausted_checkpoints(store)
+
+    item = store.get("geo_metadata", "GSE1")
+    assert item["status"] == "available"
+    assert item["payload"]["packages"] == [package]
+    assert item["payload"]["enrichment_mode"] == "partial"
+    assert item["payload"]["repair_summary"]["failed_count"] == 1
+
+
+def test_hydrate_only_cli_never_enters_benchmark_or_report_path(
+    monkeypatch, tmp_path: Path
+) -> None:
+    runner = load_runner()
+    calls = []
+    audit_path = tmp_path / "out" / AUDIT_NAME
+    monkeypatch.setattr(
+        runner,
+        "hydrate_cache",
+        lambda **kwargs: calls.append(kwargs) or {"audit_path": audit_path},
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_benchmark",
+        lambda **_kwargs: pytest.fail("hydrate-only initialized the reviewer benchmark"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_write_report",
+        lambda *_args, **_kwargs: pytest.fail("hydrate-only replaced the report"),
+    )
+
+    assert runner.main(["--out", str(tmp_path / "out"), "--hydrate-only"]) == 0
+    assert len(calls) == 1
+    assert calls[0]["raw_cache"].name == RAW_CACHE_NAME
 
 
 def test_default_production_hydrator_uses_full_geo_identifier_enrichment(
