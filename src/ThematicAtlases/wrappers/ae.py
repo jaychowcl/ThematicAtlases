@@ -5,12 +5,25 @@ from contextlib import nullcontext
 from collections.abc import Mapping
 
 from meta_standards_converter.converters.ae2json import ae2json
-from meta_standards_converter.ae_handlers.ae_webfetcher import AEWebFetcher
+from meta_standards_converter.ae_handlers.ae_webfetcher import (
+    AEWebFetcher,
+    MAGETabInput,
+    TextResource,
+)
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.miniml_boundary import checkpoint_packages, checkpoint_payload, canonicalize_miniml_package
-from ThematicAtlases.runtime_contracts import safe_error_json
+from ThematicAtlases.runtime_contracts import safe_error_json, safe_error_mapping
+from ThematicAtlases.wrappers.metadata_evidence import (
+    ARRAYEXPRESS_PRECANONICAL_STAGE,
+    ARRAYEXPRESS_SOURCE_STAGE,
+    VALIDATION_DIAGNOSTICS_STAGE,
+    canonicalize_with_diagnostics,
+    checkpoint_precanonical,
+    compressed_text,
+    restored_text,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -70,16 +83,29 @@ class ArrayExpressWrapper:
                     records.append(self._record_from_checkpoint(record, checkpoint))
                     continue
                 try:
-                    converted = self._converter().convert(
-                        source=accession,
-                        out=None,
-                        sdrf_sources=None,
-                    )
-                    packages = [
-                        canonicalize_miniml_package(item)
-                        for item in converted
-                        if isinstance(item, Mapping)
-                    ]
+                    converter = self._converter()
+                    if (
+                        checkpoint_store is not None
+                        and hasattr(converter, "fetcher")
+                        and hasattr(converter, "parser")
+                    ):
+                        packages = self._convert_with_evidence(
+                            converter=converter,
+                            accession=accession,
+                            index=index,
+                            checkpoint_store=checkpoint_store,
+                        )
+                    else:
+                        converted = converter.convert(
+                            source=accession,
+                            out=None,
+                            sdrf_sources=None,
+                        )
+                        packages = [
+                            canonicalize_miniml_package(item)
+                            for item in converted
+                            if isinstance(item, Mapping)
+                        ]
                 except Exception as error:
                     logger.warning(
                         "ArrayExpress metadata failed accession=%s error_type=%s",
@@ -91,6 +117,54 @@ class ArrayExpressWrapper:
                         else "terminal_error"
                     )
                     if checkpoint_store is not None:
+                        retryable = is_retryable_error(error)
+                        safe_error = safe_error_mapping(
+                            error,
+                            provider="BioStudies ArrayExpress",
+                            stage=self.STAGE,
+                            item_id=accession,
+                            retryable=retryable,
+                        )
+                        if checkpoint_store.get(
+                            ARRAYEXPRESS_SOURCE_STAGE, accession
+                        ) is None:
+                            checkpoint_store.put(
+                                ARRAYEXPRESS_SOURCE_STAGE,
+                                accession,
+                                index,
+                                status,
+                                payload={
+                                    "contract_version": 1,
+                                    "provider": "arrayexpress",
+                                    "accession": accession,
+                                    "failure_stage": "download",
+                                    "correlation_id": safe_error.get("correlation_id"),
+                                },
+                                error_type=type(error).__name__,
+                                failure_category="provider_retryable" if retryable else "provider_terminal",
+                            )
+                        elif checkpoint_store.get(
+                            ARRAYEXPRESS_PRECANONICAL_STAGE, accession
+                        ) is None and checkpoint_store.get(
+                            VALIDATION_DIAGNOSTICS_STAGE,
+                            f"arrayexpress:{accession}",
+                        ) is None:
+                            checkpoint_store.put(
+                                VALIDATION_DIAGNOSTICS_STAGE,
+                                f"arrayexpress:{accession}",
+                                index,
+                                status,
+                                payload={
+                                    "contract_version": 1,
+                                    "provider": "arrayexpress",
+                                    "accession": accession,
+                                    "failure_stage": "parse",
+                                    "correlation_id": safe_error.get("correlation_id"),
+                                    "diagnostics": [],
+                                },
+                                error_type=type(error).__name__,
+                                failure_category="provider_retryable" if retryable else "provider_terminal",
+                            )
                         checkpoint_store.put(
                             self.STAGE,
                             accession,
@@ -122,6 +196,84 @@ class ArrayExpressWrapper:
                     else self._unavailable_record(record)
                 )
         return records
+
+    def _convert_with_evidence(
+        self,
+        *,
+        converter,
+        accession: str,
+        index: int,
+        checkpoint_store,
+    ) -> list[dict]:
+        source_checkpoint = checkpoint_store.get(
+            ARRAYEXPRESS_SOURCE_STAGE, accession
+        )
+        if source_checkpoint and source_checkpoint["status"] == "available":
+            source = self._restore_source(source_checkpoint["payload"])
+        else:
+            source = converter.fetcher.resolve(accession, sdrf_sources=None)
+            checkpoint_store.put(
+                ARRAYEXPRESS_SOURCE_STAGE,
+                accession,
+                index,
+                "available",
+                payload=self._source_payload(source),
+            )
+        parsed = [converter.parser.parse(source)]
+        precanonical = checkpoint_precanonical(
+            checkpoint_store,
+            ARRAYEXPRESS_PRECANONICAL_STAGE,
+            accession,
+            index,
+            parsed,
+        )
+        return canonicalize_with_diagnostics(
+            precanonical,
+            store=checkpoint_store,
+            provider="arrayexpress",
+            key=accession,
+            ordinal=index,
+        )
+
+    @staticmethod
+    def _resource_payload(resource: TextResource) -> dict:
+        return {
+            "name": resource.name,
+            "origin": resource.origin,
+            "content": compressed_text(resource.text),
+        }
+
+    @classmethod
+    def _source_payload(cls, source: MAGETabInput) -> dict:
+        return {
+            "contract_version": 1,
+            "provider": "arrayexpress",
+            "source": source.source,
+            "source_kind": source.source_kind,
+            "idf": cls._resource_payload(source.idf),
+            "sdrfs": [cls._resource_payload(item) for item in source.sdrfs],
+        }
+
+    @staticmethod
+    def _restore_resource(value: Mapping) -> TextResource:
+        return TextResource(
+            str(value.get("name") or ""),
+            restored_text(value.get("content") or {}),
+            str(value.get("origin") or ""),
+        )
+
+    @classmethod
+    def _restore_source(cls, value: Mapping) -> MAGETabInput:
+        return MAGETabInput(
+            cls._restore_resource(value.get("idf") or {}),
+            tuple(
+                cls._restore_resource(item)
+                for item in value.get("sdrfs", [])
+                if isinstance(item, Mapping)
+            ),
+            str(value.get("source") or ""),
+            str(value.get("source_kind") or ""),
+        )
 
     def _converter(self):
         if self._converter_factory is not None:

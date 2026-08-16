@@ -24,6 +24,15 @@ from ThematicAtlases.wrappers.enrichment import (
     RetryTags,
 )
 from ThematicAtlases.wrappers.geo_records import GEORecordPolicy
+from ThematicAtlases.wrappers.metadata_evidence import (
+    GEO_PRECANONICAL_STAGE,
+    GEO_SOURCE_STAGE,
+    VALIDATION_DIAGNOSTICS_STAGE,
+    canonicalize_with_diagnostics,
+    checkpoint_precanonical,
+    compressed_text,
+    restored_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -567,13 +576,56 @@ class GEOWrapper:
                     error_record = self._metadata_error_record(record=record)
                     metadata_records.append(error_record)
                     if checkpoint_store is not None:
+                        retryable = is_retryable_error(error)
+                        safe_error = safe_error_mapping(
+                            error,
+                            provider="NCBI GEO",
+                            stage="geo_metadata",
+                            item_id=gse_accession,
+                            retryable=retryable,
+                        )
+                        if checkpoint_store.get(GEO_SOURCE_STAGE, gse_accession) is None:
+                            checkpoint_store.put(
+                                GEO_SOURCE_STAGE,
+                                gse_accession,
+                                index,
+                                "retryable_error" if retryable else "terminal_error",
+                                payload={
+                                    "contract_version": 1,
+                                    "provider": "geo",
+                                    "accession": gse_accession,
+                                    "failure_stage": "download",
+                                    "correlation_id": safe_error.get("correlation_id"),
+                                },
+                                error_type=type(error).__name__,
+                                failure_category="provider_retryable" if retryable else "provider_terminal",
+                            )
+                        elif checkpoint_store.get(
+                            GEO_PRECANONICAL_STAGE, gse_accession
+                        ) is None and checkpoint_store.get(
+                            VALIDATION_DIAGNOSTICS_STAGE, f"geo:{gse_accession}"
+                        ) is None:
+                            checkpoint_store.put(
+                                VALIDATION_DIAGNOSTICS_STAGE,
+                                f"geo:{gse_accession}",
+                                index,
+                                "retryable_error" if retryable else "terminal_error",
+                                payload={
+                                    "contract_version": 1,
+                                    "provider": "geo",
+                                    "accession": gse_accession,
+                                    "failure_stage": "parse",
+                                    "correlation_id": safe_error.get("correlation_id"),
+                                    "diagnostics": [],
+                                },
+                                error_type=type(error).__name__,
+                                failure_category="provider_retryable" if retryable else "provider_terminal",
+                            )
                         checkpoint_store.put(
                             "geo_metadata",
                             gse_accession,
                             index,
-                            "retryable_error"
-                            if is_retryable_error(error)
-                            else "terminal_error",
+                            "retryable_error" if retryable else "terminal_error",
                             payload=(checkpoint or {}).get("payload")
                             or _metadata_checkpoint_payload([]),
                             error=safe_error_json(
@@ -581,7 +633,7 @@ class GEOWrapper:
                                 provider="NCBI GEO",
                                 stage="geo_metadata",
                                 item_id=gse_accession,
-                                retryable=is_retryable_error(error),
+                                retryable=retryable,
                             ),
                         )
                     continue
@@ -651,14 +703,55 @@ class GEOWrapper:
     ) -> tuple[list[dict], dict]:
         enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
         converter = geo2json(enricher=enricher)
-        logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
-        packages = canonicalize_miniml_packages(converter.convert(
-            gse=gse_accession,
-            related_series=True,
-            remove_empty=True,
-            enrich=False,
-            out=None,
-        ))
+        if not hasattr(converter, "geo_fetcher") or not hasattr(converter, "parser"):
+            parsed = converter.convert(
+                gse=gse_accession,
+                related_series=True,
+                remove_empty=True,
+                enrich=False,
+                out=None,
+            )
+        else:
+            source_checkpoint = checkpoint_store.get(GEO_SOURCE_STAGE, gse_accession)
+            if source_checkpoint and source_checkpoint["status"] == "available":
+                miniml = restored_text(source_checkpoint["payload"]["content"])
+            else:
+                logger.debug(
+                    "GEO MINiML evidence request gse_accession=%s", gse_accession
+                )
+                miniml = converter.geo_fetcher.fetch_gse_miniml(gse=gse_accession)
+                checkpoint_store.put(
+                    GEO_SOURCE_STAGE,
+                    gse_accession,
+                    index,
+                    "available",
+                    payload={
+                        "contract_version": 1,
+                        "provider": "geo",
+                        "accession": gse_accession,
+                        "content_type": "application/xml",
+                        "content": compressed_text(miniml),
+                    },
+                )
+            parsed = converter.parser.parse(
+                miniml=miniml,
+                remove_empty=True,
+                related_series=True,
+            )
+        precanonical = checkpoint_precanonical(
+            checkpoint_store,
+            GEO_PRECANONICAL_STAGE,
+            gse_accession,
+            index,
+            parsed,
+        )
+        packages = canonicalize_with_diagnostics(
+            precanonical,
+            store=checkpoint_store,
+            provider="geo",
+            key=gse_accession,
+            ordinal=index,
+        )
         payload = _metadata_checkpoint_payload(
             packages, enrichment_mode="all", enrichment_state="pending"
         )

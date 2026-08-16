@@ -185,7 +185,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "`AtlasCollector.resume_metadata(...)`",
         "`benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]`",
         "`benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]`",
-        "`benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--raw-cache SQLITE] [--hydrate-only] [--refresh-cache] [--verbose]`",
+        "`benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--raw-cache SQLITE] [--hydrate-only] [--retry-terminal-metadata] [--refresh-cache] [--verbose]`",
         "`CheckpointStore`",
         "`EuropePMCWrapper`",
         "`GEOWrapper`",

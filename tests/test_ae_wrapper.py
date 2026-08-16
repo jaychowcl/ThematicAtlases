@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
+from meta_standards_converter.ae_handlers.ae_webfetcher import MAGETabInput, TextResource
 from meta_standards_converter.miniml import MINiMLCodec
 from meta_standards_converter.runtime_contracts import get_resource_profile
 
@@ -30,6 +31,16 @@ def package(accession="E-MTAB-1"):
         ]},
         "sample": [],
     }
+
+
+def invalid_reference_package(accession="E-MTAB-1"):
+    value = package(accession)
+    value["sample"] = [{
+        "iid": "sample-1",
+        "platform_ref": {"ref": "platform-missing"},
+        "channel": [],
+    }]
+    return value
 
 
 class FakeConverter:
@@ -82,6 +93,57 @@ def test_arrayexpress_checkpoint_resume_is_offline_and_rebuilds_record(tmp_path)
     assert result[0]["publications"] == [{"pmid": "new"}]
     assert result[0]["metadata_status"] == "available"
     assert store.get("arrayexpress_metadata", "E-MTAB-1")["status"] == "available"
+
+
+def test_arrayexpress_checkpoint_captures_sources_and_diagnostics_before_failure(
+    tmp_path,
+) -> None:
+    store = CheckpointStore(tmp_path / "raw.sqlite3")
+
+    class Fetcher:
+        calls = 0
+
+        def resolve(self, source, sdrf_sources=None):
+            self.__class__.calls += 1
+            return MAGETabInput(
+                TextResource("study.idf.txt", "IDF source", "https://example/idf"),
+                (TextResource("study.sdrf.txt", "SDRF source", "https://example/sdrf"),),
+                source,
+                "accession",
+            )
+
+    class Parser:
+        def parse(self, _source):
+            return MINiMLCodec().decode(invalid_reference_package()).package
+
+    class Converter:
+        def __init__(self):
+            self.fetcher = Fetcher()
+            self.parser = Parser()
+
+    wrapper = ArrayExpressWrapper(converter_factory=Converter)
+    result = wrapper.collect_accession_metadata([record()], checkpoint_store=store)
+
+    assert result[0]["metadata_status"] == "error"
+    assert store.get("arrayexpress_magetab_source", "E-MTAB-1")["status"] == "available"
+    assert store.get("arrayexpress_precanonical_metadata", "E-MTAB-1")["status"] == "available"
+    diagnostics = store.get(
+        "metadata_validation_diagnostics", "arrayexpress:E-MTAB-1"
+    )
+    assert diagnostics["payload"]["diagnostics"][0] == {
+        "package_index": 0,
+        "code": "unresolved_reference",
+        "path": "/sample/0/platform_ref/ref",
+        "severity": "warning",
+    }
+
+    failed = store.get("arrayexpress_metadata", "E-MTAB-1")
+    store.put(
+        "arrayexpress_metadata", "E-MTAB-1", 1, "retryable_error",
+        payload=failed["payload"], error="targeted retry",
+    )
+    wrapper.collect_accession_metadata([record()], checkpoint_store=store)
+    assert Fetcher.calls == 1
 
 
 def test_arrayexpress_recomputes_legacy_unversioned_checkpoint(tmp_path) -> None:

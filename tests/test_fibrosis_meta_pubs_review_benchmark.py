@@ -965,6 +965,206 @@ def test_terminal_incomplete_raw_hydration_is_reused_without_download(
     assert result["refreshed_count"] == 0
 
 
+def test_targeted_metadata_retry_isolated_from_unrelated_stages(tmp_path: Path) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    store.put("geo_metadata", "GSE1", 1, "terminal_error", payload={"packages": []})
+    store.put(
+        "arrayexpress_metadata", "E-MTAB-1", 1, "terminal_error",
+        payload={"packages": []},
+    )
+    store.put("publication_text", "MED:1", 1, "terminal_error")
+    store.put("sra_xml", "SRX1", 1, "terminal_error")
+
+    class Handler:
+        def __init__(self, stage):
+            self.stage = stage
+            self.calls = []
+
+        def collect_accession_metadata(self, records, checkpoint_store):
+            accession = records[0]["datalink_id"]
+            self.calls.append(accession)
+            checkpoint_store.put(
+                self.stage, accession, 1, "available", payload={"packages": [{}]}
+            )
+
+    handlers = {
+        "geo": Handler("geo_metadata"),
+        "arrayexpress": Handler("arrayexpress_metadata"),
+    }
+
+    class Collector:
+        def metadata_handler(self, repository):
+            return handlers[repository]
+
+    hydrator = runner.ProductionHydrator(
+        epmc_wrapper=object(), collector=Collector(), filterer=object(),
+        review_service=object(), checkpoint_store=store,
+    )
+    outcomes = hydrator.retry_terminal_metadata()
+
+    assert handlers["geo"].calls == ["GSE1"]
+    assert handlers["arrayexpress"].calls == ["E-MTAB-1"]
+    assert {item["status"] for item in outcomes} == {"available"}
+    assert store.get("publication_text", "MED:1")["status"] == "terminal_error"
+    assert store.get("sra_xml", "SRX1")["status"] == "terminal_error"
+
+
+def test_targeted_metadata_retry_makes_exactly_two_construction_attempts(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    store.put("geo_metadata", "GSE1", 1, "terminal_error", payload={"packages": []})
+
+    class FailingHandler:
+        calls = 0
+
+        def collect_accession_metadata(self, records, checkpoint_store):
+            self.calls += 1
+            checkpoint_store.put(
+                "geo_metadata",
+                records[0]["datalink_id"],
+                1,
+                "terminal_error",
+                payload={"packages": []},
+                error_type="MINiMLCompatibilityError",
+                failure_category="metadata_compatibility",
+            )
+
+    handler = FailingHandler()
+
+    class Collector:
+        def metadata_handler(self, repository):
+            return handler
+
+    hydrator = runner.ProductionHydrator(
+        epmc_wrapper=object(), collector=Collector(), filterer=object(),
+        review_service=object(), checkpoint_store=store,
+    )
+
+    outcomes = hydrator.retry_terminal_metadata(attempts=2)
+
+    assert handler.calls == 2
+    assert outcomes == [{
+        "stage": "geo_metadata",
+        "accession": "GSE1",
+        "attempts": 2,
+        "status": "terminal_error",
+    }]
+
+
+def test_metadata_evidence_audit_excludes_raw_and_package_contents(tmp_path: Path) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    store.put(
+        "geo_miniml_source", "GSE1", 1, "available",
+        payload={"data": "RAW-PRIVATE-XML", "sha256": "abc", "byte_count": 15},
+    )
+    store.put(
+        "geo_precanonical_metadata", "GSE1", 1, "available",
+        payload={"packages": [{"private": "PRECANONICAL-PRIVATE"}]},
+    )
+    store.put(
+        "geo_metadata", "GSE1", 1, "terminal_error", payload={"packages": []},
+        error_type="MINiMLCompatibilityError",
+        failure_category="metadata_compatibility",
+    )
+    store.put(
+        "metadata_validation_diagnostics", "geo:GSE1", 1, "terminal_error",
+        payload={
+            "provider": "geo",
+            "accession": "GSE1",
+            "failure_stage": "canonicalization",
+            "attempt_count": 2,
+            "correlation_id": "safe-correlation",
+            "diagnostics": [{
+                "package_index": 0,
+                "code": "unresolved_reference",
+                "path": "/sample/0/platform_ref/ref",
+                "severity": "warning",
+                "message": "PRIVATE-DIAGNOSTIC-MESSAGE",
+            }],
+        },
+    )
+    store.set_meta("terminal_metadata_retry", {
+        "attempts_per_accession": 2,
+        "outcomes": [{
+            "stage": "geo_metadata", "accession": "GSE1",
+            "attempts": 2, "status": "terminal_error",
+            "private": "PRIVATE-RETRY-DETAIL",
+        }],
+    })
+
+    audit = runner._metadata_evidence_audit(store)
+    serialized = json.dumps(audit)
+
+    assert audit["summary"]["download_status_counts"] == {"available": 1}
+    assert audit["summary"]["parse_status_counts"] == {"available": 1}
+    assert audit["summary"]["canonicalization_status_counts"] == {
+        "terminal_error": 1
+    }
+    assert audit["accessions"][0]["attempt_count"] == 2
+    assert "RAW-PRIVATE-XML" not in serialized
+    assert "PRECANONICAL-PRIVATE" not in serialized
+    assert "PRIVATE-DIAGNOSTIC-MESSAGE" not in serialized
+    assert "PRIVATE-RETRY-DETAIL" not in serialized
+
+
+def test_evidence_policy_amends_v3_fingerprint_without_losing_items(tmp_path: Path) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    store = CheckpointStore(tmp_path / RAW_CACHE_NAME)
+    current = {
+        "benchmark": "benchmark",
+        "hydration_policy_version": runner.HYDRATION_POLICY_VERSION,
+    }
+    previous = {
+        **current,
+        "hydration_policy_version": runner.PREVIOUS_HYDRATION_POLICY_VERSION,
+    }
+    store.validate_fingerprint(previous)
+    store.put("search_queries", "query", 1, "available", payload={"rows": []})
+
+    runner._validate_or_amend_hydration_fingerprint(store, current)
+
+    assert store.get("search_queries", "query")["status"] == "available"
+    amendments = store.get_meta("run_configuration_amendments")
+    assert amendments[0]["amendment_id"] == "reviewer-metadata-evidence-v1"
+
+
+def test_targeted_retry_uses_staging_copy(tmp_path: Path) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    raw_cache = tmp_path / RAW_CACHE_NAME
+    store = CheckpointStore(raw_cache)
+    store.put("geo_metadata", "GSE1", 1, "terminal_error")
+
+    working, publish = runner._raw_cache_working_path(
+        raw_cache, refresh_cache=False, force_staging=True
+    )
+
+    assert publish is True
+    assert working.name == f".{RAW_CACHE_NAME}.building"
+    assert working.is_file()
+    assert CheckpointStore(raw_cache).get("geo_metadata", "GSE1")["status"] == "terminal_error"
+
+
+def test_retry_terminal_metadata_requires_hydrate_only(capsys) -> None:
+    runner = load_runner()
+
+    assert runner.main(["--retry-terminal-metadata"]) == 1
+    assert "requires --hydrate-only" in capsys.readouterr().err
+
+
 def test_raw_cache_resumes_after_interruption_without_repeating_completed_row(
     tmp_path: Path,
 ) -> None:
@@ -1076,6 +1276,19 @@ def test_default_production_hydrator_uses_full_geo_identifier_enrichment(
     handlers = captured["metadata_handlers"]
     assert set(handlers) == {"arrayexpress", "geo"}
     assert handlers["geo"]()._enrich_metadata is True
+
+
+def test_abstract_with_complete_metadata_is_review_eligible() -> None:
+    runner = load_runner()
+    hydration = complete_hydration("abstract")
+    hydration.update({
+        "publication_text": "Usable abstract",
+        "text_source": "abstractText",
+        "full_text_status": "unavailable",
+    })
+
+    assert runner._hydration_downloads_complete(hydration)
+    assert runner._hydration_is_complete(hydration)
 
 
 def test_run_benchmark_logs_hydration_and_review_progress(

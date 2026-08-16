@@ -314,7 +314,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 | fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
-| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme, raw SQLite, derived CSV, and audit | runner owns resumable retry-once public hydration, provider-stage/raw-package checkpoints, terminal-negative reuse, compact projection, complete-context eligibility, and atomic artifact replacement; production TA components own public retrieval/review | hydrate-only never initializes a model; retained base GEO packages become partial after exhausted enrichment; only error-free rows with full text and complete accession metadata reach review; invalid global inputs fail without replacing a report |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme, raw SQLite, derived CSV, and audit | runner owns resumable public hydration, provider-stage/raw-package checkpoints, compressed pre-validation source evidence, terminal-negative reuse, compact projection, complete-context eligibility, and atomic artifact replacement; production TA components own public retrieval/review | hydrate-only never initializes a model; targeted retry reuses captured source and isolates terminal metadata; retained base GEO packages become partial after exhausted enrichment; only error-free rows with non-empty full text/preprint/abstract and complete accession metadata reach review; invalid global inputs fail without replacing a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -1274,16 +1274,19 @@ benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR
 
 benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
     [--cache CSV] [--raw-cache SQLITE] [--hydrate-only]
-    [--refresh-cache] [--verbose]
+    [--retry-terminal-metadata] [--refresh-cache] [--verbose]
   -> validate publication_id/DOI/PMID/expected_decision rows
   -> exact Europe PMC text + fully enriched accession metadata hydration
      (GEO PubMed/SRA/ENA identifier enrichment enabled)
-  -> checkpoint search/text/Datalinks, full MINiML, and enrichment stages in SQLite
+  -> checkpoint search/text/Datalinks, compressed source GEO XML or AE IDF/SDRF,
+     pre-canonical mappings, strict diagnostics, canonical packages, and enrichment
   -> retry any failed/incomplete hydration once using successful stage checkpoints
   -> retain downloaded GEO base packages as partial if enrichment exhausts
   -> cache every publication as a terminal success, negative, or exhausted failure
   -> atomically derive compact CSV plus identifiers/status-only audit
   -> with --hydrate-only, stop without reviewer/model initialization or report writes
+  -> with --retry-terminal-metadata, retry only terminal GEO/AE construction twice,
+     reusing checksum-verified source evidence in an atomic staging database
   -> with --verbose, log each cache/hydration action and review-stage status
   -> skip still-incomplete rows before constructing reviewer inputs
   -> PublicationTextReviewer.review_publication_texts(theme=packaged fibrosis theme)
@@ -1500,7 +1503,7 @@ Run the benchmark from the repository root:
 ```text
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
-python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--raw-cache SQLITE] [--hydrate-only] [--refresh-cache] [--verbose]
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--raw-cache SQLITE] [--hydrate-only] [--retry-terminal-metadata] [--refresh-cache] [--verbose]
 ```
 
 `fibrosis_meta_publications.tsv` combines four ordered reference sets: the
@@ -1584,8 +1587,8 @@ The runner queries Europe PMC exactly by PMID (`EXT_ID` plus `SRC:MED`) or DOI,
 requires one matching record, discovers supported accessions, collects fully
 enriched GEO and ArrayExpress context, and invokes
 `PublicationTextReviewer.review_publication_texts` with an explicitly public
-`ThematicReviewer` only for complete contexts. Complete means full text status
-`available` from full-text or preprint XML, at least one supported accession,
+`ThematicReviewer` only for complete contexts. Complete means non-empty text from
+full-text XML, preprint XML, or `abstractText`, at least one supported accession,
 non-empty metadata for every accession, every metadata status exactly
 `available`, and no hydration error. The runner retries the entire public
 hydration once after any exception or incomplete result, then marks a still
@@ -1593,22 +1596,35 @@ incomplete row `metadata_incomplete` and excludes it from reviewer inputs. Its b
 `GEOWrapper` default `enrich_metadata=True`, so PubMed/SRA/ENA identifier
 enrichment is part of the context shown to the reviewer. A benchmark-owned
 `CheckpointStore` retains search pages, publication text, Datalinks, full-text
-accession discovery, full GEO/ArrayExpress MINiML packages, PubMed/SRA/ENA
-enrichment, sanitized failures, statuses, and attempt history. Successful and
+accession discovery, checksum-verified gzip-compressed GEO MINiML XML or
+ArrayExpress IDF/SDRF resources, parser-produced pre-canonical mappings,
+structured strict-validation diagnostics, canonical packages, PubMed/SRA/ENA
+enrichment, sanitized failures, statuses, and attempt history. Source evidence
+is captured immediately after download and reused after deterministic parse or
+canonicalization failures. Successful and
 authoritative-negative stages are reused. After two hydration attempts,
 transient provider errors become explicit terminal outcomes; a successfully
 downloaded GEO base package is retained with `partial` derived status when only
 supplementary enrichment exhausted. `--refresh-cache` requeues those exhausted
 stages explicitly.
 
+`--retry-terminal-metadata` is valid only with `--hydrate-only`. It snapshots
+terminal GEO and ArrayExpress metadata checkpoints, makes two construction
+attempts per unique accession through the unchanged production parsers, and
+does not retry publication lookup/text, Datalinks, PubMed, SRA, ENA, or any
+review stage. The run operates in a resumable staging copy and publishes the
+SQLite, derived CSV, and audit together only after terminal reprojection.
+
 `--hydrate-only` never constructs the production reviewer or its credentials,
 never makes a model call, and never replaces the reviewer report. It resumes a
 hidden SQLite staging file, then publishes the raw database, existing-contract
 compact CSV, and `fibrosis_meta_pubs_review_cache_audit.json` only after every
 publication has a terminal hydration record and no pending stage remains. The
-audit contains identifiers, statuses, attempt counts, coverage, and sanitized
-failure categories, but excludes publication text and all metadata contents.
-The SQLite cache retains raw packages; the CSV retains publication text and only
+audit contains identifiers, download/parse/canonicalization statuses, attempt
+counts, diagnostic codes/paths/severities, coverage, and sanitized failure
+categories, but excludes publication text, XML/MAGE-TAB resources,
+pre-canonical/canonical package contents, and diagnostic messages.
+The SQLite cache retains raw evidence and packages; the CSV retains publication text and only
 the existing compact reviewer context. `--verbose`
 emits an INFO event before and after each publication hydration/cache action and
 for each outer hydration attempt, then reports review-stage
@@ -2412,7 +2428,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate reported `617 passed, 4 skipped` on 2026-08-16. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, MINiML 2.0 migration and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, bounded evolving independent review, deterministic publication limits, main-phase yielding, metadata/text/model hard deadlines, cross-process provider pacing, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, resumable raw reviewer hydration caching, large compact-cache fields, model-free hydrate-only execution, partial base-package retention, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate reported `628 passed, 4 skipped` on 2026-08-16. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, MINiML 2.0 migration and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, review-before-metadata ordering/resume, bounded evolving independent review, deterministic publication limits, main-phase yielding, metadata/text/model hard deadlines, cross-process provider pacing, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, shared-publication accession aggregation, trace-only accession exclusions, interruption and item-level resume across Europe PMC/GEO/ArrayExpress/review/harmonization, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, live ArrayExpress E-MTAB-6486 parsing, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, paced alternating XML/JSON Europe PMC Datalinks retries, per-call retry limits, response closure, authoritative empty XML, bounded numeric and HTTP-date retry delays, repository resolution, data-agnostic packaged recall references, read-only complete/lower-bound query-recall scoring, resumable raw reviewer hydration caching, checksum-verified pre-validation GEO/ArrayExpress evidence retention and reuse, targeted two-attempt metadata retry isolation, privacy-safe structured diagnostics, abstract eligibility, large compact-cache fields, model-free hydrate-only execution, partial base-package retention, and cached trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 

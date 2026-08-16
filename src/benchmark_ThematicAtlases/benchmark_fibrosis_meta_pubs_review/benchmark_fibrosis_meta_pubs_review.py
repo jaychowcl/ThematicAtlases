@@ -48,8 +48,10 @@ CACHE_COLUMNS = (
 LABELS = ("relevant", "not_relevant", "unsure")
 CACHE_SCHEMA_VERSION = "1.0"
 CACHE_FIELD_SIZE_LIMIT = 256 * 1024 * 1024
-HYDRATION_POLICY_VERSION = "complete-full-metadata-v3-raw-checkpoints"
+PREVIOUS_HYDRATION_POLICY_VERSION = "complete-full-metadata-v3-raw-checkpoints"
+HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v4-raw-evidence"
 HYDRATION_ATTEMPTS = 2
+METADATA_RETRY_ATTEMPTS = 2
 RAW_HYDRATION_STAGE = "review_benchmark_hydration"
 RAW_SOURCE_STAGES = (
     "search_queries",
@@ -63,6 +65,11 @@ RAW_SOURCE_STAGES = (
     "pubmed_enrichment",
     "sra_xml",
     "ena_fastq",
+    "geo_miniml_source",
+    "arrayexpress_magetab_source",
+    "geo_precanonical_metadata",
+    "arrayexpress_precanonical_metadata",
+    "metadata_validation_diagnostics",
 )
 
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", flags=re.IGNORECASE)
@@ -114,6 +121,58 @@ class ProductionHydrator:
         self._filterer = filterer
         self._review_service = review_service
         self._checkpoint_store = checkpoint_store
+
+    def retry_terminal_metadata(self, *, attempts: int = METADATA_RETRY_ATTEMPTS) -> list[dict]:
+        """Retry only terminal GEO/ArrayExpress packages in the raw cache."""
+
+        if self._checkpoint_store is None:
+            raise ValueError("terminal metadata retry requires a checkpoint store")
+        targets = (
+            ("geo_metadata", "geo", "GEO"),
+            ("arrayexpress_metadata", "arrayexpress", "ArrayExpress"),
+        )
+        outcomes = []
+        for stage, repository, scheme in targets:
+            handler = self._collector.metadata_handler(repository)
+            terminal = [
+                item
+                for item in self._checkpoint_store.items(stage)
+                if item["status"] == "terminal_error"
+            ]
+            for ordinal, item in enumerate(terminal, start=1):
+                attempts_made = 0
+                for retry_index in range(1, attempts + 1):
+                    attempts_made = retry_index
+                    current = self._checkpoint_store.get(stage, item["key"])
+                    self._checkpoint_store.put(
+                        stage,
+                        item["key"],
+                        current["ordinal"] if current else ordinal,
+                        "retryable_error",
+                        payload=(current or {}).get("payload"),
+                        error="targeted metadata evidence retry",
+                        error_type="TargetedMetadataRetry",
+                        failure_category="manual_retry",
+                    )
+                    handler.collect_accession_metadata(
+                        [{
+                            "datalink_id": item["key"],
+                            "datalink_id_scheme": scheme,
+                            "accession_repository": repository,
+                            "publications": [],
+                        }],
+                        checkpoint_store=self._checkpoint_store,
+                    )
+                    current = self._checkpoint_store.get(stage, item["key"])
+                    if current and current["status"] in {"available", "no_data"}:
+                        break
+                outcomes.append({
+                    "stage": stage,
+                    "accession": item["key"],
+                    "attempts": attempts_made,
+                    "status": (current or {}).get("status", "missing"),
+                })
+        return outcomes
 
     def hydrate(self, row: dict) -> dict:
         return self._hydrate(row, cached_metadata_only=False)
@@ -256,6 +315,7 @@ def hydrate_cache(
     raw_cache: str | Path,
     audit_json: str | Path,
     refresh_cache: bool = False,
+    retry_terminal_metadata: bool = False,
     hydrator=None,
 ) -> dict:
     """Fill the benchmark hydration cache without constructing a reviewer."""
@@ -275,7 +335,9 @@ def hydrate_cache(
     rows = _load_dataset(dataset_path)
     previous_cache = _load_cache(cache_path)
     working_path, requires_publish = _raw_cache_working_path(
-        raw_cache_path, refresh_cache=refresh_cache
+        raw_cache_path,
+        refresh_cache=refresh_cache,
+        force_staging=retry_terminal_metadata,
     )
     store = CheckpointStore(working_path)
     fingerprint = {
@@ -288,11 +350,24 @@ def hydrate_cache(
             "BioStudies", "PubMed", "SRA", "ENA",
         ],
     }
-    store.validate_fingerprint(fingerprint)
+    _validate_or_amend_hydration_fingerprint(store, fingerprint)
     store.set_meta("cache_fill_state", {"status": "running", "record_count": len(rows)})
     if refresh_cache:
         _requeue_terminal_checkpoints(store)
     hydrator = hydrator or ProductionHydrator(checkpoint_store=store)
+    metadata_retry_outcomes = []
+    if retry_terminal_metadata:
+        retry_method = getattr(hydrator, "retry_terminal_metadata", None)
+        if not callable(retry_method):
+            raise TypeError("hydrator does not support terminal metadata retry")
+        metadata_retry_outcomes = retry_method(attempts=METADATA_RETRY_ATTEMPTS)
+        store.set_meta(
+            "terminal_metadata_retry",
+            {
+                "attempts_per_accession": METADATA_RETRY_ATTEMPTS,
+                "outcomes": metadata_retry_outcomes,
+            },
+        )
 
     hydrated_rows = []
     reused_count = 0
@@ -374,22 +449,44 @@ def hydrate_cache(
         "refreshed_count": refreshed_count,
         "hydrated_rows": hydrated_rows,
         "audit": audit,
+        "metadata_retry_outcomes": metadata_retry_outcomes,
     }
 
 
 def _raw_cache_working_path(
-    raw_cache_path: Path, *, refresh_cache: bool
+    raw_cache_path: Path, *, refresh_cache: bool, force_staging: bool = False
 ) -> tuple[Path, bool]:
     raw_cache_path.parent.mkdir(parents=True, exist_ok=True)
     staging = raw_cache_path.with_name(f".{raw_cache_path.name}.building")
     if staging.exists():
         return staging, True
-    if raw_cache_path.exists() and not refresh_cache:
+    if raw_cache_path.exists() and not refresh_cache and not force_staging:
         return raw_cache_path, False
     if raw_cache_path.exists():
         _checkpoint_sqlite(raw_cache_path)
         shutil.copy2(raw_cache_path, staging)
     return staging, True
+
+
+def _validate_or_amend_hydration_fingerprint(store, fingerprint: dict) -> None:
+    existing = store.get_meta("run_fingerprint")
+    if existing is None:
+        store.validate_fingerprint(fingerprint)
+        return
+    existing_configuration = existing.get("configuration") or {}
+    previous = {
+        **fingerprint,
+        "hydration_policy_version": PREVIOUS_HYDRATION_POLICY_VERSION,
+    }
+    if existing_configuration == previous:
+        store.amend_fingerprint(
+            fingerprint,
+            amendment_id="reviewer-metadata-evidence-v1",
+            metadata={
+                "reason": "retain provider checkpoints while adding raw evidence and abstract eligibility",
+            },
+        )
+    store.validate_fingerprint(fingerprint)
 
 
 def _checkpoint_sqlite(path: Path) -> None:
@@ -706,6 +803,7 @@ def _cache_audit(
         "recovered_metadata_package_count": len(recovered_metadata_packages),
         "exhausted_failure_count": len(failures),
     }
+    metadata_evidence = _metadata_evidence_audit(store)
     return {
         "schema_version": "1.0",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -732,7 +830,116 @@ def _cache_audit(
             "metadata_packages": sorted(recovered_metadata_packages),
         },
         "failures": failures,
+        "metadata_evidence": metadata_evidence,
         "publications": publication_audit,
+    }
+
+
+def _metadata_evidence_audit(store) -> dict:
+    records = []
+    code_counts = {}
+    failure_stage_counts = {}
+    accessions = set()
+    for provider, stage in (
+        ("geo", "geo_miniml_source"),
+        ("arrayexpress", "arrayexpress_magetab_source"),
+        ("geo", "geo_precanonical_metadata"),
+        ("arrayexpress", "arrayexpress_precanonical_metadata"),
+    ):
+        accessions.update((provider, str(item["key"])) for item in store.items(stage))
+    for item in store.items("metadata_validation_diagnostics"):
+        payload = item.get("payload") or {}
+        provider = str(payload.get("provider") or str(item["key"]).split(":", 1)[0])
+        accession = str(payload.get("accession") or str(item["key"]).split(":", 1)[-1])
+        accessions.add((provider, accession))
+
+    download_status_counts = {}
+    parse_status_counts = {}
+    canonicalization_status_counts = {}
+    diagnostic_status_counts = {}
+    for provider, accession in sorted(accessions):
+        source_stage = (
+            "geo_miniml_source"
+            if provider == "geo"
+            else "arrayexpress_magetab_source"
+        )
+        precanonical_stage = (
+            "geo_precanonical_metadata"
+            if provider == "geo"
+            else "arrayexpress_precanonical_metadata"
+        )
+        metadata_stage = (
+            "geo_metadata" if provider == "geo" else "arrayexpress_metadata"
+        )
+        source = store.get(source_stage, accession) or {}
+        precanonical = store.get(precanonical_stage, accession) or {}
+        canonical = store.get(metadata_stage, accession) or {}
+        item = store.get("metadata_validation_diagnostics", f"{provider}:{accession}") or {}
+        payload = item.get("payload") or {}
+        failure_stage = payload.get("failure_stage")
+        if failure_stage:
+            failure_stage_counts[str(failure_stage)] = (
+                failure_stage_counts.get(str(failure_stage), 0) + 1
+            )
+        diagnostics = []
+        for diagnostic in payload.get("diagnostics", []):
+            if not isinstance(diagnostic, dict):
+                continue
+            projected = {
+                "package_index": diagnostic.get("package_index"),
+                "code": diagnostic.get("code"),
+                "path": diagnostic.get("path"),
+                "severity": diagnostic.get("severity"),
+            }
+            diagnostics.append(projected)
+            code = str(projected.get("code") or "unknown")
+            code_counts[code] = code_counts.get(code, 0) + 1
+        for counts, status in (
+            (download_status_counts, source.get("status", "missing")),
+            (parse_status_counts, precanonical.get("status", "missing")),
+            (canonicalization_status_counts, canonical.get("status", "missing")),
+            (diagnostic_status_counts, item.get("status", "missing")),
+        ):
+            counts[status] = counts.get(status, 0) + 1
+        records.append({
+            "provider": provider,
+            "accession": accession,
+            "source_status": source.get("status", "missing"),
+            "precanonical_status": precanonical.get("status", "missing"),
+            "canonical_status": canonical.get("status", "missing"),
+            "diagnostic_status": item.get("status"),
+            "failure_stage": failure_stage,
+            "attempt_count": payload.get(
+                "attempt_count", canonical.get("attempt_count", 0)
+            ),
+            "correlation_id": payload.get("correlation_id"),
+            "diagnostics": diagnostics,
+        })
+    retry = store.get_meta("terminal_metadata_retry") or {}
+    return {
+        "summary": {
+            "accession_count": len(records),
+            "download_status_counts": download_status_counts,
+            "parse_status_counts": parse_status_counts,
+            "canonicalization_status_counts": canonicalization_status_counts,
+            "diagnostic_status_counts": diagnostic_status_counts,
+            "failure_stage_counts": failure_stage_counts,
+            "diagnostic_code_counts": code_counts,
+        },
+        "retry": {
+            "attempts_per_accession": retry.get("attempts_per_accession"),
+            "outcomes": [
+                {
+                    "stage": item.get("stage"),
+                    "accession": item.get("accession"),
+                    "attempts": item.get("attempts"),
+                    "status": item.get("status"),
+                }
+                for item in retry.get("outcomes", [])
+                if isinstance(item, dict)
+            ],
+        },
+        "accessions": records,
     }
 
 
@@ -1093,12 +1300,17 @@ def _hydrate_with_retry(hydrator, row: dict) -> dict:
 def _hydration_downloads_complete(value: object) -> bool:
     if not isinstance(value, dict):
         return False
-    if str(value.get("text_source") or "") not in {
+    text_source = str(value.get("text_source") or "")
+    if text_source not in {
         "fullTextXML",
         "preprintJATSXML",
+        "abstractText",
     }:
         return False
-    if str(value.get("full_text_status") or "") != "available":
+    if (
+        text_source in {"fullTextXML", "preprintJATSXML"}
+        and str(value.get("full_text_status") or "") != "available"
+    ):
         return False
     if not str(value.get("publication_text") or "").strip():
         return False
@@ -1513,6 +1725,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache", type=Path, default=None)
     parser.add_argument("--raw-cache", type=Path, default=None)
     parser.add_argument("--hydrate-only", action="store_true")
+    parser.add_argument("--retry-terminal-metadata", action="store_true")
     parser.add_argument("--refresh-cache", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
@@ -1539,6 +1752,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     audit_path = output_directory / AUDIT_NAME
     try:
+        if args.retry_terminal_metadata and not args.hydrate_only:
+            raise ValueError("--retry-terminal-metadata requires --hydrate-only")
         protected_inputs = {
             args.dataset_csv.resolve(),
             DEFAULT_THEME.resolve(),
@@ -1555,6 +1770,7 @@ def main(argv: list[str] | None = None) -> int:
                 raw_cache=raw_cache_path,
                 audit_json=audit_path,
                 refresh_cache=args.refresh_cache,
+                retry_terminal_metadata=args.retry_terminal_metadata,
             )
             print(fill["audit_path"])
             return 0

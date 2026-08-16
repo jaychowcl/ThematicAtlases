@@ -15,6 +15,16 @@ from ThematicAtlases.miniml_boundary import checkpoint_payload
 from meta_standards_converter.miniml import MINiMLCodec
 
 
+def invalid_reference_package(accession: str = "GSE1") -> dict:
+    value = v2_package(accession)
+    value["sample"] = [{
+        "iid": "GSM1",
+        "platform_ref": {"ref": "GPL-MISSING"},
+        "channel": [],
+    }]
+    return value
+
+
 def v2_package(accession: str = "GSE1") -> dict:
     return {
         "miniml_schema_version": "3.0",
@@ -123,6 +133,56 @@ def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
     assert InterruptingGeo.calls == ["GSE1", "GSE2"]
     assert CompletingGeo.calls == ["GSE2"]
     assert [record["datalink_id"] for record in result] == ["GSE1", "GSE2"]
+
+
+def test_geo_checkpoint_captures_source_precanonical_and_diagnostics_before_failure(
+    tmp_path, monkeypatch
+) -> None:
+    store = CheckpointStore(tmp_path / "raw.sqlite3")
+
+    class Fetcher:
+        calls = 0
+
+        def fetch_gse_miniml(self, gse):
+            self.__class__.calls += 1
+            return f"<MINiML accession='{gse}'/>"
+
+    class Parser:
+        def parse(self, **_kwargs):
+            return [MINiMLCodec().decode(invalid_reference_package()).package]
+
+    class Converter:
+        def __init__(self, **_kwargs):
+            self.geo_fetcher = Fetcher()
+            self.parser = Parser()
+
+    monkeypatch.setattr(geo_module, "geo2json", Converter)
+    wrapper = GEOWrapper()
+    result = wrapper.collect_accession_metadata(
+        [{"datalink_id": "GSE1", "publications": []}], checkpoint_store=store
+    )
+
+    assert result[0]["metadata_status"] == "error"
+    assert store.get("geo_miniml_source", "GSE1")["status"] == "available"
+    assert store.get("geo_precanonical_metadata", "GSE1")["status"] == "available"
+    diagnostics = store.get("metadata_validation_diagnostics", "geo:GSE1")
+    assert diagnostics["status"] == "terminal_error"
+    assert diagnostics["payload"]["diagnostics"] == [{
+        "package_index": 0,
+        "code": "unresolved_reference",
+        "path": "/sample/0/platform_ref/ref",
+        "severity": "warning",
+    }]
+
+    failed = store.get("geo_metadata", "GSE1")
+    store.put(
+        "geo_metadata", "GSE1", 1, "retryable_error",
+        payload=failed["payload"], error="targeted retry",
+    )
+    wrapper.collect_accession_metadata(
+        [{"datalink_id": "GSE1", "publications": []}], checkpoint_store=store
+    )
+    assert Fetcher.calls == 1
 
 
 def test_geo_metadata_checkpoint_rebuilds_latest_publication_provenance(tmp_path) -> None:
