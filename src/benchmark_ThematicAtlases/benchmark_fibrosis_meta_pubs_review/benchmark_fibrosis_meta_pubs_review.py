@@ -460,7 +460,8 @@ def hydrate_cache(
         hydrated_rows.append({"dataset": row, "hydration": hydration})
 
     _terminalize_exhausted_checkpoints(store)
-    _reproject_terminal_hydrations(hydrated_rows, hydrator, store)
+    if not retry_terminal_metadata:
+        _reproject_terminal_hydrations(hydrated_rows, hydrator, store)
     cache_rows = [
         _cache_row(item["dataset"], _identity_hash(item["dataset"]), item["hydration"])
         for item in hydrated_rows

@@ -1106,7 +1106,7 @@ def test_targeted_retry_reprojects_all_rows_from_cached_stages_only(
 
         def hydrate_cached(self, row):
             self.cached_calls.append(row["publication_id"])
-            return complete_hydration(row["publication_id"])
+            return incomplete_hydration(row["publication_id"])
 
     hydrator = CachedOnlyHydrator()
     result = runner.hydrate_cache(
