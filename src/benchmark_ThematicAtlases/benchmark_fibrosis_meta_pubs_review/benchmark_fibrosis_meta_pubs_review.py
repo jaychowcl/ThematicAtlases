@@ -166,6 +166,21 @@ class ProductionHydrator:
                     current = self._checkpoint_store.get(stage, item["key"])
                     if current and current["status"] in {"available", "no_data"}:
                         break
+                if not current or current["status"] not in {"available", "no_data"}:
+                    current = current or item
+                    self._checkpoint_store.put(
+                        stage,
+                        item["key"],
+                        current.get("ordinal", item["ordinal"]),
+                        "terminal_error",
+                        payload=current.get("payload"),
+                        error=current.get("error") or "targeted metadata retry exhausted",
+                        error_type=current.get("error_type") or "ExhaustedMetadataRetry",
+                        failure_category=(
+                            current.get("failure_category") or "metadata_retry_exhausted"
+                        ),
+                    )
+                    current = self._checkpoint_store.get(stage, item["key"])
                 outcomes.append({
                     "stage": stage,
                     "accession": item["key"],
@@ -376,6 +391,12 @@ def hydrate_cache(
         identity_hash = _identity_hash(row)
         checkpoint = store.get(RAW_HYDRATION_STAGE, row["publication_id"])
         payload = (checkpoint or {}).get("payload") or {}
+        cached_reprojection = (
+            retry_terminal_metadata
+            and checkpoint is not None
+            and checkpoint.get("status") == "available"
+            and isinstance(payload.get("hydration"), dict)
+        )
         reuse = (
             not refresh_cache
             and checkpoint is not None
@@ -386,9 +407,35 @@ def hydrate_cache(
         logger.info(
             "Reviewer benchmark progress stage=hydrate publication_index=%s "
             "publication_total=%s publication_id=%s raw_cache_action=%s",
-            index, len(rows), row["publication_id"], "reuse" if reuse else "refresh",
+            index,
+            len(rows),
+            row["publication_id"],
+            "reproject" if cached_reprojection else "reuse" if reuse else "refresh",
         )
-        if reuse:
+        if cached_reprojection:
+            cached_hydrator = getattr(hydrator, "hydrate_cached", None)
+            if not callable(cached_hydrator):
+                raise TypeError("targeted metadata retry requires cached hydration reprojection")
+            hydration = _validated_hydration(cached_hydrator(row))
+            reused_count += 1
+            store.put(
+                RAW_HYDRATION_STAGE,
+                row["publication_id"],
+                index,
+                "available",
+                payload={
+                    "contract_version": "1.0",
+                    "identity_sha256": identity_hash,
+                    "hydration": hydration,
+                    "terminal_outcome": (
+                        "complete" if _hydration_is_complete(hydration)
+                        else "retrieval_failed"
+                        if hydration.get("hydration_status") == "failed"
+                        else "incomplete"
+                    ),
+                },
+            )
+        elif reuse:
             hydration = payload["hydration"]
             reused_count += 1
         else:

@@ -1030,7 +1030,7 @@ def test_targeted_metadata_retry_makes_exactly_two_construction_attempts(
                 "geo_metadata",
                 records[0]["datalink_id"],
                 1,
-                "terminal_error",
+                "retryable_error",
                 payload={"packages": []},
                 error_type="MINiMLCompatibilityError",
                 failure_category="metadata_compatibility",
@@ -1056,6 +1056,75 @@ def test_targeted_metadata_retry_makes_exactly_two_construction_attempts(
         "attempts": 2,
         "status": "terminal_error",
     }]
+    assert store.get("geo_metadata", "GSE1")["status"] == "terminal_error"
+
+
+def test_targeted_retry_reprojects_all_rows_from_cached_stages_only(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    from ThematicAtlases.checkpoint import CheckpointStore
+
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(dataset, [dataset_row("pub-1", "relevant", pmid="1")])
+    raw_cache = tmp_path / RAW_CACHE_NAME
+    store = CheckpointStore(raw_cache)
+    fingerprint = {
+        "benchmark": "fibrosis_meta_publication_review_hydration",
+        "dataset_sha256": runner._file_sha256(dataset),
+        "record_count": 1,
+        "hydration_policy_version": runner.PREVIOUS_HYDRATION_POLICY_VERSION,
+        "production_sources": [
+            "Europe PMC", "PMC", "preprint", "NCBI GEO", "ArrayExpress",
+            "BioStudies", "PubMed", "SRA", "ENA",
+        ],
+    }
+    store.validate_fingerprint(fingerprint)
+    old = complete_hydration("pub-1")
+    old["hydration_status"] = "degraded"
+    store.put(
+        runner.RAW_HYDRATION_STAGE,
+        "pub-1",
+        1,
+        "available",
+        payload={
+            "identity_sha256": "old-policy-identity",
+            "hydration": old,
+            "terminal_outcome": "incomplete",
+        },
+    )
+
+    class CachedOnlyHydrator:
+        cached_calls = []
+
+        def retry_terminal_metadata(self, attempts):
+            assert attempts == 2
+            return []
+
+        def hydrate(self, _row):
+            pytest.fail("targeted retry entered normal public hydration")
+
+        def hydrate_cached(self, row):
+            self.cached_calls.append(row["publication_id"])
+            return complete_hydration(row["publication_id"])
+
+    hydrator = CachedOnlyHydrator()
+    result = runner.hydrate_cache(
+        dataset_csv=dataset,
+        cache_csv=tmp_path / CACHE_NAME,
+        raw_cache=raw_cache,
+        audit_json=tmp_path / AUDIT_NAME,
+        retry_terminal_metadata=True,
+        hydrator=hydrator,
+    )
+
+    assert hydrator.cached_calls == ["pub-1"]
+    assert result["reused_count"] == 1
+    assert result["refreshed_count"] == 0
+    published = CheckpointStore(raw_cache).get(runner.RAW_HYDRATION_STAGE, "pub-1")
+    assert published["payload"]["identity_sha256"] == runner._identity_hash(
+        dataset_row("pub-1", "relevant", pmid="1")
+    )
 
 
 def test_metadata_evidence_audit_excludes_raw_and_package_contents(tmp_path: Path) -> None:
