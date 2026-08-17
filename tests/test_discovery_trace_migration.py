@@ -149,3 +149,42 @@ def test_migrate_discovery_run_rejects_manifest_fingerprint_drift(tmp_path):
             new_run_id="graph-run",
         )
 
+
+def test_migrate_discovery_run_rejects_corrupt_source_database(tmp_path):
+    trace = _source_trace(tmp_path / "runs")
+    (trace.directory / "atlas_run.sqlite3").write_bytes(b"not sqlite")
+
+    with pytest.raises(ValueError, match="integrity check failed"):
+        Atlas(metadata={}).migrate_discovery_run(
+            dev_out_dir=str(tmp_path / "runs"),
+            run_id="source",
+            new_run_id="graph-run",
+        )
+
+
+def test_migrate_discovery_run_rejects_graph_aware_source(tmp_path):
+    trace = _source_trace(tmp_path / "runs")
+    current = trace.checkpoint_store.get_meta("run_fingerprint")["configuration"]
+    trace.checkpoint_store.amend_fingerprint(
+        {**current, "pubmed_gds_discovery_contract": "1.0"},
+        amendment_id="already-graph-aware",
+    )
+
+    with pytest.raises(ValueError, match="already graph-aware"):
+        Atlas(metadata={}).migrate_discovery_run(
+            dev_out_dir=str(tmp_path / "runs"),
+            run_id="source",
+            new_run_id="graph-run",
+        )
+
+
+def test_migrate_discovery_run_rejects_existing_destination(tmp_path):
+    _source_trace(tmp_path / "runs")
+    (tmp_path / "runs" / "graph-run").mkdir()
+
+    with pytest.raises(FileExistsError, match="destination already exists"):
+        Atlas(metadata={}).migrate_discovery_run(
+            dev_out_dir=str(tmp_path / "runs"),
+            run_id="source",
+            new_run_id="graph-run",
+        )
