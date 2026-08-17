@@ -16,6 +16,9 @@ from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
 from ThematicAtlases.application import AtlasDocumentService
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.document_adapter import AtlasDocumentAdapter
+from ThematicAtlases.discovery_trace_migration import (
+    migrate_pre_graph_discovery_trace,
+)
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer import AtlasFilterer
 from ThematicAtlases.filterer import PublicationTextReviewer
@@ -482,6 +485,21 @@ class Atlas:
             run_id=run_id,
             new_run_id=new_run_id,
             overrides=overrides,
+        )
+
+    def migrate_discovery_run(
+        self,
+        *,
+        dev_out_dir: str,
+        run_id: str,
+        new_run_id: str,
+    ) -> Path:
+        """Clone a stopped pre-graph discovery trace into contract 1.0."""
+
+        return migrate_pre_graph_discovery_trace(
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
+            new_run_id=new_run_id,
         )
 
     def resume(

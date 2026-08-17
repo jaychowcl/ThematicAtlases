@@ -347,6 +347,16 @@ class CheckpointStore:
         value = self.get_meta_json(key)
         return default if value is None else json.loads(value)
 
+    def stage_counts(self) -> dict[str, int]:
+        """Return durable item counts for every stage present in the trace."""
+
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                "SELECT stage, COUNT(*) AS item_count "
+                "FROM checkpoint_items GROUP BY stage ORDER BY stage"
+            ).fetchall()
+        return {str(row["stage"]): int(row["item_count"]) for row in rows}
+
     def validate_fingerprint(self, configuration: dict) -> None:
         normalized = self._json(configuration)
         fingerprint = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
