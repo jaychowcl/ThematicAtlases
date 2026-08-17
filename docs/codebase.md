@@ -545,6 +545,7 @@ Atlas-owned collaborators.
 | [`Atlas.harmonize_datasets`](../src/ThematicAtlases/atlas.py) | `(datasets, harmonization_details_out=None, harmonization_options=None) -> dict` | Requires Atlas v1 input, projects it to the internal stage contract, and returns validated v1 with status-2.0 harmonization details. Legacy/unknown wire fields fail validation. Unsupported/null/mismatched metadata receives a not-run envelope; caught item failures retain original metadata with failed/safe-error envelopes. |
 | [`Atlas.resume`](../src/ThematicAtlases/atlas.py) | `(dev_out_dir=".dev", run_id=None, out=None, stop_before_review=False, retry_stages=None, retry_items=None, retry_degraded_stages=None) -> dict` | Selects a v1 trace, requires authoritative `atlas_run.sqlite3`, optionally archives/requeues selected item-cache rows, reuses completed boundaries, and returns/publishes Atlas v1. Missing/ambiguous/incompatible runs, fingerprint mismatches, or invalid retry requests raise. |
 | [`Atlas.fork_run`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, new_run_id, overrides=None) -> Path` | Atomically clones a metadata-paused create trace with a new ledger identity. It preserves discovery/text/metadata checkpoints, records source provenance, accepts downstream-only overrides, and rejects discovery changes, existing destinations, incomplete sources, and traces containing downstream work. |
+| [`Atlas.migrate_discovery_run`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, new_run_id) -> Path` | Atomically clones a stopped, healthy pre-graph trace that remains in Datalinks, rewrites the ledger/output identity, retains prior checkpoints, audits stage counts and source hashes, and amends only the destination fingerprint to PubMed-GDS contract `1.0`. Active callers are excluded by the composing workflow lock; graph-aware, configuration-drifted, post-collection, corrupt, or existing destinations fail closed. |
 | [`Atlas.amend_queries`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, run_id, queries, max_publications_per_query) -> Path` | Archives the prior fingerprint and installs aligned normalized queries atomically. Empty/misaligned limits, active work, or unsafe state raise. |
 | [`Atlas.archive_existing_runs`](../src/ThematicAtlases/atlas.py) | `(*, dev_out_dir, archive_root, workflow, artifact_paths=()) -> list[Path]` | Returns durably published archive paths after verification and fsync; active runs, symlinks, unsafe names, nested roots, and collisions raise without deleting sources. A post-publication fsync or cleanup failure raises `ArchiveDurabilityError` with the published destination. |
 
@@ -1007,6 +1008,13 @@ select trace -> validate fingerprint -> retry request?
    identity and copies only upstream checkpoints; downstream overrides are
    fingerprinted and source provenance is retained. Manual directory copying is
    incompatible because the embedded SQLite run ID would not match the new path.
+7. `migrate_discovery_run` handles the distinct pre-graph case only while the
+   stopped source remains in Datalinks and lacks main collection artifacts. It
+   verifies the source, backs up SQLite into a temporary destination, rewrites
+   run/output identity, records source hashes and stage counts, adds discovery
+   contract `1.0`, and publishes atomically. Resume reuses existing Datalinks
+   and publication-text rows, then persists graph links per PMID and summaries
+   per GDS UID; completed batches survive later stops.
 
 #### Pseudocode
 
@@ -2151,8 +2159,10 @@ discovery-contract version rather than raw API responses. Exact official graph
 evidence is sufficient for discovery without a text match. Suitability remains
 strictly downstream: unavailable, empty, or invalid metadata packages never
 become reviewer inputs. The contract version is part of new trace fingerprints,
-so pre-graph production traces must fork instead of silently changing dataset
-membership.
+so pre-graph production traces cannot resume silently with changed dataset
+membership. A stopped mid-Datalinks trace may be cloned explicitly through
+`Atlas.migrate_discovery_run`; the source remains immutable and only the new
+trace adopts the graph contract.
 
 <a id="fulltext-accession-discovery"></a>
 #### Publication-text accession discovery

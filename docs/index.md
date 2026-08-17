@@ -262,8 +262,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-resume-and-retry
   title: [Resume and retry workflow](codebase.md#workflow-resume-and-retry)
   anchor: workflow-resume-and-retry
-  purpose: Trace selection, fingerprint validation, selective requeue, reuse, and continuation.
-  keywords: resume, retry-stage, retry-item, degraded, metadata pause, fork-run, CheckpointStore
+  purpose: Trace selection, fingerprint validation, selective requeue, pre-graph discovery migration, reuse, and continuation.
+  keywords: resume, retry-stage, retry-item, degraded, metadata pause, fork-run, migrate_discovery_run, PubMed GDS, CheckpointStore
 
 - id: workflow-query-amendment-and-archive
   title: [Query amendment and archive workflow](codebase.md#workflow-query-amendment-and-archive)

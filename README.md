@@ -527,6 +527,24 @@ Queries, limits, repositories, and collection settings remain immutable. Use
 for the equivalent CLI workflow; manual trace copying is unsupported because
 the SQLite ledger embeds the run identity and fingerprint.
 
+`Atlas.migrate_discovery_run(...)` is the narrow upgrade path for a stopped
+pre-PubMed-GDS trace that is still in its Datalinks phase:
+
+```python
+Atlas.migrate_discovery_run(
+    dev_out_dir=".dev", run_id="source", new_run_id="graph-aware",
+)
+```
+
+Migration always creates a new trace, verifies SQLite integrity and discovery
+configuration, retains existing search/Datalinks/text/metadata and historical
+review checkpoints, isolates output paths, and atomically adds graph discovery
+contract `1.0` to the cloned fingerprint. It rejects active callers through the
+composing workflow's exclusive activity lock, graph-aware or post-collection
+sources, and existing destinations. Normal `resume()` then checkpoints ELink by
+PMID and ESummary by GDS UID, so a later stop repeats at most an unfinished
+batch. The original trace and outputs remain unchanged.
+
 `Atlas.amend_queries(...)` replaces one trace's query fingerprint without discarding completed item checkpoints:
 
 ```python
