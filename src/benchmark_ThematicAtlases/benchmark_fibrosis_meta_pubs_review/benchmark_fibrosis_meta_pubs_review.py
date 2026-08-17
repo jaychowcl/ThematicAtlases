@@ -53,6 +53,7 @@ CACHE_COLUMNS = (
     "retrieved_at_utc",
 )
 LABELS = ("relevant", "not_relevant", "unsure")
+REPORT_SCHEMA_VERSION = "1.1"
 CACHE_SCHEMA_VERSION = "1.0"
 CACHE_FIELD_SIZE_LIMIT = 256 * 1024 * 1024
 PREVIOUS_HYDRATION_POLICY_VERSION = "complete-metadata-abstract-v5-miniml-source-compat"
@@ -1186,6 +1187,7 @@ def run_benchmark(
     refresh_cache: bool = False,
     raw_cache: str | Path | None = None,
     audit_json: str | Path | None = None,
+    include_text_only: bool = False,
     hydrator=None,
     review_runner=None,
 ) -> dict:
@@ -1266,11 +1268,24 @@ def run_benchmark(
             cache_rows.append(_cache_row(row, identity_hash, hydration))
         _write_csv_atomic(cache_path, CACHE_COLUMNS, cache_rows)
 
-    reviewable = [
-        item
-        for item in hydrated_rows
-        if _hydration_is_complete(item["hydration"])
-    ]
+    for item in hydrated_rows:
+        context_tier = _review_context_tier(item["hydration"])
+        item["context_tier"] = context_tier
+        item["review_eligible"] = context_tier == "full_context" or (
+            include_text_only and context_tier == "text_only"
+        )
+        if not item["review_eligible"]:
+            logger.info(
+                "Reviewer benchmark progress stage=review publication_id=%s "
+                "review_eligibility=skipped reason=%s",
+                item["dataset"]["publication_id"],
+                (
+                    "retrieval_failed"
+                    if item["hydration"].get("hydration_status") == "failed"
+                    else "metadata_incomplete"
+                ),
+            )
+    reviewable = [item for item in hydrated_rows if item["review_eligible"]]
     publication_texts = {
         item["dataset"]["publication_id"]: {
             "text": item["hydration"]["publication_text"],
@@ -1322,7 +1337,7 @@ def run_benchmark(
     ]
     summary = _summary(publication_results)
     return {
-        "schema_version": "1.0",
+        "schema_version": REPORT_SCHEMA_VERSION,
         "benchmark": {
             "method": "fibrosis_meta_publication_review",
             "dataset": {
@@ -1349,6 +1364,7 @@ def run_benchmark(
                     MINIML_STRICT_COMPATIBILITY_POLICY_VERSION
                 ),
                 "full_metadata_enrichment": True,
+                "include_text_only": bool(include_text_only),
             },
         },
         "summary": summary,
@@ -1561,6 +1577,33 @@ def _hydration_is_complete(value: object) -> bool:
     )
 
 
+def _review_context_tier(value: object) -> str:
+    if _hydration_is_complete(value):
+        return "full_context"
+    if not isinstance(value, dict):
+        return "ineligible"
+    if value.get("hydration_status") not in {"available", "degraded"}:
+        return "ineligible"
+    text_source = str(value.get("text_source") or "")
+    if text_source not in {"fullTextXML", "preprintJATSXML", "abstractText"}:
+        return "ineligible"
+    if (
+        text_source in {"fullTextXML", "preprintJATSXML"}
+        and str(value.get("full_text_status") or "") != "available"
+    ):
+        return "ineligible"
+    if not str(value.get("publication_text") or "").strip() or value.get("errors"):
+        return "ineligible"
+    context = value.get("review_context")
+    if not isinstance(context, dict) or not str(context.get("title") or "").strip():
+        return "ineligible"
+    if context.get("accessions") != []:
+        return "ineligible"
+    if context.get("metadata") != [] or context.get("metadata_statuses") != {}:
+        return "ineligible"
+    return "text_only"
+
+
 def _failed_hydration(error: Exception) -> dict:
     return {
         "resolved_doi": "",
@@ -1642,6 +1685,7 @@ def _publication_result(item: dict, reviewed: dict, batch_error: dict | None) ->
         },
         "title": hydration["title"],
         "expected_decision": dataset["expected_decision"],
+        "context_tier": item["context_tier"],
         "actual_decision": None,
         "correct": None,
         "hydration": {
@@ -1664,7 +1708,7 @@ def _publication_result(item: dict, reviewed: dict, batch_error: dict | None) ->
     }
     if hydration["hydration_status"] == "failed":
         return {**base, "status": "retrieval_failed"}
-    if not _hydration_is_complete(hydration):
+    if not item["review_eligible"]:
         return {**base, "status": "metadata_incomplete"}
     if batch_error is not None:
         return {
@@ -1716,7 +1760,7 @@ def _publication_result(item: dict, reviewed: dict, batch_error: dict | None) ->
     return result
 
 
-def _summary(publications: list[dict]) -> dict:
+def _classification_metrics(publications: list[dict]) -> dict:
     scored = [row for row in publications if row["status"] == "scored"]
     confusion = {
         expected: {actual: 0 for actual in LABELS} for expected in LABELS
@@ -1750,6 +1794,36 @@ def _summary(publications: list[dict]) -> dict:
     correct = sum(bool(row["correct"]) for row in scored)
     return {
         "input_count": len(publications),
+        "review_failed_count": sum(
+            row["status"] == "review_failed" for row in publications
+        ),
+        "scored_count": len(scored),
+        "correct_count": correct,
+        "accuracy": correct / len(scored) if scored else None,
+        "expected_counts": expected_counts,
+        "predicted_counts": predicted_counts,
+        "confusion_matrix": confusion,
+        "per_class": per_class,
+        "macro_f1": sum(values["f1"] for values in per_class.values()) / len(LABELS),
+    }
+
+
+def _summary(publications: list[dict]) -> dict:
+    scored = [row for row in publications if row["status"] == "scored"]
+    eligible = [
+        row
+        for row in publications
+        if row["status"] in {"scored", "review_failed"}
+    ]
+    classification = _classification_metrics(publications)
+    tier_metrics = {
+        tier: _classification_metrics(
+            [row for row in eligible if row["context_tier"] == tier]
+        )
+        for tier in ("full_context", "text_only")
+    }
+    return {
+        "input_count": len(publications),
         "hydrated_count": sum(
             row["hydration"]["status"] in {"available", "degraded"}
             for row in publications
@@ -1763,21 +1837,23 @@ def _summary(publications: list[dict]) -> dict:
         "metadata_incomplete_count": sum(
             row["status"] == "metadata_incomplete" for row in publications
         ),
-        "review_eligible_count": sum(
-            row["hydration"]["status"] == "available" for row in publications
+        "review_eligible_count": len(eligible),
+        "full_context_eligible_count": sum(
+            row["context_tier"] == "full_context" for row in eligible
+        ),
+        "text_only_eligible_count": sum(
+            row["context_tier"] == "text_only" for row in eligible
         ),
         "review_completed_count": len(scored),
         "review_failed_count": sum(
             row["status"] == "review_failed" for row in publications
         ),
-        "scored_count": len(scored),
-        "correct_count": correct,
-        "accuracy": correct / len(scored) if scored else None,
-        "expected_counts": expected_counts,
-        "predicted_counts": predicted_counts,
-        "confusion_matrix": confusion,
-        "per_class": per_class,
-        "macro_f1": sum(values["f1"] for values in per_class.values()) / len(LABELS),
+        **{
+            key: value
+            for key, value in classification.items()
+            if key not in {"input_count", "review_failed_count"}
+        },
+        "context_tier_metrics": tier_metrics,
     }
 
 
@@ -1937,6 +2013,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hydrate-only", action="store_true")
     parser.add_argument("--retry-terminal-metadata", action="store_true")
     parser.add_argument("--refresh-cache", action="store_true")
+    parser.add_argument("--include-text-only", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
     return parser
 
@@ -1991,6 +2068,7 @@ def main(argv: list[str] | None = None) -> int:
             refresh_cache=args.refresh_cache,
             raw_cache=raw_cache_path,
             audit_json=audit_path,
+            include_text_only=args.include_text_only,
         )
         report_path = _write_report(report, output_directory)
     except (OSError, TypeError, ValueError) as error:

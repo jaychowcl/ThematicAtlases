@@ -314,7 +314,7 @@ sleeper, so endpoint pacing and tests share the same timing boundary.
 | item stages | `CheckpointStore` | internal SQLite calls | store owns fingerprints, item results/history, locks, and retry requests | transaction failure prevents false item completion |
 | fibrosis benchmark runner | direct `benchmark_fibrosis_meta_pubs_recall.py` invocation | trace directory plus packaged/custom TSV | runner atomically owns one generated JSON report under caller-selected output | invalid TSV/trace fails without a partial report; ambiguous matches become conflicts |
 | fibrosis query-recall benchmark | direct `benchmark_fibrosis_meta_pubs_query_recall.py` invocation | trace directory plus the same packaged/custom TSV | runner reads one consistent, query-only SQLite transaction and atomically owns its generated report | incomplete query checkpoints produce an explicit lower-bound report; malformed trace contracts fail without replacing a report |
-| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme, raw SQLite, derived CSV, and audit | runner owns resumable public hydration, PubMed→GDS link/summary checkpoints, provider-stage/raw-package checkpoints, compressed pre-validation source evidence, terminal-negative reuse, compact projection, complete-context eligibility, and atomic artifact replacement; production TA components own public retrieval/review | hydrate-only never initializes a model; targeted retry reuses captured source and isolates terminal metadata; retained base GEO packages become partial after exhausted enrichment; only error-free rows with non-empty full text/preprint/abstract and complete accession metadata reach review; invalid global inputs fail without replacing a report |
+| fibrosis review benchmark | direct `benchmark_fibrosis_meta_pubs_review.py` invocation | labeled DOI/PMID CSV plus packaged theme, raw SQLite, derived CSV, and audit | runner owns resumable public hydration, PubMed→GDS link/summary checkpoints, provider-stage/raw-package checkpoints, compressed pre-validation source evidence, terminal-negative reuse, compact projection, default complete-context eligibility, opt-in text-only eligibility, and atomic artifact replacement; production TA components own public retrieval/review | hydrate-only never initializes a model; targeted retry reuses captured source and isolates terminal metadata; retained base GEO packages become partial after exhausted enrichment; default review requires complete metadata, while `--include-text-only` admits only non-empty-text rows with zero supported accessions and never partial/error metadata; invalid global inputs fail without replacing a report |
 
 Control flows downward from interfaces through `Atlas`; data returns upward as
 plain mappings. Remote adapters never call the CLI. Benchmarking and independent
@@ -491,12 +491,16 @@ the Python API, or the canonical parent-adapter workflow documented in the
   raw checkpoint and derived-cache reuse/refresh, fully enriched GEO MINiML collection including
   PubMed/SRA/ENA identifier enrichment, one outer retry for failed or incomplete
   hydration, terminal negative caching, interruption/resume, privacy-safe cache
-  audit, model-free hydration-only execution, complete-context gating, visible progress, production
-  `PublicationTextReviewer` dispatch, three-class metrics, and atomic report
+  audit, model-free hydration-only execution, default complete-context gating,
+  benchmark-only text-only inclusion, visible progress, production
+  `PublicationTextReviewer` dispatch, context-stratified three-class metrics, and atomic report
   publication. Reviewer input requires non-empty full text, preprint text, or
   abstract text, at least one
   supported accession, non-empty metadata for every accession, only `available`
-  metadata statuses, and no hydration errors. MSC policy
+  metadata statuses, and no hydration errors. With explicit
+  `--include-text-only`, a non-empty-text row with zero accessions is also
+  reviewed with empty accession/metadata arrays; known partial/error accession
+  contexts remain blocked, and production Atlas behavior is unchanged. MSC policy
   `miniml-3.0-source-compat-v1` preserves duplicate sample titles only when
   unique non-empty iids retain identity; accepted warnings are audited while
   all other strict diagnostics remain blocking. It has no trace input.
@@ -1287,7 +1291,7 @@ benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR
 
 benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
     [--cache CSV] [--raw-cache SQLITE] [--hydrate-only]
-    [--retry-terminal-metadata] [--refresh-cache] [--verbose]
+    [--retry-terminal-metadata] [--refresh-cache] [--include-text-only] [--verbose]
   -> validate publication_id/DOI/PMID/expected_decision rows
   -> exact Europe PMC text + fully enriched accession metadata hydration
      (GEO PubMed/SRA/ENA identifier enrichment enabled)
@@ -1301,10 +1305,12 @@ benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIR]
   -> with --retry-terminal-metadata, retry only terminal GEO/AE construction twice,
      reusing checksum-verified source evidence in an atomic staging database
   -> with --verbose, log each cache/hydration action and review-stage status
-  -> skip still-incomplete rows before constructing reviewer inputs
+  -> default: skip still-incomplete rows before constructing reviewer inputs
+  -> with --include-text-only, also admit non-empty-text rows with zero accessions
   -> PublicationTextReviewer.review_publication_texts(theme=packaged fibrosis theme)
-  -> score relevant/not_relevant/unsure; retain row failures outside metrics
-  -> atomic schema 1.0 report replacement
+  -> score relevant/not_relevant/unsure overall and by context tier
+  -> retain row failures outside accuracy while preserving recall denominators
+  -> atomic schema 1.1 report replacement
   <- print report path and exit 0
 ```
 
@@ -1516,7 +1522,7 @@ Run the benchmark from the repository root:
 ```text
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
 python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_query_recall/benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]
-python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--raw-cache SQLITE] [--hydrate-only] [--retry-terminal-metadata] [--refresh-cache] [--verbose]
+python src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_review/benchmark_fibrosis_meta_pubs_review.py [DATASET_CSV] [--out DIRECTORY] [--cache CSV] [--raw-cache SQLITE] [--hydrate-only] [--retry-terminal-metadata] [--refresh-cache] [--include-text-only] [--verbose]
 ```
 
 `fibrosis_meta_publications.tsv` combines four ordered reference sets: the
@@ -1661,13 +1667,22 @@ reused; `--refresh-cache` forces compact reprojection and requeues exhausted raw
 provider stages while retaining successful downloads. Source-label changes do
 not refetch text.
 
-Review report schema `1.0` records dataset/theme/cache hashes and counts,
+`--include-text-only` is benchmark-only. It additionally admits a row when the
+publication text and title are non-empty and the compact context has exactly
+zero accessions, zero metadata entries, and zero metadata statuses. A row with
+a discovered accession whose metadata is partial, unavailable, or erroneous
+remains ineligible. Production Atlas collection/filtering is unchanged.
+
+Review report schema `1.1` records dataset/theme/cache hashes and counts,
 hydration/review coverage, expected/predicted counts, a three-by-three confusion
 matrix, accuracy, per-class precision/recall/F1, macro F1, and ordered row
-details without raw publication text. Retrieval/review failures remain visible
-but are excluded from classification denominators. `review_eligible_count` and
+details without raw publication text. Retrieval/review failures remain visible;
+they are excluded from scored accuracy and predicted counts but remain in the
+expected-support denominator used by relevant recall. `review_eligible_count` and
 `metadata_incomplete_count` distinguish complete reviewer inputs from rows
-skipped after the retry. Global input/cache failures
+skipped after the retry. Each row records `full_context`, `text_only`, or
+`ineligible`; the summary records eligible counts and complete classification
+metrics separately for the full-context and text-only strata. Global input/cache failures
 exit one without a partial report; row failures still produce an atomic report.
 Because absent classes retain zero F1, perfect predictions on the packaged
 all-relevant fixture yield relevant recall and accuracy of `1.0` but three-class

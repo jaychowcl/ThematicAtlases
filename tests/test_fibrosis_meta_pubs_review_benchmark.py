@@ -178,6 +178,18 @@ def incomplete_hydration(publication_id: str, *, pmid: str = "1") -> dict:
     return hydration
 
 
+def text_only_hydration(publication_id: str, *, pmid: str = "1") -> dict:
+    hydration = complete_hydration(publication_id, pmid=pmid)
+    hydration["review_context"] = {
+        "title": hydration["title"],
+        "metadata": [],
+        "accessions": [],
+        "metadata_statuses": {},
+    }
+    hydration["hydration_status"] = "degraded"
+    return hydration
+
+
 class RecordingReviewRunner:
     def __init__(self, decisions: dict[str, str | None]):
         self.decisions = decisions
@@ -205,6 +217,13 @@ class RecordingReviewRunner:
                     "judgement": decision,
                     "reasoning": f"Reason {publication_id}",
                     "confidence": "high",
+                    "accession_assessments": [
+                        {
+                            "accession": accession,
+                            "decision": "qualifies",
+                        }
+                        for accession in contexts[publication_id]["accessions"]
+                    ],
                     "reviewer_identity": {
                         "provider": "fixture",
                         "model": "fixture-model",
@@ -362,7 +381,7 @@ def test_report_scores_three_classes_and_writes_hydration_cache(
         review_runner=reviews,
     )
 
-    assert report["schema_version"] == "1.0"
+    assert report["schema_version"] == "1.1"
     assert report["benchmark"]["method"] == "fibrosis_meta_publication_review"
     assert report["benchmark"]["runtime"] == {
         "hydration_policy_version": runner.HYDRATION_POLICY_VERSION,
@@ -373,6 +392,7 @@ def test_report_scores_three_classes_and_writes_hydration_cache(
             "miniml-3.0-source-compat-v1"
         ),
         "full_metadata_enrichment": True,
+        "include_text_only": False,
     }
     assert report["summary"]["input_count"] == 3
     assert report["summary"]["hydrated_count"] == 3
@@ -400,6 +420,179 @@ def test_report_scores_three_classes_and_writes_hydration_cache(
         "unsure",
     ]
     assert cache_rows[0]["publication_text"] == "Text relevant"
+
+
+def test_default_gate_skips_text_only_rows(tmp_path: Path) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(
+        dataset,
+        [
+            dataset_row("full", "relevant", pmid="1"),
+            dataset_row("text-only", "relevant", pmid="2"),
+        ],
+    )
+    hydrator = SequencedHydrator(
+        {
+            "full": [complete_hydration("full")],
+            "text-only": [
+                text_only_hydration("text-only"),
+                text_only_hydration("text-only"),
+            ],
+        }
+    )
+    reviewer = RecordingReviewRunner({"full": "relevant"})
+
+    report = runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=tmp_path / CACHE_NAME,
+        theme_file=THEME,
+        hydrator=hydrator,
+        review_runner=reviewer,
+    )
+
+    assert set(reviewer.calls[0]["publication_texts"]) == {"full"}
+    assert [row["context_tier"] for row in report["publications"]] == [
+        "full_context",
+        "text_only",
+    ]
+    assert [row["status"] for row in report["publications"]] == [
+        "scored",
+        "metadata_incomplete",
+    ]
+    assert report["summary"]["full_context_eligible_count"] == 1
+    assert report["summary"]["text_only_eligible_count"] == 0
+    assert report["summary"]["review_eligible_count"] == 1
+    assert report["benchmark"]["runtime"]["include_text_only"] is False
+
+
+def test_include_text_only_reviews_zero_accession_rows_and_stratifies_metrics(
+    tmp_path: Path,
+) -> None:
+    runner = load_runner()
+    dataset = tmp_path / "dataset.csv"
+    write_dataset(
+        dataset,
+        [
+            dataset_row("full", "relevant", pmid="1"),
+            dataset_row("text-only", "relevant", pmid="2"),
+            dataset_row("partial", "relevant", pmid="3"),
+            dataset_row("empty-text", "relevant", pmid="4"),
+        ],
+    )
+    empty_text = text_only_hydration("empty-text", pmid="4")
+    empty_text["publication_text"] = ""
+    hydrator = SequencedHydrator(
+        {
+            "full": [complete_hydration("full", pmid="1")],
+            "text-only": [
+                text_only_hydration("text-only", pmid="2"),
+                text_only_hydration("text-only", pmid="2"),
+            ],
+            "partial": [
+                incomplete_hydration("partial", pmid="3"),
+                incomplete_hydration("partial", pmid="3"),
+            ],
+            "empty-text": [empty_text, empty_text],
+        }
+    )
+    reviewer = RecordingReviewRunner(
+        {"full": "relevant", "text-only": "unsure"}
+    )
+
+    report = runner.run_benchmark(
+        dataset_csv=dataset,
+        cache_csv=tmp_path / CACHE_NAME,
+        theme_file=THEME,
+        hydrator=hydrator,
+        review_runner=reviewer,
+        include_text_only=True,
+    )
+
+    call = reviewer.calls[0]
+    assert set(call["publication_texts"]) == {"full", "text-only"}
+    assert call["contexts"]["text-only"] == {
+        "title": "Title text-only",
+        "metadata": [],
+        "accessions": [],
+        "metadata_statuses": {},
+    }
+    assert [row["context_tier"] for row in report["publications"]] == [
+        "full_context",
+        "text_only",
+        "ineligible",
+        "ineligible",
+    ]
+    assert [row["status"] for row in report["publications"]] == [
+        "scored",
+        "scored",
+        "metadata_incomplete",
+        "retrieval_failed",
+    ]
+    assert report["benchmark"]["runtime"]["include_text_only"] is True
+    assert report["summary"]["review_eligible_count"] == 2
+    assert report["summary"]["full_context_eligible_count"] == 1
+    assert report["summary"]["text_only_eligible_count"] == 1
+    assert report["summary"]["metadata_incomplete_count"] == 1
+    assert report["summary"]["retrieval_failed_count"] == 1
+    assert report["summary"]["context_tier_metrics"]["full_context"][
+        "accuracy"
+    ] == 1.0
+    assert report["summary"]["context_tier_metrics"]["full_context"][
+        "per_class"
+    ]["relevant"]["recall"] == 1.0
+    assert report["summary"]["context_tier_metrics"]["text_only"][
+        "accuracy"
+    ] == 0.0
+    assert report["summary"]["context_tier_metrics"]["text_only"][
+        "predicted_counts"
+    ] == {"relevant": 0, "not_relevant": 0, "unsure": 1}
+    assert report["summary"]["context_tier_metrics"]["text_only"][
+        "per_class"
+    ]["relevant"]["recall"] == 0.0
+    assert report["summary"]["scored_count"] == 2
+    assert report["summary"]["correct_count"] == 1
+    assert report["summary"]["accuracy"] == 0.5
+    assert "publication_text" not in json.dumps(report)
+    assert report["publications"][1]["review"]["accession_assessments"] == []
+
+
+def test_production_reviewer_contract_accepts_empty_accession_assessments() -> None:
+    from agentic_curator import ThematicReviewer
+
+    class EmptyAccessionLLM:
+        platform_name = "fixture"
+        model = "fixture-model"
+
+        def generate_response(self, _prompt, **_kwargs):
+            return json.dumps(
+                {
+                    "accession_assessments": [],
+                    "judgement": "relevant",
+                    "reasoning": "The publication text directly concerns fibrosis.",
+                    "confidence": "high",
+                }
+            )
+
+    result = ThematicReviewer(
+        llm=EmptyAccessionLLM(),
+        egress_classification="public",
+    ).review_relevancy(
+        publication_text="This study investigates human fibrosis.",
+        title="Human fibrosis study",
+        metadata=[],
+        accessions=[],
+        theme="Human fibrosis studies.",
+        criteria=[
+            {
+                "id": "fibrosis_relevance",
+                "description": "The publication investigates fibrosis.",
+            }
+        ],
+    )
+
+    assert result["judgement"] == "relevant"
+    assert result["accession_assessments"] == []
 
 
 def test_cache_reuses_unchanged_hydration_and_refreshes_changed_rows(
@@ -1560,6 +1753,28 @@ def test_main_verbose_configures_info_logging(monkeypatch, tmp_path: Path) -> No
             "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
         }
     ]
+
+
+def test_main_forwards_include_text_only(monkeypatch, tmp_path: Path) -> None:
+    runner = load_runner()
+    captured = {}
+    report_path = tmp_path / "out" / REPORT_NAME
+
+    monkeypatch.setattr(
+        runner,
+        "run_benchmark",
+        lambda **kwargs: captured.update(kwargs) or {},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_write_report",
+        lambda _report, _output_directory: report_path,
+    )
+
+    assert runner.main(
+        ["--out", str(tmp_path / "out"), "--include-text-only"]
+    ) == 0
+    assert captured["include_text_only"] is True
 
 
 def test_cli_rejects_empty_custom_dataset_without_cache_or_report(
