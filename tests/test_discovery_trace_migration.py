@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sqlite3
 
 import pytest
 
@@ -67,6 +68,8 @@ def test_migrate_discovery_run_clones_mid_discovery_trace_atomically(tmp_path):
     )
 
     assert destination == tmp_path / "runs" / "graph-run"
+    assert not (destination / "atlas_run.sqlite3-wal").exists()
+    assert not (destination / "atlas_run.sqlite3-shm").exists()
     migrated = DevTraceWriter.existing(destination)
     manifest = json.loads((destination / "00_run_manifest.json").read_text())
     assert manifest["run_id"] == "graph-run"
@@ -90,6 +93,19 @@ def test_migrate_discovery_run_clones_mid_discovery_trace_atomically(tmp_path):
         event["event_type"] == "discovery_contract_migrated"
         for event in migrated.run_store.events("graph-run")
     )
+    with sqlite3.connect(
+        f"file:{destination / 'atlas_run.sqlite3'}?mode=ro&immutable=1",
+        uri=True,
+    ) as immutable:
+        immutable_fingerprint = json.loads(
+            immutable.execute(
+                "SELECT value FROM checkpoint_meta WHERE key='run_fingerprint'"
+            ).fetchone()[0]
+        )
+        assert immutable_fingerprint["configuration"][
+            "pubmed_gds_discovery_contract"
+        ] == PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
+        assert immutable.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     assert hashlib.sha256(
         (source.directory / "00_run_manifest.json").read_bytes()
     ).hexdigest() == source_manifest_hash

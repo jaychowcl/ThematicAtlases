@@ -11,6 +11,7 @@ import sqlite3
 from uuid import uuid4
 
 from ThematicAtlases.checkpoint import CheckpointStore
+from ThematicAtlases.run_store import AtlasRunStore
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.trace_fork import (
     _backup_database,
@@ -169,19 +170,19 @@ def migrate_pre_graph_discovery_trace(
         }
         store.set_meta("discovery_contract_migration", audit)
         _write_json(temporary / "00_run_manifest.json", migrated_manifest)
-        _require_healthy_database(migrated_database)
+        AtlasRunStore(migrated_database).record_event(
+            new_run_id,
+            "discovery_contract_migrated",
+            stage="datalinks",
+            detail=audit,
+        )
+        _checkpoint_database(migrated_database)
+        _require_healthy_database(migrated_database, immutable=True)
         os.replace(temporary, destination)
     except Exception:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
 
-    migrated = DevTraceWriter.existing(destination)
-    migrated.run_store.record_event(
-        new_run_id,
-        "discovery_contract_migrated",
-        stage="datalinks",
-        detail=audit,
-    )
     return destination
 
 
@@ -207,8 +208,10 @@ def _validate_discovery_configuration(manifest: dict, configuration: dict) -> No
         )
 
 
-def _require_healthy_database(path: Path) -> None:
+def _require_healthy_database(path: Path, *, immutable: bool = False) -> None:
     uri = f"file:{path.resolve()}?mode=ro"
+    if immutable:
+        uri += "&immutable=1"
     try:
         with sqlite3.connect(uri, uri=True) as connection:
             result = connection.execute("PRAGMA quick_check").fetchone()
@@ -216,6 +219,17 @@ def _require_healthy_database(path: Path) -> None:
         raise ValueError("source trace SQLite integrity check failed") from error
     if result is None or result[0] != "ok":
         raise ValueError("source trace SQLite integrity check failed")
+
+
+def _checkpoint_database(path: Path) -> None:
+    with sqlite3.connect(path) as connection:
+        result = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    if result is None or result[0] != 0:
+        raise ValueError("migrated trace WAL checkpoint failed")
+    for suffix in ("-wal", "-shm"):
+        transient = Path(f"{path}{suffix}")
+        if transient.exists():
+            transient.unlink()
 
 
 __all__ = ["migrate_pre_graph_discovery_trace"]
