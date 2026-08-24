@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 
 import fcntl
 from meta_standards_converter.runtime_contracts import (
@@ -356,6 +356,22 @@ class CheckpointStore:
                 "FROM checkpoint_items GROUP BY stage ORDER BY stage"
             ).fetchall()
         return {str(row["stage"]): int(row["item_count"]) for row in rows}
+
+    def stage_status_counts(self) -> dict[str, dict[str, int]]:
+        """Return durable status counts grouped by checkpoint stage."""
+
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                "SELECT stage, status, COUNT(*) AS item_count "
+                "FROM checkpoint_items GROUP BY stage, status "
+                "ORDER BY stage, status"
+            ).fetchall()
+        result: dict[str, dict[str, int]] = {}
+        for row in rows:
+            result.setdefault(str(row["stage"]), {})[
+                str(row["status"])
+            ] = int(row["item_count"])
+        return result
 
     def validate_fingerprint(self, configuration: dict) -> None:
         normalized = self._json(configuration)
@@ -1042,6 +1058,27 @@ class CheckpointStore:
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def item_locks(
+        self,
+        stage: str,
+        keys,
+        *,
+        timeout_seconds: int | float | None = None,
+    ):
+        """Acquire multiple item locks in deterministic order."""
+
+        with ExitStack() as stack:
+            for key in sorted({str(value) for value in keys}):
+                stack.enter_context(
+                    self.item_lock(
+                        stage,
+                        key,
+                        timeout_seconds=timeout_seconds,
+                    )
+                )
+            yield
 
     @staticmethod
     def _item(row: sqlite3.Row) -> dict:

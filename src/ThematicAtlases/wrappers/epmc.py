@@ -17,6 +17,7 @@ from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.runtime_contracts import safe_error_json
 from ThematicAtlases.wrappers.publication_policy import PublicationRecordPolicy
 from ThematicAtlases.wrappers.pubmed_gds import PubMedGDSLinkGraphWrapper
+from ThematicAtlases.pipeline import AtlasStagePause, DISCOVERY_STOP_STAGES
 from ThematicAtlases.accession_extraction import (
     extract_accessions_from_links,
     extract_accessions_from_text,
@@ -116,12 +117,26 @@ class EuropePMCWrapper:
         max_publications_per_query: list[int | None] | None = None,
         checkpoint_store=None,
         scrape_fulltext_accessions: bool = True,
+        stop_after: str | None = None,
     ) -> list[dict]:
+        if stop_after is not None and stop_after not in DISCOVERY_STOP_STAGES:
+            raise ValueError(
+                "EuropePMC stop_after must be a discovery stage: "
+                + ", ".join(DISCOVERY_STOP_STAGES)
+            )
+        if stop_after in {"publication-text", "fulltext-accessions"} and not (
+            scrape_fulltext_accessions
+        ):
+            raise ValueError(
+                f"stop_after={stop_after!r} requires "
+                "scrape_fulltext_accessions=True"
+            )
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
                 "main_pipeline_phase",
                 {"phase": "datalinks"},
             )
+            self._set_pipeline_stage(checkpoint_store, "query-results", "running")
         publication_options = {
             "queries": queries,
             "max_publications": max_publications,
@@ -135,10 +150,23 @@ class EuropePMCWrapper:
             publication_options["checkpoint_store"] = checkpoint_store
             datalink_options["checkpoint_store"] = checkpoint_store
         publications = self.collect_publications(**publication_options)
+        self._set_pipeline_stage(checkpoint_store, "query-results", "complete")
+        if stop_after == "query-results":
+            raise AtlasStagePause(
+                "query-results",
+                {"accessions": [], "publication_texts": {}, "publications": publications},
+            )
+        self._set_pipeline_stage(checkpoint_store, "datalinks", "running")
         accessions = self.collect_datalinks(
             publications=publications,
             **datalink_options,
         )
+        self._set_pipeline_stage(checkpoint_store, "datalinks", "complete")
+        if stop_after == "datalinks":
+            raise AtlasStagePause(
+                "datalinks",
+                {"accessions": accessions, "publication_texts": {}},
+            )
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
                 "main_pipeline_phase",
@@ -147,23 +175,60 @@ class EuropePMCWrapper:
         enriched_publications = publications
         scraped = []
         if scrape_fulltext_accessions:
+            self._set_pipeline_stage(checkpoint_store, "publication-text", "running")
             text_options = {"publications": publications}
             if checkpoint_store is not None:
                 text_options["checkpoint_store"] = checkpoint_store
             enriched_publications = self.collect_publication_texts(**text_options)
+            self._set_pipeline_stage(checkpoint_store, "publication-text", "complete")
+            if stop_after == "publication-text":
+                raise AtlasStagePause(
+                    "publication-text",
+                    {"accessions": accessions, "publication_texts": {}},
+                )
             accessions = self._accessions_with_enriched_publications(
                 accessions,
                 enriched_publications,
+            )
+            self._set_pipeline_stage(
+                checkpoint_store, "fulltext-accessions", "running"
             )
             scraped = self.accessions_from_fulltexts(
                 enriched_publications,
                 checkpoint_store=checkpoint_store,
             )
+            self._set_pipeline_stage(
+                checkpoint_store, "fulltext-accessions", "complete"
+            )
+            if stop_after == "fulltext-accessions":
+                raise AtlasStagePause(
+                    "fulltext-accessions",
+                    {
+                        "accessions": self.merge_accessions(accessions, scraped),
+                        "publication_texts": {},
+                    },
+                )
+        self._set_pipeline_stage(checkpoint_store, "accession-graph", "running")
         graph = self.accessions_from_link_graph(
             enriched_publications,
             checkpoint_store=checkpoint_store,
         )
-        return self.merge_accessions(accessions, scraped, graph)
+        self._set_pipeline_stage(checkpoint_store, "accession-graph", "complete")
+        merged = self.merge_accessions(accessions, scraped, graph)
+        if stop_after == "accession-graph":
+            raise AtlasStagePause(
+                "accession-graph",
+                {"accessions": merged, "publication_texts": {}},
+            )
+        return merged
+
+    @staticmethod
+    def _set_pipeline_stage(checkpoint_store, stage: str, state: str) -> None:
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": stage, "state": state, "contract_version": "1.0"},
+            )
 
     def accessions_from_fulltexts(
         self,
@@ -178,6 +243,47 @@ class EuropePMCWrapper:
             source = str(publication.get("source", ""))
             epmc_id = str(publication.get("epmc_id", ""))
             checkpoint_key = f"{source}:{epmc_id}"
+            if checkpoint_store is not None:
+                try:
+                    with checkpoint_store.item_lock(
+                        "fulltext_accession_discovery",
+                        checkpoint_key,
+                    ):
+                        checkpoint = checkpoint_store.get(
+                            "fulltext_accession_discovery",
+                            checkpoint_key,
+                        )
+                        checkpoint_payload = (checkpoint or {}).get("payload") or {}
+                        if checkpoint and checkpoint_payload.get(
+                            "contract_version"
+                        ) == FULLTEXT_ACCESSION_CONTRACT_VERSION and checkpoint[
+                            "status"
+                        ] in {"available", "no_data", "terminal_error"}:
+                            records.extend(checkpoint_payload.get("records", []))
+                            continue
+                        item_records = self.accessions_from_fulltexts(
+                            [publication],
+                            checkpoint_store=None,
+                        )
+                        checkpoint_store.put(
+                            "fulltext_accession_discovery",
+                            checkpoint_key,
+                            index,
+                            "available" if item_records else "no_data",
+                            payload={
+                                "contract_version": FULLTEXT_ACCESSION_CONTRACT_VERSION,
+                                "records": item_records,
+                            },
+                        )
+                        records.extend(item_records)
+                    continue
+                except CheckpointItemLockTimeout:
+                    logger.info(
+                        "Europe PMC fulltext accession discovery deferred for busy item source=%r epmc_id=%r",
+                        source,
+                        epmc_id,
+                    )
+                    continue
             checkpoint = (
                 checkpoint_store.get(
                     "fulltext_accession_discovery",
@@ -291,14 +397,17 @@ class EuropePMCWrapper:
         *,
         checkpoint_store=None,
         cached_only: bool = False,
+        continue_predicate=None,
     ) -> list[dict]:
         """Resolve exact PubMed→GDS links through the injected NCBI provider."""
 
-        return self._link_graph_provider.discover(
-            publications,
-            checkpoint_store=checkpoint_store,
-            cached_only=cached_only,
-        )
+        options = {
+            "checkpoint_store": checkpoint_store,
+            "cached_only": cached_only,
+        }
+        if continue_predicate is not None:
+            options["continue_predicate"] = continue_predicate
+        return self._link_graph_provider.discover(publications, **options)
 
     def _merge_accession_publications(
         self,

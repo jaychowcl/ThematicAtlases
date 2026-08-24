@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
+from contextlib import contextmanager
 import logging
 import re
 import time
@@ -13,7 +14,11 @@ from meta_standards_converter.runtime_contracts import (
     get_resource_profile,
 )
 
-from ThematicAtlases.checkpoint import failure_category, is_retryable_error
+from ThematicAtlases.checkpoint import (
+    CheckpointItemLockTimeout,
+    failure_category,
+    is_retryable_error,
+)
 from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
 from ThematicAtlases.runtime_contracts import safe_error_json
@@ -86,6 +91,7 @@ class PubMedGDSLinkGraphWrapper:
         *,
         checkpoint_store=None,
         cached_only: bool = False,
+        continue_predicate=None,
     ) -> list[dict]:
         """Return ordered, deduplicated GSE records linked to exact PMIDs."""
 
@@ -118,13 +124,48 @@ class PubMedGDSLinkGraphWrapper:
             )
 
         for batch in self._batches(missing_pmids, self._link_batch_size):
+            if continue_predicate is not None and not continue_predicate():
+                break
+            claimed = list(batch)
             try:
-                result = self._elink(batch, checkpoint_store=checkpoint_store)
+                with self._locked_missing_batch(
+                    checkpoint_store,
+                    PUBMED_GDS_LINK_STAGE,
+                    batch,
+                ) as claimed:
+                    if not claimed:
+                        continue
+                    if continue_predicate is not None and not continue_predicate():
+                        continue
+                    result = self._elink(
+                        claimed,
+                        checkpoint_store=checkpoint_store,
+                    )
+                    for pmid in claimed:
+                        target_uids = result[pmid]
+                        links_by_pmid[pmid] = target_uids
+                        self._put(
+                            checkpoint_store,
+                            PUBMED_GDS_LINK_STAGE,
+                            pmid,
+                            pmid_ordinals[pmid],
+                            "available" if target_uids else "no_data",
+                            payload={
+                                "contract_version": PUBMED_GDS_DISCOVERY_CONTRACT_VERSION,
+                                "target_uids": target_uids,
+                            },
+                        )
+            except CheckpointItemLockTimeout:
+                logger.info(
+                    "NCBI PubMed-GDS link batch deferred for busy checkpoint items pmids=%s",
+                    len(batch),
+                )
+                continue
             except Exception as error:
                 self._checkpoint_batch_failure(
                     checkpoint_store,
                     stage=PUBMED_GDS_LINK_STAGE,
-                    keys=batch,
+                    keys=claimed,
                     ordinals=pmid_ordinals,
                     error=error,
                     provider="NCBI E-utilities",
@@ -135,20 +176,6 @@ class PubMedGDSLinkGraphWrapper:
                     type(error).__name__,
                 )
                 continue
-            for pmid in batch:
-                target_uids = result[pmid]
-                links_by_pmid[pmid] = target_uids
-                self._put(
-                    checkpoint_store,
-                    PUBMED_GDS_LINK_STAGE,
-                    pmid,
-                    pmid_ordinals[pmid],
-                    "available" if target_uids else "no_data",
-                    payload={
-                        "contract_version": PUBMED_GDS_DISCOVERY_CONTRACT_VERSION,
-                        "target_uids": target_uids,
-                    },
-                )
 
         ordered_uids = list(dict.fromkeys(
             uid for pmid in ordered_pmids for uid in links_by_pmid.get(pmid, [])
@@ -169,13 +196,45 @@ class PubMedGDSLinkGraphWrapper:
             summaries[uid] = dict(checkpoint.get("payload") or {})
 
         for batch in self._batches(missing_uids, self._summary_batch_size):
+            if continue_predicate is not None and not continue_predicate():
+                break
+            claimed = list(batch)
             try:
-                result = self._esummary(batch, checkpoint_store=checkpoint_store)
+                with self._locked_missing_batch(
+                    checkpoint_store,
+                    GDS_SUMMARY_STAGE,
+                    batch,
+                ) as claimed:
+                    if not claimed:
+                        continue
+                    if continue_predicate is not None and not continue_predicate():
+                        continue
+                    result = self._esummary(
+                        claimed,
+                        checkpoint_store=checkpoint_store,
+                    )
+                    for uid in claimed:
+                        payload = self._summary_payload(uid, result[uid])
+                        summaries[uid] = payload
+                        self._put(
+                            checkpoint_store,
+                            GDS_SUMMARY_STAGE,
+                            uid,
+                            uid_ordinals[uid],
+                            "available" if payload["accepted"] else "no_data",
+                            payload=payload,
+                        )
+            except CheckpointItemLockTimeout:
+                logger.info(
+                    "NCBI GDS summary batch deferred for busy checkpoint items uids=%s",
+                    len(batch),
+                )
+                continue
             except Exception as error:
                 self._checkpoint_batch_failure(
                     checkpoint_store,
                     stage=GDS_SUMMARY_STAGE,
-                    keys=batch,
+                    keys=claimed,
                     ordinals=uid_ordinals,
                     error=error,
                     provider="NCBI E-utilities",
@@ -186,17 +245,6 @@ class PubMedGDSLinkGraphWrapper:
                     type(error).__name__,
                 )
                 continue
-            for uid in batch:
-                payload = self._summary_payload(uid, result[uid])
-                summaries[uid] = payload
-                self._put(
-                    checkpoint_store,
-                    GDS_SUMMARY_STAGE,
-                    uid,
-                    uid_ordinals[uid],
-                    "available" if payload["accepted"] else "no_data",
-                    payload=payload,
-                )
 
         records = []
         for pmid in ordered_pmids:
@@ -398,6 +446,18 @@ class PubMedGDSLinkGraphWrapper:
                 "ncbi_eutils",
                 min_interval_seconds=self._request_delay,
             )
+
+    @contextmanager
+    def _locked_missing_batch(self, store, stage: str, keys: list[str]):
+        if store is None:
+            yield keys
+            return
+        with store.item_locks(stage, keys):
+            yield [
+                key
+                for key in keys
+                if self._completed_checkpoint(store, stage, key) is None
+            ]
 
     @staticmethod
     def _response_json(response):

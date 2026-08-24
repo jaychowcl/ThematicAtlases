@@ -275,6 +275,65 @@ def test_link_graph_cached_only_never_requests_missing_stages(tmp_path):
     assert policy.calls == []
 
 
+def test_link_graph_yields_before_claiming_a_new_batch(tmp_path):
+    policy = RequestPolicy([])
+    store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
+
+    records = PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+    ).discover(
+        [publication("1")],
+        checkpoint_store=store,
+        continue_predicate=lambda: False,
+    )
+
+    assert records == []
+    assert policy.calls == []
+    assert store.get("pubmed_gds_links", "1") is None
+
+
+def test_link_graph_rechecks_phase_after_claim_before_provider_call(tmp_path):
+    policy = RequestPolicy([])
+    store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
+    decisions = iter((True, False))
+
+    records = PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+    ).discover(
+        [publication("1")],
+        checkpoint_store=store,
+        continue_predicate=lambda: next(decisions),
+    )
+
+    assert records == []
+    assert policy.calls == []
+    assert store.get("pubmed_gds_links", "1") is None
+
+
+def test_link_graph_defers_a_batch_owned_by_another_process(tmp_path):
+    policy = RequestPolicy([])
+    store = CheckpointStore(
+        tmp_path / "checkpoints.sqlite3",
+        default_item_lock_timeout_seconds=0.01,
+    )
+    wrapper = PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+    )
+
+    with store.item_lock("pubmed_gds_links", "1"):
+        records = wrapper.discover(
+            [publication("1")],
+            checkpoint_store=store,
+        )
+
+    assert records == []
+    assert policy.calls == []
+    assert store.get("pubmed_gds_links", "1") is None
+
+
 def test_link_graph_checkpoints_sanitized_batch_failure(tmp_path):
     store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
     policy = RequestPolicy([requests.Timeout("private upstream detail")])

@@ -81,9 +81,10 @@ def test_resume_cli_forwards_retry_selections(monkeypatch, tmp_path) -> None:
         {
             "dev_out_dir": "trace",
             "run_id": "run-7",
-            "out": "atlas.json",
-            "stop_before_review": False,
-            "retry_stages": ["thematic_review"],
+                "out": "atlas.json",
+                "stop_before_review": False,
+                "stop_after": None,
+                "retry_stages": ["thematic_review"],
             "retry_items": {"harmonization": ["work-1"]},
             "retry_degraded_stages": ["target_checker"],
             "review_decisions": decisions,

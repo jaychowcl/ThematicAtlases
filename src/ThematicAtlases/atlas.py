@@ -9,10 +9,16 @@ from pathlib import Path
 
 from agentic_curator.review_decisions import ReviewDecisionFile
 from ThematicAtlases.checkpoint import (
+    STAGE_POLICIES,
     failure_category,
     is_retryable_error,
 )
 from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
+from ThematicAtlases.pipeline import (
+    AtlasStagePause,
+    STOP_AFTER_STAGES,
+    validate_stop_after,
+)
 from ThematicAtlases.application import AtlasDocumentService
 from ThematicAtlases.collector import AtlasCollector
 from ThematicAtlases.document_adapter import AtlasDocumentAdapter
@@ -223,16 +229,24 @@ class Atlas:
             raise ValueError(
                 "review_before_metadata requires thematic_review to be enabled"
             )
-        if stop_after not in {None, "metadata"}:
-            raise ValueError("stop_after must be None or 'metadata'")
-        if stop_after == "metadata" and not collect_metadata:
-            raise ValueError("stop_after='metadata' requires collect_metadata=True")
+        stop_after = validate_stop_after(stop_after)
+        if stop_after in {"metadata", "review", "harmonization"} and not collect_metadata:
+            raise ValueError(
+                f"stop_after={stop_after!r} requires collect_metadata=True"
+            )
         if stop_after == "metadata" and review_before_metadata:
             raise ValueError(
                 "stop_after='metadata' requires review_before_metadata=False"
             )
-        if stop_after == "metadata" and not dev_trace:
-            raise ValueError("stop_after='metadata' requires dev_trace=True")
+        if stop_after in {"publication-text", "fulltext-accessions"} and not (
+            scrape_fulltext_accessions
+        ):
+            raise ValueError(
+                f"stop_after={stop_after!r} requires "
+                "scrape_fulltext_accessions=True"
+            )
+        if stop_after is not None and not dev_trace:
+            raise ValueError("stop_after requires dev_trace=True")
         if self._cache_ontologies:
             self._preflight_credentials()
         self._prepare_ontology_cache()
@@ -312,33 +326,30 @@ class Atlas:
         )
         if stop_after == "metadata":
             collect_kwargs["stop_before_review"] = True
+        if stop_after is not None:
+            collect_kwargs["stop_after"] = stop_after
         if max_publications_per_query is not None:
             collect_kwargs["max_publications_per_query"] = (
                 max_publications_per_query
             )
         if trace is not None:
             collect_kwargs["_trace_writer"] = trace
-        datasets = self._collect_for_internal(collect_kwargs)
+        try:
+            datasets = self._collect_for_internal(collect_kwargs)
+        except AtlasStagePause as pause:
+            return self._pause_at_stage(
+                trace=trace,
+                stage=pause.stage,
+                result=pause.result,
+            )
         if trace is not None:
             trace.run_store.set_stage_state(run_id, "collection", "complete")
-        if stop_after == "metadata":
-            published = self._write_resumed_outputs(
-                result=datasets,
-                out=None,
+        if stop_after in {"metadata", "review"}:
+            return self._pause_at_stage(
                 trace=trace,
-                artifact_role="collection_snapshot",
+                stage=stop_after,
+                result=datasets,
             )
-            trace.run_store.record_event(
-                run_id,
-                "run_paused",
-                stage="collection",
-                detail={"stop_after": "metadata"},
-            )
-            logger.info(
-                "Atlas create_atlas paused stop_after=metadata accessions=%s",
-                len(datasets.get("accessions", [])),
-            )
-            return published
         if trace is not None:
             trace.run_store.set_stage_state(run_id, "harmonization", "running")
         logger.info(
@@ -348,6 +359,10 @@ class Atlas:
         )
         logger.info("Atlas create_atlas progress stage=harmonize-datasets")
         if trace is not None:
+            trace.checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": "harmonization", "state": "running", "contract_version": "1.0"},
+            )
             trace.write(
                 "03_pre_harmonization_accession_metadata.json",
                 trace.metadata(datasets.get("accessions", [])),
@@ -369,11 +384,21 @@ class Atlas:
                 "05_post_harmonization_accession_metadata.json",
                 trace.metadata(result.get("accessions", [])),
             )
+            trace.checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": "harmonization", "state": "complete", "contract_version": "1.0"},
+            )
         else:
             result, details = self._harmonize_for_internal(
                 datasets=datasets,
                 harmonization_details_out=harmonization_details_out,
                 harmonization_options=harmonization_options,
+            )
+        if stop_after == "harmonization":
+            return self._pause_at_stage(
+                trace=trace,
+                stage="harmonization",
+                result=result,
             )
         final_accessions = result.get("accessions", [])
         publication_texts = result.get("publication_texts", {})
@@ -512,8 +537,10 @@ class Atlas:
         retry_items=None,
         retry_degraded_stages=None,
         review_decisions: dict | None = None,
+        stop_after: str | None = None,
     ) -> dict:
         """Resume an incomplete development trace from its latest valid stage."""
+        stop_after = validate_stop_after(stop_after)
         run_dir = self._resume_run_directory(dev_out_dir=dev_out_dir, run_id=run_id)
         if review_decisions is not None:
             typed_review_decisions = ReviewDecisionFile.from_mapping(
@@ -526,11 +553,21 @@ class Atlas:
                 )
             review_decisions = typed_review_decisions.to_mapping()
         manifest = self._read_checkpoint(run_dir / "00_run_manifest.json")
+        if stop_after in {"publication-text", "fulltext-accessions"} and not (
+            manifest.get("scrape_fulltext_accessions", False)
+        ):
+            raise ValueError(
+                f"stop_after={stop_after!r} requires a trace with "
+                "scrape_fulltext_accessions=True"
+            )
         thematic_review = manifest.get(
             "thematic_review", manifest.get("theme") is not None
         )
         trace = DevTraceWriter.existing(run_dir)
         run_store = trace.run_store
+        already_paused = self._already_completed_pause(trace, stop_after)
+        if already_paused is not None:
+            return already_paused
         run_store.set_run_status(run_dir.name, "running")
         checkpoint_store = trace.checkpoint_store
         checkpoint_store.request_retries(
@@ -550,6 +587,7 @@ class Atlas:
                     if isinstance(review_decisions, dict)
                     else None
                 ),
+                "stop_after": stop_after,
             },
         )
         output_path = out if out is not None else manifest.get("atlas_out")
@@ -724,7 +762,8 @@ class Atlas:
                     trace.write("02_reviewed_datasets.json", datasets)
                 else:
                     logger.info("Atlas resume progress stage=collection-required")
-                    datasets = self._collect_for_internal(dict(
+                    try:
+                        datasets = self._collect_for_internal(dict(
                         query=manifest.get("query"),
                         file=manifest.get("query_file"),
                         theme=manifest.get("theme"),
@@ -746,7 +785,21 @@ class Atlas:
                         ),
                         _trace_writer=trace,
                         _thematic_review=thematic_review,
+                        **({"stop_after": stop_after} if stop_after is not None else {}),
                     ))
+                    except AtlasStagePause as pause:
+                        return self._pause_at_stage(
+                            trace=trace,
+                            stage=pause.stage,
+                            result=pause.result,
+                        )
+
+            if stop_after in {"metadata", "review"}:
+                return self._pause_at_stage(
+                    trace=trace,
+                    stage=stop_after,
+                    result=datasets,
+                )
 
             if manifest.get("command") == "collect-datasets":
                 published = self._write_resumed_outputs(
@@ -765,6 +818,10 @@ class Atlas:
             trace.write(
                 "03_pre_harmonization_accession_metadata.json",
                 trace.metadata(datasets.get("accessions", [])),
+            )
+            checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": "harmonization", "state": "running", "contract_version": "1.0"},
             )
             result, details = self._harmonizer.harmonize_datasets(
                 datasets=datasets,
@@ -786,6 +843,17 @@ class Atlas:
                 trace.metadata(result.get("accessions", [])),
             )
             trace.write("resume_harmonized_datasets.json", result)
+            checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": "harmonization", "state": "complete", "contract_version": "1.0"},
+            )
+
+            if stop_after == "harmonization":
+                return self._pause_at_stage(
+                    trace=trace,
+                    stage="harmonization",
+                    result=result,
+                )
 
         published = self._write_resumed_outputs(
             result=result, out=output_path, trace=trace
@@ -1065,6 +1133,7 @@ class Atlas:
         _finalize_trace: bool = True,
         _resolution: dict[str, list[str]] | None = None,
         _thematic_review: bool = True,
+        stop_after: str | None = None,
     ) -> dict:
         if review_before_metadata and theme is None:
             raise ValueError("review_before_metadata requires a theme")
@@ -1261,6 +1330,7 @@ class Atlas:
             collect_metadata=collect_metadata and not review_before_metadata,
             scrape_fulltext_accessions=scrape_fulltext_accessions,
             checkpoint_store=checkpoint_store,
+            stop_after=stop_after,
         )
         accessions, unsupported_accessions = partition_unsupported_accessions(
             accessions
@@ -1297,6 +1367,11 @@ class Atlas:
                     "publication_texts": texts,
                 },
             )
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": "review", "state": "running", "contract_version": "1.0"},
+            )
         result = self._filter_jsons(
             jsons=accessions,
             theme=(
@@ -1315,6 +1390,11 @@ class Atlas:
             _review_progress_callback=review_progress_callback,
             _checkpoint_store=checkpoint_store,
         )
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": "review", "state": "complete", "contract_version": "1.0"},
+            )
         result = {
             **result,
             "unsupported_accessions": unsupported_accessions,
@@ -1346,6 +1426,8 @@ class Atlas:
             return result
         if _trace_writer is not None:
             _trace_writer.write("02_reviewed_datasets.json", result)
+        if stop_after == "review":
+            raise AtlasStagePause("review", result)
         if review_before_metadata and collect_metadata:
             logger.info("Atlas collect_datasets progress stage=collect-accession-metadata")
             result = self._metadata_for_reviewed_datasets(
@@ -1471,6 +1553,7 @@ class Atlas:
         collect_metadata: bool = True,
         scrape_fulltext_accessions: bool = True,
         checkpoint_store=None,
+        stop_after: str | None = None,
     ) -> list[dict]:
         options = dict(
             query=query,
@@ -1483,6 +1566,8 @@ class Atlas:
         )
         if max_publications_per_query is not None:
             options["max_publications_per_query"] = max_publications_per_query
+        if stop_after is not None:
+            options["stop_after"] = stop_after
         options.update(
             self._checkpoint_keyword(
                 self._collector.collect_jsons,
@@ -1490,6 +1575,183 @@ class Atlas:
             )
         )
         return self._collector.collect_jsons(**options)
+
+    def _pause_at_stage(
+        self,
+        *,
+        trace: DevTraceWriter | None,
+        stage: str,
+        result: dict,
+    ) -> dict:
+        if trace is None:
+            raise ValueError("stage pauses require a development trace")
+        normalized = {
+            "accessions": list(result.get("accessions", [])),
+            "publication_texts": dict(result.get("publication_texts", {})),
+            **{
+                key: value
+                for key, value in result.items()
+                if key not in {"accessions", "publication_texts", "publications"}
+            },
+        }
+        stage_key = stage.replace("-", "_")
+        checkpoint_status_counts = self._checkpoint_status_counts(
+            trace.checkpoint_store,
+        )
+        frontier_counts = self._pause_frontier_counts(
+            stage,
+            checkpoint_status_counts,
+        )
+        run = trace.run_store.get_run(trace.directory.name) or {}
+        fingerprint = trace.checkpoint_store.get_meta("run_fingerprint", {})
+        invocation_sequence = trace.run_store.record_event(
+            trace.directory.name,
+            "pause_requested",
+            stage=stage,
+            detail={"stage": stage, "status": "pausing"},
+        )
+        summary = {
+            "contract_version": "1.0",
+            "run_id": trace.directory.name,
+            "stage": stage,
+            "accession_count": len(normalized["accessions"]),
+            "publication_text_count": len(normalized["publication_texts"]),
+            "frontier_counts": frontier_counts,
+            "checkpoint_status_counts": checkpoint_status_counts,
+            "invocation_identity": {
+                "event_sequence": invocation_sequence,
+                "requested_stop_after": stage,
+            },
+            "hashes": {
+                "run_config_sha256": run.get("config_sha256"),
+                "run_fingerprint_sha256": fingerprint.get("sha256"),
+            },
+        }
+        trace.write(f"pause_{stage_key}_summary.json", summary)
+        execution_state = {
+            "stage": stage,
+            "state": "paused",
+            "contract_version": "1.0",
+            "frontier_counts": frontier_counts,
+            "invocation_identity": summary["invocation_identity"],
+            "hashes": summary["hashes"],
+        }
+        trace.checkpoint_store.set_meta(
+            "main_pipeline_stage",
+            execution_state,
+        )
+        trace.checkpoint_store.set_meta("pipeline_execution_state", execution_state)
+        published = self._write_resumed_outputs(
+            result=normalized,
+            out=None,
+            trace=trace,
+            artifact_role="collection_snapshot",
+        )
+        trace.run_store.set_stage_state(
+            trace.directory.name,
+            "harmonization" if stage == "harmonization" else "collection",
+            "paused",
+        )
+        trace.run_store.set_run_status(trace.directory.name, "running")
+        trace.run_store.record_event(
+            trace.directory.name,
+            "run_paused",
+            stage=stage,
+            detail=summary,
+        )
+        return published
+
+    def _already_completed_pause(
+        self,
+        trace: DevTraceWriter,
+        stop_after: str | None,
+    ) -> dict | None:
+        if stop_after is None:
+            return None
+        current = trace.checkpoint_store.get_meta("main_pipeline_stage", {})
+        current_stage = current.get("stage")
+        if current_stage not in STOP_AFTER_STAGES:
+            return None
+        if STOP_AFTER_STAGES.index(current_stage) < STOP_AFTER_STAGES.index(stop_after):
+            return None
+        snapshot_path = next(
+            (
+                path
+                for path in (
+                    trace.directory / "collection_snapshot.json",
+                    trace.directory / "06_final_atlas.json",
+                )
+                if path.is_file()
+            ),
+            None,
+        )
+        if snapshot_path is None:
+            return None
+        stage_key = stop_after.replace("-", "_")
+        summary = {
+            "contract_version": "1.0",
+            "run_id": trace.directory.name,
+            "stage": stop_after,
+            "current_stage": current_stage,
+            "already_complete": True,
+            "snapshot_artifact": snapshot_path.name,
+            "checkpoint_status_counts": trace.checkpoint_store.stage_status_counts(),
+        }
+        trace.write(f"pause_{stage_key}_summary.json", summary)
+        trace.run_store.record_event(
+            trace.directory.name,
+            "run_pause_noop",
+            stage=stop_after,
+            detail=summary,
+        )
+        return self._read_checkpoint(snapshot_path)
+
+    @staticmethod
+    def _checkpoint_status_counts(checkpoint_store) -> dict[str, dict[str, int]]:
+        return checkpoint_store.stage_status_counts()
+
+    @staticmethod
+    def _pause_frontier_counts(
+        stage: str,
+        status_counts: dict[str, dict[str, int]],
+    ) -> dict[str, int]:
+        explicit = {
+            "query-results": ("search_queries", "search_pages"),
+            "datalinks": ("datalinks",),
+            "publication-text": ("publication_text",),
+            "fulltext-accessions": ("fulltext_accession_discovery",),
+            "accession-graph": ("pubmed_gds_links", "gds_summaries"),
+            "review": ("thematic_review",),
+        }
+        if stage == "metadata":
+            checkpoint_stages = tuple(
+                key for key, boundary in STAGE_POLICIES.items()
+                if boundary == "metadata"
+            )
+        elif stage == "harmonization":
+            checkpoint_stages = tuple(
+                key for key, boundary in STAGE_POLICIES.items()
+                if boundary == "harmonization"
+            )
+        else:
+            checkpoint_stages = explicit.get(stage, ())
+        combined: dict[str, int] = {}
+        for checkpoint_stage in checkpoint_stages:
+            for status, count in status_counts.get(checkpoint_stage, {}).items():
+                combined[status] = combined.get(status, 0) + count
+        terminal = sum(
+            combined.get(status, 0)
+            for status in ("available", "no_data", "terminal_error")
+        )
+        retryable = combined.get("retryable_error", 0)
+        pending = combined.get("pending", 0)
+        return {
+            "total": sum(combined.values()),
+            "terminal": terminal,
+            "retryable": retryable,
+            "pending": pending,
+            "partial": retryable + pending,
+        }
 
     def _filter_jsons(
         self,

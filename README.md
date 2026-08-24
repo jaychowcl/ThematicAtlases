@@ -152,7 +152,7 @@ Depending on the workflow, additional outputs include:
 - Timestamped trace artifacts and one `atlas_run.sqlite3` when tracing is
   enabled. Lifecycle, artifact roles, item results, retry history, and run
   metadata share that database and its transaction/checkpoint policy.
-- Incremental review and metadata snapshots for standalone workers.
+- One-shot text/scrape, PubMed-GDS graph, metadata, and review worker snapshots.
 - Reference-publication recall and reference-review reports under `.out/`.
 
 `ThematicAtlases.domain.AtlasDocument` is the strict exchange contract and
@@ -258,7 +258,7 @@ It additionally supports:
 | `--dev-trace` | Write a timestamped manifest, SQLite checkpoints, readable stage artifacts, final atlas, and summary. |
 | `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
 | `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, execution identity, paths, and errors. |
-| `--stop-after metadata` | Require a metadata-first development trace, publish a collection snapshot, and return before thematic review or harmonization. |
+| `--stop-after STAGE` | Require a development trace and pause after `query-results`, `datalinks`, `publication-text`, `fulltext-accessions`, `accession-graph`, `metadata`, `review`, or `harmonization`. Each pause writes canonical SQLite state plus `pause_<stage>_summary.json`. |
 
 `harmonize-datasets` transforms an existing Atlas v1 file without discovery or review:
 
@@ -289,6 +289,7 @@ thematic-atlas resume --dev-out-dir .dev --run-id RUN_ID [OPTIONS]
 | `--run-id ID` | Run to resume. If omitted, the most recent run is used. |
 | `--out PATH` | Write the resumed atlas JSON. |
 | `--stop-before-review` | Resume collection only and stop before thematic review. |
+| `--stop-after STAGE` | Advance to any of the eight durable boundaries accepted by `create-atlas`. A target already passed is a successful no-op; it never rolls state back. |
 | `--retry-stage STAGE` | Requeue all retryable items at a registered stage; repeat for multiple stages. |
 | `--retry-item STAGE:ITEM_ID` | Requeue one checkpoint item; repeat for multiple items. |
 | `--retry-degraded-stage STAGE` | Requeue harmonization items degraded at the named internal stage; repeat as needed. |
@@ -426,11 +427,14 @@ always reports unsupported counts; the detailed report is published only for
 `unsupported_accessions_out` or retained in a development trace. See the
 [harmonizer internals](docs/codebase.md#harmonizer).
 
-Set `stop_after="metadata"` with `dev_trace=True`, `collect_metadata=True`, and
-`review_before_metadata=False` to search, collect publication text, download
-repository metadata, and return before thematic review or harmonization. The
-trace registers `collection_snapshot.json`; a normal `resume()` continues the
-same `create-atlas` run without repeating completed collection work.
+Set `stop_after` with `dev_trace=True` to pause at `query-results`, `datalinks`,
+`publication-text`, `fulltext-accessions`, `accession-graph`, `metadata`,
+`review`, or `harmonization`. Metadata and later targets require
+`collect_metadata=True`; the metadata target also requires metadata-first
+ordering. The trace registers `collection_snapshot.json`, records a
+`run_paused` event, and writes an atomic `pause_<stage>_summary.json` while
+SQLite remains canonical. A later `resume(..., stop_after=...)` may advance to
+another boundary without repeating compatible checkpoints.
 
 `Atlas.harmonize_datasets(...)` accepts an Atlas v1 mapping and returns a
 validated Atlas v1 copy with supported metadata harmonized. Legacy unversioned stage
@@ -492,6 +496,7 @@ Atlas.resume(
     retry_items=None,
     retry_degraded_stages=None,
     review_decisions=None,
+    stop_after=None,
 )
 ```
 
@@ -510,6 +515,29 @@ prune-only fields. Its run ID must equal the resumed run, and its source
 fingerprint changes only the matching harmonization work key; unaffected
 datasets continue to reuse their checkpoints. Partial decisions leave the
 remaining items pending and publication disposition review-required.
+
+`TraceStageWorker` advances one fixed frontier in a traced run without owning
+harmonization or publication:
+
+```python
+from ThematicAtlases.stage_worker import TraceStageWorker
+
+result = TraceStageWorker(
+    epmc_wrapper_factory=epmc_wrapper_factory,
+    collector_factory=collector_factory,
+    publication_text_reviewer_factory=reviewer_factory,
+).resume(trace_dir, stage="graph", item_limit=100)
+```
+
+The four stages are `text` (publication retrieval plus deterministic accession
+scraping), `graph` (PubMed ELink plus GDS summaries), `metadata`, and `review`.
+Workers are one-shot and share canonical item checkpoints with the main Atlas.
+They may run while the main process remains in Datalinks, or against an
+explicitly paused trace; they finish one in-flight item and then yield when the
+main stage advances. Per-run/stage singleton locks and ordered per-item locks
+prevent duplicate provider calls. Review admits only publications whose
+text/scrape and graph frontiers are terminal and whose supported metadata is
+available, partial, or authoritatively unavailable.
 
 `Atlas.fork_run(...)` safely branches a metadata-paused trace for alternate
 downstream processing:

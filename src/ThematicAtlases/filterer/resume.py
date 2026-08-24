@@ -123,6 +123,8 @@ class TracePublicationReviewResumer:
         defer_metadata_errors: bool = False,
         require_main_datalinks_phase: bool = False,
         publication_limit: int | None = None,
+        snapshot_accessions: list[dict] | None = None,
+        publication_keys: list[tuple] | None = None,
         item_lock_timeout_seconds: int | float | None = None,
         metadata_item_timeout_seconds: int | float | None = None,
         publication_text_item_timeout_seconds: int | float | None = None,
@@ -205,8 +207,12 @@ class TracePublicationReviewResumer:
                 result,
             )
             return result
-        accessions = self._epmc_wrapper_factory().accessions_from_datalinks(
-            datalinks=datalink_rows
+        accessions = (
+            list(snapshot_accessions)
+            if snapshot_accessions is not None
+            else self._epmc_wrapper_factory().accessions_from_datalinks(
+                datalinks=datalink_rows
+            )
         )
         accessions = self._collector_factory().filter_accessions(
             accessions=accessions,
@@ -220,6 +226,12 @@ class TracePublicationReviewResumer:
         filterer = self._filterer_factory(
             publication_text_reviewer=self._publication_text_reviewer,
         )
+        if publication_keys is not None:
+            snapshot_accessions = self._only_publications(
+                accessions=snapshot_accessions,
+                publication_keys={tuple(key) for key in publication_keys},
+                filterer=filterer,
+            )
         snapshot_publications = self._publication_keys(snapshot_accessions, filterer)
         selected_publications = set(
             self._sorted_publication_keys(snapshot_publications)[:publication_limit]

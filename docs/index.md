@@ -94,8 +94,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: interface-thematic-atlas-cli
   title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)
   anchor: interface-thematic-atlas-cli
-  purpose: Installed command registration, subcommands, theme-first creation defaults, option forwarding, outputs, and failures.
-  keywords: thematic-atlas, collect-datasets, create-atlas, theme, query generation, thematic review, harmonize-datasets, resume, fork-run, stop-after, metadata, argparse
+  purpose: Installed command registration, subcommands, theme-first creation defaults, eight staged pauses on create/resume, option forwarding, outputs, and failures.
+  keywords: thematic-atlas, collect-datasets, create-atlas, theme, query generation, thematic review, harmonize-datasets, resume, fork-run, stop-after, query-results, datalinks, accession-graph, metadata, review, harmonization, argparse
 
 - id: interface-python-atlas
   title: [Python Atlas interface](codebase.md#interface-python-atlas)
@@ -208,8 +208,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-checkpoint-store
   title: [CheckpointStore](codebase.md#type-checkpoint-store)
   anchor: type-checkpoint-store
-  purpose: SQLite schema, fingerprints, item history, retry selection, discovery checkpoints, comparison archives, cross-process locks, and provider pacing.
-  keywords: CheckpointStore, SQLite, pubmed_gds_links, gds_summaries, request_retries, atomic batch, status index, history index, item lock, bounded wait, provider slot
+  purpose: SQLite schema, fingerprints, item history, retry selection, discovery checkpoints, comparison archives, deterministic cross-process item locks, stage summaries, and provider pacing.
+  keywords: CheckpointStore, SQLite, pubmed_gds_links, gds_summaries, request_retries, atomic batch, status index, history index, item lock, item_locks, bounded wait, provider slot
+
+- id: type-trace-stage-worker
+  title: [TraceStageWorker](codebase.md#type-trace-stage-worker)
+  anchor: type-trace-stage-worker
+  purpose: Four one-shot text/scrape, PubMed-GDS graph, metadata, and review frontiers sharing canonical checkpoints with the main process.
+  keywords: TraceStageWorker, StageWorkerBusy, worker snapshot, text, graph, metadata, review, Datalinks phase, pause, singleton lock, item limit, yield
 
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
@@ -250,8 +256,8 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-atlas-creation
   title: [Atlas creation workflow](codebase.md#workflow-atlas-creation)
   anchor: workflow-atlas-creation
-  purpose: Theme-first query generation/review, collection, harmonization, Atlas v1 assembly, rollback-safe bundle publication, normalized tracing, and outputs.
-  keywords: create_atlas, required theme, generated queries, thematic_review, AtlasDocumentAdapter, JsonArtifactBundlePublisher, unsupported inventory, atlas_run.sqlite3, summary, rollback, trace
+  purpose: Theme-first query generation/review, eight durable pause boundaries, collection, harmonization, Atlas v1 assembly, rollback-safe bundle publication, normalized tracing, and outputs.
+  keywords: create_atlas, required theme, generated queries, thematic_review, stop_after, query-results, datalinks, publication-text, fulltext-accessions, accession-graph, metadata, review, harmonization, AtlasDocumentAdapter, JsonArtifactBundlePublisher, unsupported inventory, atlas_run.sqlite3, pause summary, run_paused, rollback, trace
 
 - id: workflow-harmonization
   title: [Harmonization workflow](codebase.md#workflow-harmonization)

@@ -166,9 +166,14 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "self", "datasets", "harmonization_details_out", "harmonization_options",
         "review_decisions",
     ]
-    assert list(inspect.signature(EuropePMCWrapper.collect_accessions).parameters)[-1] == (
-        "scrape_fulltext_accessions"
-    )
+    assert list(inspect.signature(EuropePMCWrapper.collect_accessions).parameters)[-2:] == [
+        "scrape_fulltext_accessions",
+        "stop_after",
+    ]
+    assert list(inspect.signature(Atlas.resume).parameters)[-2:] == [
+        "review_decisions",
+        "stop_after",
+    ]
     assert python_guide.count("scrape_fulltext_accessions=True") >= 2
     assert python_guide.count("prune_accessions=False") >= 2
 
@@ -178,6 +183,7 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "`Atlas.collect_datasets(...)`",
         "`Atlas.harmonize_datasets(...)`",
         "`Atlas.resume(...)`",
+        "`TraceStageWorker`",
         "`Atlas.fork_run(...)`",
         "`Atlas.amend_queries(...)`",
         "`Atlas.archive_existing_runs(...)`",

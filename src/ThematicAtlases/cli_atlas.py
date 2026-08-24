@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
+from ThematicAtlases.pipeline import STOP_AFTER_STAGES
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
 REVIEW_STRATEGY_CHOICES = ("direct",)
@@ -204,7 +205,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--max-generated-queries", type=_positive_int, default=3)
     create.add_argument("--harmonization-details-out", default=None)
-    create.add_argument("--stop-after", choices=("metadata",), default=None)
+    create.add_argument("--stop-after", choices=STOP_AFTER_STAGES, default=None)
     create.add_argument(
         "--review-filter",
         choices=REVIEW_FILTER_CHOICES,
@@ -254,6 +255,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--run-id", default=None)
     resume.add_argument("--out", default=None)
     resume.add_argument("--stop-before-review", action="store_true", default=False)
+    resume.add_argument("--stop-after", choices=STOP_AFTER_STAGES, default=None)
     resume.add_argument("--retry-stage", action="append", default=[])
     resume.add_argument("--retry-item", action="append", default=[])
     resume.add_argument("--retry-degraded-stage", action="append", default=[])
@@ -422,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
             run_id=args.run_id,
             out=args.out,
             stop_before_review=args.stop_before_review,
+            stop_after=args.stop_after,
             retry_stages=args.retry_stage,
             retry_items=_retry_items(args.retry_item),
             retry_degraded_stages=args.retry_degraded_stage,

@@ -12,6 +12,7 @@ from ThematicAtlases.collector.resume import (
     configure_default_collector_factory,
 )
 from ThematicAtlases.repository_capabilities import RepositoryCapabilityRegistry
+from ThematicAtlases.pipeline import AtlasStagePause, DISCOVERY_STOP_STAGES
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class AtlasCollector:
         collect_metadata: bool = True,
         checkpoint_store=None,
         scrape_fulltext_accessions: bool = True,
+        stop_after: str | None = None,
     ) -> list[dict]:
         selected_repositories = self._selected_metadata_repositories(
             metadata_repositories=metadata_repositories
@@ -95,6 +97,8 @@ class AtlasCollector:
             "max_publications": max_publications,
             "scrape_fulltext_accessions": scrape_fulltext_accessions,
         }
+        if stop_after in DISCOVERY_STOP_STAGES:
+            accession_options["stop_after"] = stop_after
         if max_publications_per_query is not None:
             accession_options["max_publications_per_query"] = (
                 max_publications_per_query
@@ -112,6 +116,7 @@ class AtlasCollector:
             metadata_repositories=selected_repositories,
         )
         if collect_metadata:
+            self._set_pipeline_stage(checkpoint_store, "metadata", "running")
             logger.info("Atlas collect_jsons progress stage=collect-accession-metadata")
             result = self.collect_accession_metadata(
                 jsons=result,
@@ -122,6 +127,12 @@ class AtlasCollector:
                 "Atlas collect_jsons progress stage=collect-accession-metadata-complete metadata_records=%s",
                 len(result),
             )
+            self._set_pipeline_stage(checkpoint_store, "metadata", "complete")
+            if stop_after == "metadata":
+                raise AtlasStagePause(
+                    "metadata",
+                    {"accessions": result, "publication_texts": {}},
+                )
         else:
             logger.info("Atlas collect_jsons progress stage=skip-accession-metadata")
 
@@ -139,6 +150,14 @@ class AtlasCollector:
             out,
         )
         return result
+
+    @staticmethod
+    def _set_pipeline_stage(checkpoint_store, stage: str, state: str) -> None:
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta(
+                "main_pipeline_stage",
+                {"stage": stage, "state": state, "contract_version": "1.0"},
+            )
 
     def _load_queries(self, file: str) -> list[str]:
         with open(file, encoding="utf-8") as handle:
