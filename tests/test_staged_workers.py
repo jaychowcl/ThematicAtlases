@@ -406,6 +406,40 @@ def test_text_worker_cancellation_finishes_current_item_and_records_summary(tmp_
     )
 
 
+def test_text_worker_cancellation_during_frontier_scan_claims_no_provider_item(
+    monkeypatch, tmp_path
+):
+    trace = _worker_trace(tmp_path)
+    cancelled = False
+    inspected = []
+
+    def actionable(_store, publication):
+        nonlocal cancelled
+        inspected.append(publication["pmid"])
+        cancelled = True
+        return True
+
+    class EPMC:
+        def collect_publication_texts(self, *_args, **_kwargs):
+            raise AssertionError("cancelled frontier must not call a provider")
+
+    monkeypatch.setattr(
+        TraceStageWorker,
+        "_text_publication_actionable",
+        staticmethod(actionable),
+    )
+    result = TraceStageWorker(epmc_wrapper_factory=EPMC).resume(
+        trace.directory,
+        stage="text",
+        cancelled=lambda: cancelled,
+    )
+
+    assert inspected == ["1"]
+    assert result["selected_count"] == 0
+    assert result["claimed"] == 0
+    assert result["interrupted"] is True
+
+
 def test_graph_worker_terminally_resolves_no_data_datalinks_publications(tmp_path):
     trace = _worker_trace(tmp_path)
 
@@ -529,7 +563,7 @@ def test_metadata_worker_merges_all_discovery_sources_and_limits_accessions(
             return rows
 
         def accessions_from_link_graph(
-            self, publications, *, checkpoint_store, cached_only
+            self, publications, *, checkpoint_store, cached_only, **_kwargs
         ):
             return [{"datalink_id": "GSE3", "publications": publications[:1]}]
 
@@ -720,6 +754,44 @@ def test_review_worker_uses_only_terminal_discovery_frontiers(tmp_path):
 
     assert result["selected_count"] == 1
     assert calls[0]["publication_keys"] == [("MED", "1", "1", "", "")]
+
+
+def test_review_worker_cancellation_during_accession_snapshot_skips_model(tmp_path):
+    trace = _worker_trace(tmp_path)
+    cancelled = False
+    store = trace.checkpoint_store
+    for publication_key, pmid in (("MED:1", "1"), ("MED:2", "2")):
+        for stage in ("publication_text", "fulltext_accession_discovery"):
+            store.put(stage, publication_key, 1, "no_data", payload={})
+        store.put(
+            "pubmed_gds_links",
+            pmid,
+            1,
+            "no_data",
+            payload={"target_uids": []},
+        )
+
+    class Worker(TraceStageWorker):
+        def _merged_accessions(self, publications, checkpoint_store):
+            nonlocal cancelled
+            cancelled = True
+            return []
+
+    class Reviewer:
+        def resume(self, *_args, **_kwargs):
+            raise AssertionError("cancelled snapshot must not call the reviewer")
+
+    result = Worker(
+        publication_text_reviewer_factory=Reviewer,
+    ).resume(
+        trace.directory,
+        stage="review",
+        cancelled=lambda: cancelled,
+    )
+
+    assert result["selected_count"] == 0
+    assert result["claimed"] == 0
+    assert result["interrupted"] is True
 
 
 def test_review_worker_limits_real_facade_and_writes_review_checkpoint(tmp_path):

@@ -111,11 +111,15 @@ class TraceStageWorker:
     ) -> dict:
         if stage == "text":
             frontier = self._text_frontier(publications, store)
-            incomplete = sum(
-                not self._text_publication_complete(store, publication)
-                for publication in publications
+            incomplete = (
+                0
+                if self._cancelled()
+                else sum(
+                    not self._text_publication_complete(store, publication)
+                    for publication in publications
+                )
             )
-            selected = frontier[:item_limit]
+            selected = [] if self._cancelled() else frontier[:item_limit]
             return self._run_text(
                 selected,
                 store,
@@ -125,11 +129,15 @@ class TraceStageWorker:
             )
         if stage == "graph":
             frontier = self._graph_frontier(publications, store)
-            incomplete = sum(
-                not self._graph_publication_complete(store, publication)
-                for publication in publications
+            incomplete = (
+                0
+                if self._cancelled()
+                else sum(
+                    not self._graph_publication_complete(store, publication)
+                    for publication in publications
+                )
             )
-            selected = frontier[:item_limit]
+            selected = [] if self._cancelled() else frontier[:item_limit]
             return self._run_graph(
                 selected,
                 store,
@@ -238,6 +246,8 @@ class TraceStageWorker:
         reused = 0
         cooldown_deferred = 0
         for accession in scanned_accessions:
+            if self._cancelled():
+                break
             checkpoint = store.get(
                 self._metadata_stage(accession),
                 str(accession.get("datalink_id") or ""),
@@ -255,7 +265,9 @@ class TraceStageWorker:
                 reused += 1
         accessions = self._prioritized_metadata_frontier(accessions, store)
         actionable = len(accessions)
-        if item_limit is not None:
+        if self._cancelled():
+            accessions = []
+        elif item_limit is not None:
             accessions = accessions[:item_limit]
         completed = 0
         deferred = 0
@@ -327,24 +339,25 @@ class TraceStageWorker:
             and checkpoint["status"] in TERMINAL_CHECKPOINT_STATUSES
         )
 
-    @classmethod
-    def _prioritized_metadata_frontier(cls, accessions, store):
-        indexed = list(enumerate(accessions))
-
-        def priority(item):
-            ordinal, accession = item
+    def _prioritized_metadata_frontier(self, accessions, store):
+        prioritized = []
+        for ordinal, accession in enumerate(accessions):
+            if self._cancelled():
+                break
             checkpoint = store.get(
-                cls._metadata_stage(accession),
+                self._metadata_stage(accession),
                 str(accession.get("datalink_id") or ""),
             )
-            return (
-                0
-                if checkpoint and checkpoint["status"] == "retryable_error"
-                else 1,
-                ordinal,
+            prioritized.append(
+                (
+                    0
+                    if checkpoint and checkpoint["status"] == "retryable_error"
+                    else 1,
+                    ordinal,
+                    accession,
+                )
             )
-
-        return [accession for _ordinal, accession in sorted(indexed, key=priority)]
+        return [accession for _priority, _ordinal, accession in sorted(prioritized)]
 
     @staticmethod
     def _metadata_stage(accession) -> str:
@@ -359,14 +372,46 @@ class TraceStageWorker:
     def _run_review(
         self, directory, publications, store, *, item_limit=None
     ) -> dict:
+        terminal_publications = []
+        for publication in publications:
+            if self._cancelled():
+                break
+            if self._review_discovery_terminal(store, publication):
+                terminal_publications.append(publication)
+        publications = terminal_publications
+        if self._cancelled():
+            return self._summary(
+                stage="review",
+                selected_count=0,
+                completed_count=0,
+                deferred_count=0,
+                yielded_to_main=False,
+                store=store,
+                scanned=len(publications),
+                actionable=0,
+                interrupted=True,
+                claimed=0,
+                reused=0,
+                remaining_actionable=0,
+            )
         reviewer = self._publication_text_reviewer()
-        publications = [
-            publication
-            for publication in publications
-            if self._review_discovery_terminal(store, publication)
-        ]
         publication_keys = [self.review_publication_key(item) for item in publications]
         accessions = self._merged_accessions(publications, store)
+        if self._cancelled():
+            return self._summary(
+                stage="review",
+                selected_count=0,
+                completed_count=0,
+                deferred_count=0,
+                yielded_to_main=False,
+                store=store,
+                scanned=len(publications),
+                actionable=0,
+                interrupted=True,
+                claimed=0,
+                reused=0,
+                remaining_actionable=0,
+            )
         paused = self._explicitly_paused(store)
         result = reviewer.resume(
             directory,
@@ -430,24 +475,31 @@ class TraceStageWorker:
 
     def _merged_accessions(self, publications, store) -> list[dict]:
         wrapper = self._epmc_wrapper_factory()
-        datalink_rows = [
-            row
-            for item in store.items("datalinks")
-            if item["status"] == "available"
-            for row in (item.get("payload") or {}).get("rows", [])
-        ]
+        datalink_rows = []
+        for item in store.items("datalinks"):
+            if self._cancelled():
+                return []
+            if item["status"] == "available":
+                datalink_rows.extend((item.get("payload") or {}).get("rows", []))
         datalink_accessions = wrapper.accessions_from_datalinks(datalink_rows)
-        fulltext_accessions = [
-            record
-            for item in store.items("fulltext_accession_discovery")
-            if item["status"] in {"available", "no_data", "terminal_error"}
-            for record in (item.get("payload") or {}).get("records", [])
-        ]
+        if self._cancelled():
+            return []
+        fulltext_accessions = []
+        for item in store.items("fulltext_accession_discovery"):
+            if self._cancelled():
+                return []
+            if item["status"] in {"available", "no_data", "terminal_error"}:
+                fulltext_accessions.extend(
+                    (item.get("payload") or {}).get("records", [])
+                )
         graph_accessions = wrapper.accessions_from_link_graph(
             publications,
             checkpoint_store=store,
             cached_only=True,
+            continue_predicate=lambda: not self._cancelled(),
         )
+        if self._cancelled():
+            return []
         merged = wrapper.merge_accessions(
             datalink_accessions,
             fulltext_accessions,
@@ -521,38 +573,39 @@ class TraceStageWorker:
             store, publication
         ) and cls._graph_publication_complete(store, publication)
 
-    @classmethod
-    def _text_frontier(cls, publications, store):
-        return cls._prioritized_frontier(
-            [
-                publication
-                for publication in publications
-                if cls._text_publication_actionable(store, publication)
-            ],
+    def _text_frontier(self, publications, store):
+        candidates = []
+        for publication in publications:
+            if self._cancelled():
+                break
+            if self._text_publication_actionable(store, publication):
+                candidates.append(publication)
+        return self._prioritized_frontier(
+            candidates,
             store=store,
             stages=("publication_text", "fulltext_accession_discovery"),
-            key=lambda publication: cls.publication_checkpoint_key(publication),
+            key=lambda publication: self.publication_checkpoint_key(publication),
         )
 
-    @classmethod
-    def _graph_frontier(cls, publications, store):
-        return cls._prioritized_frontier(
-            [
-                publication
-                for publication in publications
-                if cls._graph_publication_actionable(store, publication)
-            ],
+    def _graph_frontier(self, publications, store):
+        candidates = []
+        for publication in publications:
+            if self._cancelled():
+                break
+            if self._graph_publication_actionable(store, publication):
+                candidates.append(publication)
+        return self._prioritized_frontier(
+            candidates,
             store=store,
             stages=("pubmed_gds_links",),
             key=lambda publication: str(publication.get("pmid") or ""),
         )
 
-    @staticmethod
-    def _prioritized_frontier(publications, *, store, stages, key):
-        indexed = list(enumerate(publications))
-
-        def priority(item):
-            ordinal, publication = item
+    def _prioritized_frontier(self, publications, *, store, stages, key):
+        prioritized = []
+        for ordinal, publication in enumerate(publications):
+            if self._cancelled():
+                break
             item_key = key(publication)
             due_retry = any(
                 bool(
@@ -561,9 +614,8 @@ class TraceStageWorker:
                 )
                 for stage in stages
             )
-            return (0 if due_retry else 1, ordinal)
-
-        return [publication for _ordinal, publication in sorted(indexed, key=priority)]
+            prioritized.append((0 if due_retry else 1, ordinal, publication))
+        return [publication for _priority, _ordinal, publication in sorted(prioritized)]
 
     @classmethod
     def _text_publication_actionable(cls, store, publication) -> bool:
@@ -728,9 +780,13 @@ class TraceStageWorker:
         publications = []
         identities = set()
         for page in store.items("search_pages"):
+            if self._cancelled():
+                break
             if page["status"] != "available":
                 continue
             for publication in (page.get("payload") or {}).get("publications", []):
+                if self._cancelled():
+                    break
                 key = self.publication_checkpoint_key(publication)
                 identity = self.publication_identity(publication)
                 if key not in terminal or identity in identities:

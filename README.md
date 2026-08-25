@@ -316,7 +316,9 @@ future-cooldown items are removed. Exit `0` means complete/no work, `2` means
 busy, yielded, interrupted, or deferred work, and `1` means a safe outer
 failure. SIGINT and SIGTERM request cooperative cancellation: the current
 atomic item or model call finishes, an interruption event and progress summary
-are committed, and all locks are released.
+are committed, and all locks are released. Cancellation observed while a
+frontier or merged-accession snapshot is still being built stops before any
+provider item or model action is claimed.
 
 `fork-run` safely clones a trace paused after metadata for different downstream
 review or harmonization configuration:
@@ -571,6 +573,8 @@ text/scrape and graph frontiers are terminal and whose supported metadata is
 available, partial, or authoritatively unavailable.
 Each worker first builds a due-retry/missing/stale actionable frontier and only
 then applies `item_limit`, so completed prefixes cannot starve later work.
+Frontier and merged-evidence scans check cooperative cancellation between
+records, avoiding a long pre-claim shutdown delay on large traces.
 Summaries preserve the legacy selected/completed/deferred keys and add scanned,
 actionable, claimed, reused, prerequisite/cooldown deferred, remaining,
 provider-attempt, retry, rate-wait, and interruption fields.

@@ -483,6 +483,9 @@ the Python API, or the canonical parent-adapter workflow documented in the
   Review requires terminal text/scrape and graph discovery plus reviewable
   supported metadata. Workers yield after an in-flight item if the main phase
   leaves Datalinks; harmonization and publication are never worker-owned.
+  Large publication, checkpoint, and merged-accession frontier scans check the
+  cancellation token between records, so a signal received before a claim
+  cannot trigger provider or model work and does not wait for a full scan.
 <a id="type-europe-pmc-wrapper"></a>
 - [`EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) composes Europe
   PMC Datalinks, publication-text scanning, and the injectable
@@ -1082,6 +1085,8 @@ select trace -> validate fingerprint -> retry request?
    to its composing CLI; progress JSON is observational and normal resume reads
    only SQLite checkpoints. First-signal cancellation finishes the atomic item,
    records an interruption event/summary, releases locks, and exits `2`.
+   Cancellation during pre-claim frontier or accession-snapshot construction
+   stops between records without claiming a provider or model action.
 
 #### Pseudocode
 
@@ -2541,7 +2546,8 @@ before workflow work. Ordinary successful commands do not print result data to
 stdout. A worker prints its JSON summary and returns `0` for complete/no work,
 `2` for busy/yielded/interrupted/deferred work, or `1` for a safe outer failure.
 SIGINT/SIGTERM sets cooperative cancellation and allows the in-flight atomic
-item or model request to finish before the summary and locks are finalized.
+item or model request to finish before the summary and locks are finalized. If
+no item has been claimed, frontier construction stops between records.
 
 `collect-datasets` and `create-atlas` share the mature collection and
 publication-text stage components. Supplying `--theme` or `--theme-file` opts
@@ -2577,7 +2583,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate reported `720 passed, 4 skipped` on 2026-08-25. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, MINiML 2.0 migration and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, actionable-frontier limits for all four workers, legacy transport-checkpoint recovery, deterministic graph batch splitting and singleton isolation, cooperative cancellation, shared cross-process HTTP/model pacing and cooldowns, Retry-After persistence, metadata/review read-only reuse, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, interruption and item-level resume across providers, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, repository resolution, packaged recall references, resumable reviewer hydration, source-faithful metadata retention, privacy-safe diagnostics, and trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate reported `723 passed, 4 skipped` on 2026-08-25. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, MINiML 2.0 migration and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, actionable-frontier limits for all four workers, legacy transport-checkpoint recovery, deterministic graph batch splitting and singleton isolation, cooperative cancellation during pre-claim scans and in-flight work, shared cross-process HTTP/model pacing and cooldowns, Retry-After persistence, metadata/review read-only reuse, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, interruption and item-level resume across providers, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, repository resolution, packaged recall references, resumable reviewer hydration, source-faithful metadata retention, privacy-safe diagnostics, and trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 
