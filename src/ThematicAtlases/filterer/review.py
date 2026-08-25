@@ -57,6 +57,8 @@ class PublicationTextReviewer:
         defer_metadata_errors: bool = False,
         require_main_datalinks_phase: bool = False,
         publication_limit: int | None = None,
+        snapshot_accessions: list[dict] | None = None,
+        publication_keys: list[tuple] | None = None,
         item_lock_timeout_seconds: int | float | None = None,
         metadata_item_timeout_seconds: int | float | None = None,
         publication_text_item_timeout_seconds: int | float | None = None,
@@ -74,6 +76,8 @@ class PublicationTextReviewer:
             defer_metadata_errors=defer_metadata_errors,
             require_main_datalinks_phase=require_main_datalinks_phase,
             publication_limit=publication_limit,
+            snapshot_accessions=snapshot_accessions,
+            publication_keys=publication_keys,
             item_lock_timeout_seconds=item_lock_timeout_seconds,
             metadata_item_timeout_seconds=metadata_item_timeout_seconds,
             publication_text_item_timeout_seconds=(

@@ -1050,6 +1050,51 @@ def test_resume_reviews_current_datalink_checkpoint_snapshot(tmp_path) -> None:
     ) == result
 
 
+def test_resume_forwards_worker_snapshot_constraints_to_orchestrator(tmp_path) -> None:
+    calls = []
+
+    class RecordingResumer:
+        def resume(self, **kwargs):
+            calls.append(kwargs)
+            return {"accessions": [], "publication_texts": {}}
+
+    accessions = [{"datalink_id": "GSE1"}]
+    publication_keys = [("MED", "1", "1", "", "")]
+    reviewer = PublicationTextReviewer(
+        resume_orchestrator_factory=lambda publication_text_reviewer: RecordingResumer()
+    )
+
+    result = reviewer.resume(
+        tmp_path,
+        snapshot_accessions=accessions,
+        publication_keys=publication_keys,
+    )
+
+    assert result == {"accessions": [], "publication_texts": {}}
+    assert calls[0]["snapshot_accessions"] is accessions
+    assert calls[0]["publication_keys"] is publication_keys
+
+
+def test_resume_preserves_full_snapshot_defaults_when_constraints_are_omitted(
+    tmp_path,
+) -> None:
+    calls = []
+
+    class RecordingResumer:
+        def resume(self, **kwargs):
+            calls.append(kwargs)
+            return {"accessions": [], "publication_texts": {}}
+
+    reviewer = PublicationTextReviewer(
+        resume_orchestrator_factory=lambda publication_text_reviewer: RecordingResumer()
+    )
+
+    reviewer.resume(tmp_path)
+
+    assert calls[0]["snapshot_accessions"] is None
+    assert calls[0]["publication_keys"] is None
+
+
 def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) -> None:
     trace_dir = tmp_path / "trace"
     traced_publication(

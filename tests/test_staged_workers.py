@@ -8,6 +8,9 @@ from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.cli_atlas import _build_parser
 from ThematicAtlases.collector import AtlasCollector
+from ThematicAtlases.filterer.filterer import AtlasFilterer
+from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
+from ThematicAtlases.filterer.review import PublicationTextReviewer
 from ThematicAtlases.pipeline import (
     AtlasStagePause,
     STOP_AFTER_STAGES,
@@ -408,8 +411,8 @@ def test_review_worker_uses_only_terminal_discovery_frontiers(tmp_path):
     store.put("gds_summaries", "101", 1, "no_data", payload={})
     calls = []
 
-    class Reviewer:
-        def resume(self, trace_dir, **kwargs):
+    class RecordingResumer:
+        def resume(self, **kwargs):
             calls.append(kwargs)
             return {
                 "accessions": [],
@@ -421,13 +424,148 @@ def test_review_worker_uses_only_terminal_discovery_frontiers(tmp_path):
                 },
             }
 
-    worker = TraceStageWorker(
-        publication_text_reviewer_factory=Reviewer,
-    )
+    def reviewer_factory():
+        return PublicationTextReviewer(
+            resume_orchestrator_factory=lambda publication_text_reviewer: (
+                RecordingResumer()
+            )
+        )
+
+    worker = TraceStageWorker(publication_text_reviewer_factory=reviewer_factory)
     result = worker.resume(trace.directory, stage="review")
 
     assert result["selected_count"] == 1
     assert calls[0]["publication_keys"] == [("MED", "1", "1", "", "")]
+
+
+def test_review_worker_limits_real_facade_and_writes_review_checkpoint(tmp_path):
+    trace = _worker_trace(tmp_path)
+    store = trace.checkpoint_store
+    for ordinal in (1, 2):
+        publication = {
+            "source": "MED",
+            "epmc_id": str(ordinal),
+            "pmid": str(ordinal),
+            "pmcid": "",
+            "doi": "",
+            "title": f"Fibrosis publication {ordinal}",
+            "abstractText": "Fibrotic human tissue profiled by RNA sequencing.",
+            "text": "Fibrotic human tissue profiled by RNA sequencing.",
+            "text_source": "abstractText",
+            "full_text_status": "unavailable",
+        }
+        store.put(
+            "datalinks",
+            f"MED:{ordinal}",
+            ordinal,
+            "available",
+            payload={
+                "rows": [
+                    {
+                        **publication,
+                        "datalink_id": f"GSE{ordinal}",
+                        "datalink_id_scheme": "GEO",
+                        "datalink_category": "GEO",
+                    }
+                ]
+            },
+        )
+        store.put(
+            "publication_text",
+            f"MED:{ordinal}",
+            ordinal,
+            "available",
+            payload={"publication": publication},
+        )
+        store.put(
+            "fulltext_accession_discovery",
+            f"MED:{ordinal}",
+            ordinal,
+            "no_data",
+            payload={"records": []},
+        )
+        store.put(
+            "pubmed_gds_links",
+            str(ordinal),
+            ordinal,
+            "no_data",
+            payload={"target_uids": []},
+        )
+
+    class ResolvedMetadataCollector:
+        def filter_accessions(self, accessions, metadata_repositories=None):
+            return list(accessions)
+
+        def available_accession_metadata(
+            self,
+            jsons,
+            metadata_repositories=None,
+            checkpoint_store=None,
+        ):
+            return [
+                {
+                    **record,
+                    "metadata_repository": "geo",
+                    "metadata_status": "available",
+                    "accession_metadata": {
+                        "series": {
+                            "accession": [{"value": record["datalink_id"]}]
+                        }
+                    },
+                }
+                for record in jsons
+            ]
+
+    class RelevantReviewer:
+        def review_relevancy(self, **kwargs):
+            return {
+                "evidences": json.dumps(
+                    {
+                        "evidences": [
+                            {
+                                "evidence": "Fibrotic human tissue",
+                                "judgement": "relevant",
+                                "confidence": "direct",
+                                "reason": "Direct theme evidence.",
+                            }
+                        ]
+                    }
+                ),
+                "judgement": json.dumps(
+                    {
+                        "judgement": "relevant",
+                        "reasoning": "Direct fibrosis evidence is present.",
+                        "confidence": "theme directly mentioned",
+                    }
+                ),
+            }
+
+    def reviewer_factory():
+        return PublicationTextReviewer(
+            reviewer_factory=RelevantReviewer,
+            resume_orchestrator_factory=lambda publication_text_reviewer: (
+                TracePublicationReviewResumer(
+                    publication_text_reviewer=publication_text_reviewer,
+                    collector_factory=ResolvedMetadataCollector,
+                    filterer_factory=AtlasFilterer,
+                )
+            ),
+        )
+
+    result = TraceStageWorker(
+        collector_factory=ResolvedMetadataCollector,
+        publication_text_reviewer_factory=reviewer_factory,
+    ).resume(trace.directory, stage="review", item_limit=1)
+
+    assert result["selected_count"] == 1
+    assert result["completed_count"] == 1
+    assert result["deferred_count"] == 0
+    assert store.get("thematic_review", "direct:1")["status"] == "available"
+    assert store.get("thematic_review", "direct:2") is None
+    progress = json.loads(
+        (trace.directory / "incremental_review_progress.json").read_text()
+    )
+    assert progress == result
 
 
 class PausingCollector:
