@@ -496,7 +496,10 @@ the Python API, or the canonical parent-adapter workflow documented in the
   limits, merge/deduplication, and record projection to
   `PublicationRecordPolicy`; GEO delegates canonical package projection and GSE
   record deduplication to `GEORecordPolicy`. Both collaborators are injectable
-  and perform no provider/network work.
+  and perform no provider/network work. `GEOWrapper` accumulates delta metrics
+  from its own request policy plus nested MSC GEO, PubMed, SRA, and ENA
+  requesters, so the collector and one-shot worker summaries account for real
+  enrichment calls without double-counting cumulative requester counters.
 <a id="type-thematic-reviewer-benchmark"></a>
 <a id="type-fibrosis-meta-pubs-recall-benchmark"></a>
 - The direct [`benchmark_fibrosis_meta_pubs_recall.py`](../src/benchmark_ThematicAtlases/benchmark_fibrosis_meta_pubs_recall/benchmark_fibrosis_meta_pubs_recall.py)
@@ -2335,6 +2338,9 @@ The full-text ID is the publication `pmcid` when present, or `epmc_id` when it i
 `publication_text_sections(text)` converts delimited text back into ordered dictionaries such as `{"title": "Methods", "text": "..."}`. For plain fallback text without sentinels, it returns one `Text` section when text is non-empty.
 
 If full text is unavailable, non-open-access, missing a PMC identifier, empty, or fails with an unrecoverable error, the publication remains in provenance and the shared publication text map falls back to `abstractText` when present. In that fallback path, `text_source` is `abstractText` when the abstract is non-empty, otherwise `none`; `full_text_status` is `unavailable`, `missing_pmcid`, or `error`; and fallback text is not delimiter-wrapped. Publisher pages and `fullTextUrls` are not fetched.
+An ordinary fullTextXML 404 is an authoritative terminal unavailability
+checkpoint rather than retryable work; throttling responses, 5xx responses,
+and concrete transport failures remain retryable.
 
 The datalink request uses:
 

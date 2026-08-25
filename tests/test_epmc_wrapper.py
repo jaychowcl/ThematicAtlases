@@ -904,7 +904,7 @@ def test_collect_publication_texts_uses_abstract_when_full_text_unavailable(
     assert result[0]["full_text_status"] == "unavailable"
 
 
-def test_known_pmcid_404_keeps_abstract_but_marks_checkpoint_retryable(
+def test_known_pmcid_404_keeps_abstract_but_marks_checkpoint_terminal(
     monkeypatch, tmp_path
 ) -> None:
     def fake_get(url, timeout):
@@ -928,7 +928,8 @@ def test_known_pmcid_404_keeps_abstract_but_marks_checkpoint_retryable(
 
     assert result[0]["text"] == "Abstract fallback"
     checkpoint = store.get("publication_text", "MED:123")
-    assert checkpoint["status"] == "retryable_error"
+    assert checkpoint["status"] == "terminal_error"
+    assert checkpoint["error_type"] == "HTTPError"
     assert checkpoint["failure_category"] == "public_full_text_unavailable"
 
 

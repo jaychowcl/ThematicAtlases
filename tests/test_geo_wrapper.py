@@ -94,6 +94,67 @@ def test_geo_wrapper_accepts_an_injected_record_policy() -> None:
     ]
 
 
+def test_checkpointed_geo_metadata_accumulates_nested_request_metrics_once(
+    monkeypatch, tmp_path
+) -> None:
+    class Requester:
+        def __init__(self, attempts, retries, waited):
+            self.provider_attempts = attempts
+            self.retry_count = retries
+            self.rate_wait_seconds = waited
+
+    class Fetcher:
+        requester = Requester(2, 1, 0.5)
+
+        @staticmethod
+        def fetch_gse_miniml(gse):
+            assert gse == "GSE1"
+            return "<MINiML/>"
+
+    class Parser:
+        @staticmethod
+        def parse(**_kwargs):
+            return [v2_package("GSE1")]
+
+    class Enricher:
+        pubmed_fetcher = type(
+            "Pubmed",
+            (),
+            {"fetcher": type("Fetcher", (), {"requester": Requester(1, 0, 0.25)})()},
+        )()
+        insdc_fetcher = None
+
+        @staticmethod
+        def enrich(data):
+            return data
+
+    converter = type(
+        "Converter",
+        (),
+        {"geo_fetcher": Fetcher(), "parser": Parser(), "enricher": Enricher()},
+    )()
+    monkeypatch.setattr(geo_module, "geo2json", lambda **_kwargs: converter)
+    wrapper = GEOWrapper()
+    store = CheckpointStore(tmp_path / "resume_state.sqlite")
+
+    wrapper._checkpointed_gse_metadata_packages(
+        gse_accession="GSE1",
+        index=1,
+        checkpoint_store=store,
+        retry_tags=None,
+    )
+    wrapper._checkpointed_gse_metadata_packages(
+        gse_accession="GSE1",
+        index=1,
+        checkpoint_store=store,
+        retry_tags=None,
+    )
+
+    assert wrapper.provider_attempts == 3
+    assert wrapper.retry_count == 1
+    assert wrapper.rate_wait_seconds == 0.75
+
+
 def test_geo_wrapper_uses_optional_ncbi_api_key_from_environment(monkeypatch):
     monkeypatch.setenv("NCBI_API_KEY", "secret-key")
 

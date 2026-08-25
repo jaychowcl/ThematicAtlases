@@ -865,19 +865,23 @@ class EuropePMCWrapper:
                     publication=publication,
                     full_text_status=full_text_status,
                 )
-                checkpoint_status = "retryable_error"
+                retryable = is_retryable_error(error)
+                checkpoint_status = (
+                    "retryable_error" if retryable else "terminal_error"
+                )
                 checkpoint_error = safe_error_json(
                     error,
                     provider="Europe PMC",
                     stage="publication_text",
                     item_id=checkpoint_key,
-                    retryable=True,
+                    retryable=retryable,
                 )
-                checkpoint_retry_at = getattr(
-                    response,
-                    "_thematic_atlases_retry_at",
-                    None,
-                )
+                if retryable:
+                    checkpoint_retry_at = getattr(
+                        response,
+                        "_thematic_atlases_retry_at",
+                        None,
+                    )
             except (requests.RequestException, HostRequestCooldownDeferred) as error:
                 enriched_publication = self._publication_with_fallback_text(
                     publication=publication,
@@ -934,13 +938,10 @@ class EuropePMCWrapper:
                         ),
                     },
                     error=checkpoint_error,
-                    error_type=(
-                        "HTTPError" if checkpoint_status == "retryable_error" else None
-                    ),
+                    error_type=("HTTPError" if checkpoint_error is not None else None),
                     failure_category=(
                         "public_full_text_unavailable"
-                        if checkpoint_status == "retryable_error"
-                        and enriched_publication["full_text_status"] == "unavailable"
+                        if enriched_publication["full_text_status"] == "unavailable"
                         else None
                     ),
                 )

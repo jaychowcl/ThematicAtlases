@@ -429,10 +429,15 @@ class AtlasCollector:
         raise ValueError(f"Unsupported metadata repository: {repository}")
 
     def _accumulate_request_metrics(self, handler: Any) -> None:
-        metrics = getattr(handler, "_request_policy", handler)
+        metric_names = ("provider_attempts", "retry_count", "rate_wait_seconds")
+        metrics = (
+            handler
+            if all(hasattr(handler, name) for name in metric_names)
+            else getattr(handler, "_request_policy", handler)
+        )
         if not all(
             hasattr(metrics, name)
-            for name in ("provider_attempts", "retry_count", "rate_wait_seconds")
+            for name in metric_names
         ):
             return
         self.provider_attempts += int(metrics.provider_attempts)

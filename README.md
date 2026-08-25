@@ -574,6 +574,10 @@ then applies `item_limit`, so completed prefixes cannot starve later work.
 Summaries preserve the legacy selected/completed/deferred keys and add scanned,
 actionable, claimed, reused, prerequisite/cooldown deferred, remaining,
 provider-attempt, retry, rate-wait, and interruption fields.
+Metadata counters include nested MSC GEO download and PubMed/SRA/ENA enrichment
+attempts and count each cumulative requester delta once. Europe PMC
+fullTextXML 404 responses retain abstract fallback text but are terminal
+authoritative unavailability, so they cannot consume later worker limits.
 
 All HTTP clients share MSC's per-user, cross-process `HostRequestGate` for every
 actual attempt and redirect. NCBI and Europe PMC starts are spaced by 0.5

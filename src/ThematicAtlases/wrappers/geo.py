@@ -10,6 +10,7 @@ from meta_standards_converter.miniml import MINiMLCodec
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 import requests
 from meta_standards_converter.helpers.request_helper import NCBIApplicationIdentity
+from weakref import WeakKeyDictionary
 
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
@@ -135,6 +136,10 @@ class GEOWrapper:
         }
         self._base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
         self._retry_statuses = {403, 429, 500, 502, 503, 504}
+        self.provider_attempts = 0
+        self.retry_count = 0
+        self.rate_wait_seconds = 0.0
+        self._request_metric_snapshots = WeakKeyDictionary()
         self._request_policy = request_policy or RequestPolicy(
             timeout=effective_timeout,
             max_retries=max_retries,
@@ -411,7 +416,10 @@ class GEOWrapper:
             url.rsplit("/", 1)[-1],
             self._request_settings["timeout"],
         )
-        response = self._request_policy.get(url, params=params)
+        try:
+            response = self._request_policy.get(url, params=params)
+        finally:
+            self._accumulate_request_metrics(self._request_policy)
         logger.debug(
             "GEO HTTP response endpoint=%s status=%s elapsed_seconds=%.3f",
             url.rsplit("/", 1)[-1],
@@ -733,13 +741,16 @@ class GEOWrapper:
         enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
         converter = geo2json(enricher=enricher)
         if not hasattr(converter, "geo_fetcher") or not hasattr(converter, "parser"):
-            parsed = converter.convert(
-                gse=gse_accession,
-                related_series=True,
-                remove_empty=True,
-                enrich=False,
-                out=None,
-            )
+            try:
+                parsed = converter.convert(
+                    gse=gse_accession,
+                    related_series=True,
+                    remove_empty=True,
+                    enrich=False,
+                    out=None,
+                )
+            finally:
+                self._accumulate_request_metrics(converter)
         else:
             source_checkpoint = checkpoint_store.get(GEO_SOURCE_STAGE, gse_accession)
             if source_checkpoint and source_checkpoint["status"] == "available":
@@ -748,7 +759,12 @@ class GEOWrapper:
                 logger.debug(
                     "GEO MINiML evidence request gse_accession=%s", gse_accession
                 )
-                miniml = converter.geo_fetcher.fetch_gse_miniml(gse=gse_accession)
+                try:
+                    miniml = converter.geo_fetcher.fetch_gse_miniml(
+                        gse=gse_accession
+                    )
+                finally:
+                    self._accumulate_request_metrics(converter)
                 checkpoint_store.put(
                     GEO_SOURCE_STAGE,
                     gse_accession,
@@ -793,9 +809,12 @@ class GEOWrapper:
             error="identifier enrichment pending",
         )
         for package_index, package in enumerate(packages):
-            packages[package_index] = canonicalize_miniml_packages(
-                [converter.enricher.enrich(data=package)]
-            )[0]
+            try:
+                packages[package_index] = canonicalize_miniml_packages(
+                    [converter.enricher.enrich(data=package)]
+                )[0]
+            finally:
+                self._accumulate_request_metrics(converter)
             payload = _metadata_checkpoint_payload(
                 packages, enrichment_mode="all", enrichment_state="pending"
             )
@@ -844,9 +863,12 @@ class GEOWrapper:
         mode = payload.get("enrichment_mode")
         if mode == "all":
             enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
-            packages = canonicalize_miniml_packages(
-                [enricher.enrich(data=package) for package in packages]
-            )
+            try:
+                packages = canonicalize_miniml_packages(
+                    [enricher.enrich(data=package) for package in packages]
+                )
+            finally:
+                self._accumulate_request_metrics(enricher)
             return packages, _metadata_checkpoint_payload(
                 packages, **{**payload, "enrichment_state": "complete"}
             )
@@ -1007,6 +1029,7 @@ class GEOWrapper:
                                 run["submitted_file_name"] = files[0].get("filename")
                                 run["md5"] = files[0].get("md5")
                 sample["sra_run"] = runs
+        self._accumulate_request_metrics(pubmed_fetcher, insdc_fetcher)
         return packages, EnrichmentRepairSummary(
             selected=selected,
             outcomes=tuple(outcomes),
@@ -1036,15 +1059,64 @@ class GEOWrapper:
 
     def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
         logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
-        packages = geo2json().convert(
-            gse=gse_accession,
-            related_series=True,
-            remove_empty=True,
-            enrich=self._enrich_metadata,
-            out=None,
-        )
+        converter = geo2json()
+        try:
+            packages = converter.convert(
+                gse=gse_accession,
+                related_series=True,
+                remove_empty=True,
+                enrich=self._enrich_metadata,
+                out=None,
+            )
+        finally:
+            self._accumulate_request_metrics(converter)
         codec = MINiMLCodec()
         return [codec.encode(codec.decode(package, strict=True).package) for package in packages]
+
+    def _accumulate_request_metrics(self, *roots) -> None:
+        """Collect deltas from nested MSC/Atlas requesters without double counts."""
+
+        metric_names = (
+            "provider_attempts",
+            "retry_count",
+            "rate_wait_seconds",
+        )
+        child_names = (
+            "_request_policy",
+            "requester",
+            "fetcher",
+            "geo_fetcher",
+            "enricher",
+            "pubmed_fetcher",
+            "insdc_fetcher",
+            "ncbi_requester",
+            "ena_requester",
+        )
+        seen = set()
+
+        def visit(candidate) -> None:
+            if candidate is None or id(candidate) in seen:
+                return
+            seen.add(id(candidate))
+            if all(hasattr(candidate, name) for name in metric_names):
+                current = (
+                    int(candidate.provider_attempts),
+                    int(candidate.retry_count),
+                    float(candidate.rate_wait_seconds),
+                )
+                previous = self._request_metric_snapshots.get(
+                    candidate, (0, 0, 0.0)
+                )
+                self.provider_attempts += max(current[0] - previous[0], 0)
+                self.retry_count += max(current[1] - previous[1], 0)
+                self.rate_wait_seconds += max(current[2] - previous[2], 0.0)
+                self._request_metric_snapshots[candidate] = current
+                return
+            for name in child_names:
+                visit(getattr(candidate, name, None))
+
+        for root in roots:
+            visit(root)
 
     def _package_gse_accession(self, package: dict) -> str:
         return self._record_policy.package_gse_accession(package)
