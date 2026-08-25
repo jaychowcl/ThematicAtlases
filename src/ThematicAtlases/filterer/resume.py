@@ -9,7 +9,13 @@ from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
-from ThematicAtlases.checkpoint import CheckpointItemLockTimeout, CheckpointStore
+from ThematicAtlases.checkpoint import (
+    CheckpointItemLockTimeout,
+    CheckpointStore,
+    failure_category,
+    is_retryable_error,
+)
+from ThematicAtlases.runtime_contracts import safe_error_json
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
@@ -123,6 +129,8 @@ class TracePublicationReviewResumer:
         defer_metadata_errors: bool = False,
         require_main_datalinks_phase: bool = False,
         publication_limit: int | None = None,
+        review_action_limit: int | None = None,
+        cancelled=None,
         snapshot_accessions: list[dict] | None = None,
         publication_keys: list[tuple] | None = None,
         item_lock_timeout_seconds: int | float | None = None,
@@ -132,6 +140,9 @@ class TracePublicationReviewResumer:
     ) -> dict:
         directory = Path(trace_dir)
         publication_limit = self._validated_publication_limit(publication_limit)
+        review_action_limit = self._validated_publication_limit(
+            review_action_limit
+        )
         metadata_item_timeout_seconds = _validated_positive_timeout(
             metadata_item_timeout_seconds,
             name="metadata item timeout",
@@ -160,11 +171,17 @@ class TracePublicationReviewResumer:
             phase = store.get_meta("main_pipeline_phase", {})
             return str(phase.get("phase") or "missing")
 
+        def cancellation_requested() -> bool:
+            return bool(cancelled is not None and cancelled())
+
         def main_allows_snapshot_work() -> bool:
             return (
                 not require_main_datalinks_phase
                 or main_phase_name() == "datalinks"
             )
+
+        def continue_snapshot_work() -> bool:
+            return not cancellation_requested() and main_allows_snapshot_work()
 
         datalink_items = [
             item for item in store.items("datalinks") if item["status"] == "available"
@@ -186,6 +203,12 @@ class TracePublicationReviewResumer:
                     "snapshot_publication_count": 0,
                     "selected_publication_count": 0,
                     "publication_limit": publication_limit,
+                    "review_action_limit": review_action_limit,
+                    "review_action_count": 0,
+                    "review_completed_action_count": 0,
+                    "review_reused_count": 0,
+                    "review_actionable_count": 0,
+                    "review_remaining_actionable_count": 0,
                     "eligible_publication_count": 0,
                     "deferred_publication_count": 0,
                     "metadata_attempted_count": 0,
@@ -197,6 +220,10 @@ class TracePublicationReviewResumer:
                     "publication_text_timeout_count": 0,
                     "review_deferred_count": 0,
                     "review_timeout_count": 0,
+                    "review_cooldown_deferred_count": 0,
+                    "provider_attempts": 0,
+                    "retry_count": 0,
+                    "rate_wait_seconds": 0.0,
                     "metadata_status_counts": {},
                     "yielded_to_main": True,
                     "main_phase": phase_name,
@@ -253,7 +280,7 @@ class TracePublicationReviewResumer:
                 store=store,
                 datalink_checkpoint_count=len(datalink_items),
                 datalink_row_count=len(datalink_rows),
-                continue_predicate=main_allows_snapshot_work,
+                continue_predicate=continue_snapshot_work,
                 item_timeout_seconds=metadata_item_timeout_seconds,
             )
         elif hasattr(collector, "available_accession_metadata"):
@@ -269,6 +296,19 @@ class TracePublicationReviewResumer:
                 defer_metadata_errors=defer_metadata_errors,
             )
         eligible_publications = self._publication_keys(accessions, filterer)
+        if metadata_summary is None and review_action_limit is not None:
+            metadata_summary = {
+                "snapshot_datalink_checkpoint_count": len(datalink_items),
+                "snapshot_datalink_row_count": len(datalink_rows),
+                "snapshot_accession_count": len(snapshot_accessions),
+                "metadata_attempted_count": 0,
+                "metadata_reused_count": 0,
+                "metadata_deferred_accession_count": 0,
+                "metadata_busy_count": 0,
+                "metadata_timeout_count": 0,
+                "metadata_status_counts": {},
+                "yielded_to_main": False,
+            }
         if metadata_summary is not None:
             metadata_summary.update(
                 {
@@ -276,6 +316,12 @@ class TracePublicationReviewResumer:
                     "snapshot_accession_count": len(snapshot_accessions),
                     "selected_publication_count": len(selected_publications),
                     "publication_limit": publication_limit,
+                    "review_action_limit": review_action_limit,
+                    "review_action_count": 0,
+                    "review_completed_action_count": 0,
+                    "review_reused_count": 0,
+                    "review_actionable_count": 0,
+                    "review_remaining_actionable_count": 0,
                     "eligible_publication_count": len(eligible_publications),
                     "deferred_publication_count": len(
                         selected_publications - eligible_publications
@@ -284,13 +330,19 @@ class TracePublicationReviewResumer:
                     "publication_text_timeout_count": 0,
                     "review_deferred_count": 0,
                     "review_timeout_count": 0,
+                    "review_cooldown_deferred_count": 0,
+                    "provider_attempts": 0,
+                    "retry_count": 0,
+                    "rate_wait_seconds": 0.0,
                 }
             )
             metadata_summary.setdefault("yielded_to_main", False)
             metadata_summary["main_phase"] = main_phase_name()
-        if require_main_datalinks_phase and not main_allows_snapshot_work():
+        if require_main_datalinks_phase and not continue_snapshot_work():
             if metadata_summary is not None:
-                metadata_summary["yielded_to_main"] = True
+                metadata_summary["yielded_to_main"] = (
+                    not main_allows_snapshot_work()
+                )
             result = {
                 "accessions": [],
                 "publication_texts": {},
@@ -306,9 +358,11 @@ class TracePublicationReviewResumer:
         publication_text_deferred_count = 0
         publication_text_timeout_count = 0
         for publication_key in self._sorted_publication_keys(eligible_publications):
-            if not main_allows_snapshot_work():
+            if not continue_snapshot_work():
                 if metadata_summary is not None:
-                    metadata_summary["yielded_to_main"] = True
+                    metadata_summary["yielded_to_main"] = (
+                        not main_allows_snapshot_work()
+                    )
                 break
             item_accessions = self._only_publications(
                 accessions=accessions,
@@ -357,6 +411,12 @@ class TracePublicationReviewResumer:
         )
 
         def write_progress(reviewed_texts: dict) -> None:
+            review_actionable_count = max(
+                len(publication_texts)
+                - review_reused_count
+                - review_cooldown_deferred_count,
+                0,
+            )
             if metadata_summary is not None:
                 metadata_summary.update(
                     {
@@ -369,6 +429,19 @@ class TracePublicationReviewResumer:
                         ),
                         "review_deferred_count": review_deferred_count,
                         "review_timeout_count": review_timeout_count,
+                        "review_cooldown_deferred_count": (
+                            review_cooldown_deferred_count
+                        ),
+                        "review_action_count": review_action_count,
+                        "review_completed_action_count": (
+                            review_completed_action_count
+                        ),
+                        "review_reused_count": review_reused_count,
+                        "review_actionable_count": review_actionable_count,
+                        "review_remaining_actionable_count": max(
+                            review_actionable_count - review_action_count,
+                            0,
+                        ),
                     }
                 )
             progress = {
@@ -385,17 +458,48 @@ class TracePublicationReviewResumer:
         reviewed_texts = {}
         review_deferred_count = 0
         review_timeout_count = 0
+        review_cooldown_deferred_count = 0
+        review_action_count = 0
+        review_completed_action_count = 0
+        review_reused_count = 0
         contexts = self._publication_text_reviewer.publication_review_contexts(
             accessions=accessions_with_refs
         )
         resolved_reviewer = reviewer
         if publication_texts and resolved_reviewer is None:
             resolved_reviewer = self._publication_text_reviewer._reviewer()
+        model_metrics_before = self._reviewer_provider_metrics(resolved_reviewer)
         for publication_ref in sorted(publication_texts):
-            if not main_allows_snapshot_work():
-                if metadata_summary is not None:
-                    metadata_summary["yielded_to_main"] = True
+            if (
+                review_action_limit is not None
+                and review_action_count >= review_action_limit
+            ):
                 break
+            if not continue_snapshot_work():
+                if metadata_summary is not None:
+                    metadata_summary["yielded_to_main"] = (
+                        not main_allows_snapshot_work()
+                    )
+                break
+            checkpoint_key = f"{strategy}:{publication_ref}"
+            checkpoint_before = store.get("thematic_review", checkpoint_key)
+            retry_at = (checkpoint_before or {}).get("payload", {}).get(
+                "next_retry_at"
+            )
+            try:
+                cooldown_pending = (
+                    retry_at is not None and float(retry_at) > time.time()
+                )
+            except (TypeError, ValueError):
+                cooldown_pending = False
+            if (
+                checkpoint_before
+                and checkpoint_before.get("status") == "retryable_error"
+                and cooldown_pending
+            ):
+                review_cooldown_deferred_count += 1
+                write_progress(reviewed_texts)
+                continue
             try:
                 with _item_deadline(
                     review_item_timeout_seconds,
@@ -416,6 +520,7 @@ class TracePublicationReviewResumer:
                         )
                     )
             except SnapshotItemTimeout:
+                review_action_count += 1
                 review_timeout_count += 1
                 logger.warning(
                     "Incremental thematic review timed out publication_ref=%s",
@@ -432,7 +537,39 @@ class TracePublicationReviewResumer:
                 write_progress(reviewed_texts)
                 continue
             except Exception as error:
+                review_action_count += 1
                 review_deferred_count += 1
+                retryable = is_retryable_error(error)
+                if checkpoint_before is None or checkpoint_before.get(
+                    "status"
+                ) == "retryable_error":
+                    retry_at = getattr(error, "retry_at", None)
+                    store.put(
+                        "thematic_review",
+                        checkpoint_key,
+                        review_action_count,
+                        "retryable_error" if retryable else "terminal_error",
+                        payload={
+                            "contract_version": 1,
+                            "strategy": strategy,
+                            "publication_ref": publication_ref,
+                            "failure_stage": "shared_review_context",
+                            **(
+                                {"next_retry_at": float(retry_at)}
+                                if retry_at is not None
+                                else {}
+                            ),
+                        },
+                        error=safe_error_json(
+                            error,
+                            provider="agentic_curator",
+                            stage="thematic_review",
+                            item_id=publication_ref,
+                            retryable=retryable,
+                        ),
+                        error_type=type(error).__name__,
+                        failure_category=failure_category(error),
+                    )
                 logger.warning(
                     "Incremental thematic review deferred publication_ref=%s error_type=%s",
                     publication_ref,
@@ -440,22 +577,35 @@ class TracePublicationReviewResumer:
                 )
                 write_progress(reviewed_texts)
                 continue
+            checkpoint_after = store.get("thematic_review", checkpoint_key)
+            if checkpoint_after != checkpoint_before:
+                review_action_count += 1
             reviewed_publication = reviewed.get(publication_ref, {})
             review_trace = reviewed_publication.get("agentic_curator", {})
             if review_trace.get("review_status") == "failed":
                 review_deferred_count += 1
             else:
+                if checkpoint_after != checkpoint_before:
+                    review_completed_action_count += 1
+                elif checkpoint_before is not None:
+                    review_reused_count += 1
                 reviewed_texts.update(reviewed)
             write_progress(reviewed_texts)
 
         if metadata_summary is not None:
+            model_metrics_after = self._reviewer_provider_metrics(
+                resolved_reviewer
+            )
+            review_actionable_count = max(
+                len(publication_texts)
+                - review_reused_count
+                - review_cooldown_deferred_count,
+                0,
+            )
             metadata_summary.update(
                 {
                     "main_phase": main_phase_name(),
-                    "yielded_to_main": (
-                        metadata_summary.get("yielded_to_main", False)
-                        or not main_allows_snapshot_work()
-                    ),
+                    "yielded_to_main": not main_allows_snapshot_work(),
                     "publication_text_deferred_count": (
                         publication_text_deferred_count
                     ),
@@ -464,6 +614,32 @@ class TracePublicationReviewResumer:
                     ),
                     "review_deferred_count": review_deferred_count,
                     "review_timeout_count": review_timeout_count,
+                    "review_cooldown_deferred_count": (
+                        review_cooldown_deferred_count
+                    ),
+                    "review_action_count": review_action_count,
+                    "review_completed_action_count": review_completed_action_count,
+                    "review_reused_count": review_reused_count,
+                    "review_actionable_count": review_actionable_count,
+                    "review_remaining_actionable_count": max(
+                        review_actionable_count - review_action_count,
+                        0,
+                    ),
+                    "provider_attempts": max(
+                        model_metrics_after["provider_attempts"]
+                        - model_metrics_before["provider_attempts"],
+                        0,
+                    ),
+                    "retry_count": max(
+                        model_metrics_after["retry_count"]
+                        - model_metrics_before["retry_count"],
+                        0,
+                    ),
+                    "rate_wait_seconds": max(
+                        model_metrics_after["rate_wait_seconds"]
+                        - model_metrics_before["rate_wait_seconds"],
+                        0.0,
+                    ),
                 }
             )
         result = {
@@ -477,6 +653,29 @@ class TracePublicationReviewResumer:
             result["metadata_summary"] = metadata_summary
         trace.write("incremental_review_progress.json", result)
         return result
+
+    @staticmethod
+    def _reviewer_provider_metrics(reviewer) -> dict:
+        metrics = getattr(reviewer, "llm", None)
+        if not all(
+            hasattr(metrics, name)
+            for name in ("provider_attempts", "retry_count", "rate_wait_seconds")
+        ):
+            metrics = reviewer
+        if not all(
+            hasattr(metrics, name)
+            for name in ("provider_attempts", "retry_count", "rate_wait_seconds")
+        ):
+            return {
+                "provider_attempts": 0,
+                "retry_count": 0,
+                "rate_wait_seconds": 0.0,
+            }
+        return {
+            "provider_attempts": int(metrics.provider_attempts),
+            "retry_count": int(metrics.retry_count),
+            "rate_wait_seconds": float(metrics.rate_wait_seconds),
+        }
 
     @staticmethod
     def _collect_snapshot_metadata(

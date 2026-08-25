@@ -295,6 +295,29 @@ thematic-atlas resume --dev-out-dir .dev --run-id RUN_ID [OPTIONS]
 | `--retry-degraded-stage STAGE` | Requeue harmonization items degraded at the named internal stage; repeat as needed. |
 | `--review-decisions-file PATH` | Apply review decisions for this run. A mismatched run ID or stale MINiML source fingerprint fails before publication. |
 
+`worker-snapshot` advances one bounded actionable sidecar frontier and prints a
+JSON summary:
+
+```bash
+thematic-atlas worker-snapshot \
+  --dev-out-dir .dev --run-id RUN_ID \
+  --stage {text,graph,metadata,review} [--item-limit N]
+```
+
+| Option | Behavior |
+| --- | --- |
+| `--dev-out-dir PATH` | Trace root containing the run. |
+| `--run-id ID` | Required exact trace identity. |
+| `--stage {text,graph,metadata,review}` | Run one stage-specific one-shot frontier. |
+| `--item-limit N` | Positive cap applied to actionable work, not the scanned prefix. |
+
+The limit is applied after compatible, completed, prerequisite-blocked, and
+future-cooldown items are removed. Exit `0` means complete/no work, `2` means
+busy, yielded, interrupted, or deferred work, and `1` means a safe outer
+failure. SIGINT and SIGTERM request cooperative cancellation: the current
+atomic item or model call finishes, an interruption event and progress summary
+are committed, and all locks are released.
+
 `fork-run` safely clones a trace paused after metadata for different downstream
 review or harmonization configuration:
 
@@ -345,10 +368,18 @@ Atlas(
     resource_overrides=None,
     runtime_provenance=None,
     run_lifecycle=None,
+    ncbi_api_key=None,
+    ncbi_tool="ThematicAtlases",
+    ncbi_email=None,
 )
 ```
 
 `metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_handlers=None` selects the built-in handlers, while an explicit empty mapping disables all handlers. `metadata_repositories` sets the collector default. `capability_registry` supplies the immutable GEO/ArrayExpress routing and review-identity contract. `resource_profile` selects the typed `standard`/`large` ceiling set and `resource_overrides` applies explicit numeric changes before the same profile object is propagated to default wrappers, the harmonizer, and ontology store. Traced creation stores the fully resolved profile in its manifest and Atlas run options. `runtime_provenance` accepts a JSON-compatible mapping for composing applications to persist script, dependency, and authorization identity through the same trace and Atlas boundaries. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. `run_lifecycle` is an internal extension/test seam for run identity, resume selection, checkpoint-contract reconciliation, archival, and resumed publication. The public `resolve_resume_run_directory(dev_out_dir, run_id)` helper gives external runners the same explicit-or-latest-incomplete trace selection used by `Atlas.resume`. The default Europe PMC and GEO wrappers similarly delegate pure record rules to injectable `PublicationRecordPolicy` and `GEORecordPolicy` collaborators while retaining all existing wrapper methods. These collaborators implement or support the boundaries in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+
+The optional NCBI identity is forwarded to every Atlas-owned E-utilities
+caller. If `ncbi_api_key` is omitted, `NCBI_API_KEY` may supply it without
+changing conservative throughput; the key and request parameters are never
+logged. Missing contact email warns once and retains unauthenticated pacing.
 
 For new integrations, construct or load `AtlasDocument` rather than assembling
 fragmented dictionaries. `AtlasDocument.load(path)` validates the v1 wire
@@ -538,6 +569,20 @@ main stage advances. Per-run/stage singleton locks and ordered per-item locks
 prevent duplicate provider calls. Review admits only publications whose
 text/scrape and graph frontiers are terminal and whose supported metadata is
 available, partial, or authoritatively unavailable.
+Each worker first builds a due-retry/missing/stale actionable frontier and only
+then applies `item_limit`, so completed prefixes cannot starve later work.
+Summaries preserve the legacy selected/completed/deferred keys and add scanned,
+actionable, claimed, reused, prerequisite/cooldown deferred, remaining,
+provider-attempt, retry, rate-wait, and interruption fields.
+
+All HTTP clients share MSC's per-user, cross-process `HostRequestGate` for every
+actual attempt and redirect. NCBI and Europe PMC starts are spaced by 0.5
+seconds; bioRxiv/medRxiv, GEO FTP, ENA, and BioStudies use one second. Numeric
+or HTTP-date `Retry-After` cooldowns persist across processes. Cooldowns beyond
+the inline worker budget become retryable checkpoints with `next_retry_at`
+instead of long sleeps. Transport errors, 403/429, and 5xx responses use bounded
+exponential full jitter. The model boundary additionally permits one concurrent
+call and one start per second for each provider/project/location/model identity.
 
 `Atlas.fork_run(...)` safely branches a metadata-paused trace for alternate
 downstream processing:
@@ -601,7 +646,7 @@ It returns ordered archive paths and rejects active workflows, unsafe names, sym
 
 Specialized workflow surfaces are available when independently advancing or evaluating a trace:
 
-- `PublicationTextReviewer.resume(...)`: `resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False, require_main_datalinks_phase=False, publication_limit=None, snapshot_accessions=None, publication_keys=None, item_lock_timeout_seconds=None, metadata_item_timeout_seconds=None, publication_text_item_timeout_seconds=None, review_item_timeout_seconds=None) -> dict` reviews one fixed Datalinks snapshot. A stage worker can pass the current merged accession evidence and its terminal-frontier publication keys through the public façade; omitting both preserves full-snapshot behavior. `collect_metadata=True` first downloads or reuses supported GEO/ArrayExpress metadata one accession at a time, isolates provider failures, and returns a `metadata_summary`; item locks prevent duplicate work with another collector. A positive deterministic `publication_limit` is applied before metadata calls. `require_main_datalinks_phase=True` starts only while the main collector advertises `datalinks` and stops before the next item after it advertises `downstream`. Optional positive hard deadlines and a bounded lock wait defer a stuck or busy item without retaining its lock. Progress is isolated in `incremental_review_progress.json`; completed metadata, publication-text, and thematic-review rows remain canonical SQLite checkpoints that the normal Atlas workflow reuses. With `require_resolved_metadata=True`, every linked supported accession must be resolved. `defer_metadata_errors=True` admits only `available`, `partial`, and authoritative `unavailable` metadata, so pending/retryable/terminal failures defer the whole publication; later calls automatically retry transient failures while selected terminal retries use `CheckpointStore.request_retries`. See the [filterer flow](docs/codebase.md#filterer).
+- `PublicationTextReviewer.resume(...)`: `resume(trace_dir, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False, require_main_datalinks_phase=False, publication_limit=None, review_action_limit=None, cancelled=None, snapshot_accessions=None, publication_keys=None, item_lock_timeout_seconds=None, metadata_item_timeout_seconds=None, publication_text_item_timeout_seconds=None, review_item_timeout_seconds=None) -> dict` reviews one fixed Datalinks snapshot. A stage worker can pass the current merged accession evidence and its terminal-frontier publication keys through the public façade; omitting both preserves full-snapshot behavior. `collect_metadata=True` first downloads or reuses supported GEO/ArrayExpress metadata one accession at a time, isolates provider failures, and returns a `metadata_summary`; item locks prevent duplicate work with another collector. `publication_limit` retains its pre-metadata snapshot meaning, while positive `review_action_limit` counts only actual review attempts after prerequisites, compatible reuse, and cooldown deferral. `cancelled` stops before the next item without falsely reporting a main-phase yield. Progress is isolated in `incremental_review_progress.json`; completed metadata, publication-text, and thematic-review rows remain canonical SQLite checkpoints that normal resume reuses. Model cooldowns and shared-criteria failures become retryable review checkpoints with `next_retry_at`; invalid structured output and ordinary non-throttling 4xx failures remain terminal. See the [filterer flow](docs/codebase.md#filterer).
 - `AtlasCollector.resume_metadata(...)`: `resume_metadata(trace_dir, audit_enrichment_only=False, retry_tags=None) -> dict` collects, audits, or explicitly repairs GEO metadata enrichment for one stable snapshot. See the [collector flow](docs/codebase.md#collector).
 - `benchmark_fibrosis_meta_pubs_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]` runs the offline fibrosis meta-publication recall benchmark directly. It defaults to the packaged combined TSV for the Leonie 2026, Taylor 2020, He 2025, and Jaimes Campos 2025 fibrosis reference sets and writes `fibrosis_meta_pubs_recall_report.json` under the Git-ignored `benchmarks/` directory. See the [benchmark package](docs/codebase.md#benchmark-package).
 - `benchmark_fibrosis_meta_pubs_query_recall.py TRACE_DIR [--references TSV] [--out DIRECTORY]` reads the same reference TSV and the trace's read-only `search_pages` checkpoints to score publications returned before accession discovery or review. Complete searches receive final scores; incomplete searches produce explicitly lower-bound reports in `fibrosis_meta_pubs_query_recall_report.json`. See the [benchmark package](docs/codebase.md#benchmark-package).

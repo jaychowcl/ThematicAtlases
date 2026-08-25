@@ -43,6 +43,9 @@ class AtlasCollector:
         )
         self._metadata_resume_orchestrator_factory = metadata_resume_orchestrator_factory
         self._metadata_resume_orchestrator_instance = None
+        self.provider_attempts = 0
+        self.retry_count = 0
+        self.rate_wait_seconds = 0.0
 
     def resume_metadata(
         self,
@@ -246,11 +249,13 @@ class AtlasCollector:
                 handler_options["checkpoint_store"] = checkpoint_store
             if retry_tags is not None and repository == "geo":
                 handler_options["retry_tags"] = retry_tags
-            records.extend(
-                self.metadata_handler(repository=repository).collect_accession_metadata(
-                    **handler_options
+            handler = self.metadata_handler(repository=repository)
+            try:
+                records.extend(
+                    handler.collect_accession_metadata(**handler_options)
                 )
-            )
+            finally:
+                self._accumulate_request_metrics(handler)
 
         logger.info(
             "Atlas metadata collection stats input_records=%s repositories=%s output_records=%s skipped_records=%s",
@@ -422,6 +427,17 @@ class AtlasCollector:
             return handler_factory()
 
         raise ValueError(f"Unsupported metadata repository: {repository}")
+
+    def _accumulate_request_metrics(self, handler: Any) -> None:
+        metrics = getattr(handler, "_request_policy", handler)
+        if not all(
+            hasattr(metrics, name)
+            for name in ("provider_attempts", "retry_count", "rate_wait_seconds")
+        ):
+            return
+        self.provider_attempts += int(metrics.provider_attempts)
+        self.retry_count += int(metrics.retry_count)
+        self.rate_wait_seconds += float(metrics.rate_wait_seconds)
 
     def _epmc_wrapper(self):
         return self._epmc_wrapper_factory()

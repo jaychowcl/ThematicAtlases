@@ -5,6 +5,9 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
 import requests
+from meta_standards_converter.helpers.request_helper import (
+    HostRequestCooldownDeferred,
+)
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 from meta_standards_converter.xml_safety import parse_xml
 
@@ -61,6 +64,9 @@ class EuropePMCWrapper:
         resource_overrides=None,
         publication_policy: PublicationRecordPolicy | None = None,
         link_graph_provider=None,
+        ncbi_api_key: str | None = None,
+        ncbi_tool: str = "ThematicAtlases",
+        ncbi_email: str | None = None,
     ):
         if request_delay < 0:
             raise ValueError("request_delay must not be negative")
@@ -108,6 +114,9 @@ class EuropePMCWrapper:
             request_delay=request_delay,
             max_retries=max_retries,
             resource_profile=self.resource_profile,
+            api_key=ncbi_api_key,
+            tool=ncbi_tool,
+            email=ncbi_email,
         )
 
     def collect_accessions(
@@ -821,6 +830,7 @@ class EuropePMCWrapper:
             full_text_id = self._full_text_id(publication=publication)
             checkpoint_status = "available"
             checkpoint_error = None
+            checkpoint_retry_at = None
 
             try:
                 if full_text_id:
@@ -828,7 +838,6 @@ class EuropePMCWrapper:
                         "EuropePMC fullTextXML request epmc_id=%r",
                         full_text_id,
                     )
-                    self._wait_for_provider_slot(checkpoint_store)
                     full_text_xml = self._full_text_xml(epmc_id=full_text_id)
                     text, links = self._text_and_links_from_xml(full_text_xml)
                     enriched_publication = {
@@ -864,7 +873,12 @@ class EuropePMCWrapper:
                     item_id=checkpoint_key,
                     retryable=True,
                 )
-            except requests.RequestException as error:
+                checkpoint_retry_at = getattr(
+                    response,
+                    "_thematic_atlases_retry_at",
+                    None,
+                )
+            except (requests.RequestException, HostRequestCooldownDeferred) as error:
                 enriched_publication = self._publication_with_fallback_text(
                     publication=publication,
                     full_text_status="error",
@@ -877,6 +891,7 @@ class EuropePMCWrapper:
                     item_id=checkpoint_key,
                     retryable=True,
                 )
+                checkpoint_retry_at = getattr(error, "retry_at", None)
             except (ET.ParseError, ValueError) as error:
                 enriched_publication = self._publication_with_fallback_text(
                     publication=publication,
@@ -912,6 +927,11 @@ class EuropePMCWrapper:
                     payload={
                         "contract_version": PUBLICATION_TEXT_CONTRACT_VERSION,
                         "publication": enriched_publication,
+                        **(
+                            {"next_retry_at": checkpoint_retry_at}
+                            if checkpoint_retry_at is not None
+                            else {}
+                        ),
                     },
                     error=checkpoint_error,
                     error_type=(
@@ -999,7 +1019,6 @@ class EuropePMCWrapper:
             )
             started = time.monotonic()
             try:
-                self._wait_for_provider_slot(checkpoint_store)
                 response_data = self._datalinks(source=source, epmc_id=epmc_id)
             except Exception as error:
                 failed_publications += 1
@@ -1011,6 +1030,23 @@ class EuropePMCWrapper:
                         "retryable_error"
                         if is_retryable_error(error)
                         else "terminal_error",
+                        payload={
+                            **(
+                                {"next_retry_at": retry_at}
+                                if (
+                                    retry_at := getattr(
+                                        error,
+                                        "retry_at",
+                                        getattr(
+                                            getattr(error, "response", None),
+                                            "_thematic_atlases_retry_at",
+                                            None,
+                                        ),
+                                    )
+                                )
+                                else {}
+                            )
+                        },
                         error=safe_error_json(
                             error,
                             provider="Europe PMC",
@@ -1026,10 +1062,6 @@ class EuropePMCWrapper:
                     source,
                     epmc_id,
                     type(error).__name__,
-                )
-                self._wait_before_datalink_request(
-                    error=error,
-                    attempt=self._request_policy.max_retries,
                 )
                 continue
             logger.debug(
@@ -1066,8 +1098,6 @@ class EuropePMCWrapper:
                     "available" if publication_datalinks else "no_data",
                     payload={"rows": publication_datalinks},
                 )
-
-            self._request_policy.wait(self._request_settings["request_delay"])
 
         logger.info(
             "EuropePMC datalink stats publications_checked=%s datalinks_collected=%s skipped_categories=%s failed_publications=%s",
@@ -1160,6 +1190,7 @@ class EuropePMCWrapper:
             except (requests.RequestException, ET.ParseError) as error:
                 failures.append(error)
                 delay = self._wait_before_datalink_request(
+                    url=url,
                     error=error,
                     attempt=attempt,
                 )
@@ -1200,6 +1231,7 @@ class EuropePMCWrapper:
                 raise selected_error
 
             delay = self._wait_before_datalink_request(
+                url=url,
                 error=selected_error,
                 attempt=attempt,
                 retry_backoff=True,
@@ -1243,20 +1275,23 @@ class EuropePMCWrapper:
     def _wait_before_datalink_request(
         self,
         *,
+        url: str,
         error: Exception,
         attempt: int,
         retry_backoff: bool = False,
     ) -> float:
         response = getattr(error, "response", None)
-        delay = float(self._request_settings["request_delay"])
+        delay = 0.0
         status = getattr(response, "status_code", None)
         headers = getattr(response, "headers", {}) or {}
         retry_after = headers.get("Retry-After")
         if retry_backoff or status in {403, 429} or retry_after is not None:
-            delay = max(delay, self._request_policy.retry_delay(response, attempt))
+            delay = self._request_policy.defer_retry(
+                url,
+                response=response,
+                attempt=attempt,
+            )
         self._close_response(response)
-        if delay > 0:
-            self._request_policy.wait(delay)
         return delay
 
     @staticmethod
@@ -1334,14 +1369,6 @@ class EuropePMCWrapper:
         url = self._full_text_xml_url.format(epmc_id=epmc_id)
 
         return self._request_policy.get(url).text
-
-    def _wait_for_provider_slot(self, checkpoint_store) -> None:
-        if checkpoint_store is None:
-            return
-        checkpoint_store.wait_for_provider_slot(
-            "europe_pmc",
-            min_interval_seconds=self._request_settings["request_delay"],
-        )
 
     def _retry_delay(self, response: requests.Response, attempt: int) -> float:
         return RequestPolicy.retry_delay(response, attempt)

@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import inspect
 import json
 import logging
+import signal
 import sys
+import threading
 from pathlib import Path
 
 from ThematicAtlases.atlas import Atlas
 from ThematicAtlases.artifact_publisher import JsonArtifactBundlePublisher
 from ThematicAtlases.pipeline import STOP_AFTER_STAGES
+from ThematicAtlases.stage_worker import (
+    StageWorkerBusy,
+    TraceStageWorker,
+    WORKER_STAGES,
+)
 
 REVIEW_FILTER_CHOICES = ("none", "not-relevant", "not-relevant-and-unsure")
 REVIEW_STRATEGY_CHOICES = ("direct",)
@@ -276,6 +284,21 @@ def _build_parser() -> argparse.ArgumentParser:
     fork.add_argument("--new-run-id", required=True)
     fork.add_argument("--config", required=True)
 
+    worker = subparsers.add_parser(
+        "worker-snapshot",
+        help="Advance one bounded concurrent stage frontier in an existing trace.",
+    )
+    _add_resource_options(worker)
+    _add_logging_options(
+        worker,
+        verbose_dest="command_verbose",
+        log_file_dest="command_log_file",
+    )
+    worker.add_argument("--dev-out-dir", default=".dev")
+    worker.add_argument("--run-id", required=True)
+    worker.add_argument("--stage", choices=WORKER_STAGES, required=True)
+    worker.add_argument("--item-limit", type=_positive_int, default=None)
+
     return parser
 
 
@@ -335,12 +358,56 @@ def _retry_items(values: list[str]) -> dict[str, list[str]]:
     return result
 
 
+@contextmanager
+def _cooperative_cancellation():
+    cancellation = threading.Event()
+    previous = {}
+
+    def request_cancellation(_signum, _frame):
+        cancellation.set()
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        previous[signum] = signal.getsignal(signum)
+        signal.signal(signum, request_cancellation)
+    try:
+        yield cancellation
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 def main(argv: list[str] | None = None) -> int:
 
     parser = _build_parser()
     args = parser.parse_args(argv)
     verbosity, log_file = _resolved_logging_options(args)
     _configure_logging(verbosity=verbosity, log_file=log_file)
+
+    if args.command == "worker-snapshot":
+        trace_dir = Path(args.dev_out_dir) / "runs" / args.run_id
+        try:
+            with _cooperative_cancellation() as cancellation:
+                result = TraceStageWorker().resume(
+                    trace_dir,
+                    stage=args.stage,
+                    item_limit=args.item_limit,
+                    cancelled=cancellation.is_set,
+                )
+        except StageWorkerBusy as error:
+            logging.getLogger(__name__).info("Stage worker busy: %s", error)
+            return 2
+        except Exception:
+            logging.getLogger(__name__).exception("Stage worker failed safely")
+            return 1
+        print(json.dumps(result, sort_keys=True))
+        return (
+            2
+            if result.get("interrupted")
+            or result.get("yielded_to_main")
+            or int(result.get("deferred_count", 0)) > 0
+            or int(result.get("cooldown_deferred", 0)) > 0
+            else 0
+        )
 
     atlas_kwargs = {
         "metadata": {},

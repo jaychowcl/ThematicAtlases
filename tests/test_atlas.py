@@ -1324,6 +1324,26 @@ def test_atlas_applies_one_typed_resource_profile_across_default_stages() -> Non
     assert atlas._harmonizer._resource_profile is atlas._resource_profile
 
 
+def test_atlas_forwards_one_ncbi_identity_to_graph_and_geo_callers() -> None:
+    atlas = Atlas(
+        metadata={},
+        ncbi_tool="fibrosis_atlas",
+        ncbi_email="atlas@example.org",
+        ncbi_api_key="secret-key",
+    )
+
+    assert atlas._collector._epmc_wrapper()._link_graph_provider._ncbi_identity.params() == {
+        "tool": "fibrosis_atlas",
+        "email": "atlas@example.org",
+        "api_key": "secret-key",
+    }
+    assert atlas._collector._metadata_handlers["geo"]()._ncbi_identity.params() == {
+        "tool": "fibrosis_atlas",
+        "email": "atlas@example.org",
+        "api_key": "secret-key",
+    }
+
+
 def test_atlas_rejects_non_json_runtime_provenance() -> None:
     with pytest.raises(ValueError, match="runtime_provenance must be JSON-compatible"):
         Atlas(metadata={}, runtime_provenance={"invalid": object()})

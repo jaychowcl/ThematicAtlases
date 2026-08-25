@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import pytest
 import requests
+from meta_standards_converter.helpers.request_helper import HostRequestGate
 
 
 _NETWORK_ERROR = "network access is disabled during tests"
@@ -42,6 +43,17 @@ def pytest_collection_modifyitems(items) -> None:
             raise pytest.UsageError("live_api tests are restricted to tests/live_api")
         if not enabled:
             item.add_marker(pytest.mark.skip(reason=f"set {_LIVE_ENV}=1 to run live API contracts"))
+
+
+@pytest.fixture(autouse=True)
+def isolate_provider_gate(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv(
+        "SCIENTIFIC_PROVIDER_GATE_DIR",
+        str(tmp_path / "provider-gates"),
+    )
+    HostRequestGate.reset_default()
+    yield
+    HostRequestGate.reset_default()
 
 
 def _blocked_network(*args, **kwargs):

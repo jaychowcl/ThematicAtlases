@@ -240,6 +240,42 @@ def test_create_atlas_defaults_to_query_generation_and_thematic_review(
     assert call["thematic_review"] is True
 
 
+def test_worker_snapshot_cli_forwards_cooperative_cancellation_and_exit_code(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    calls = []
+
+    class Worker:
+        def resume(self, trace_dir, **kwargs):
+            calls.append((trace_dir, kwargs))
+            assert kwargs["cancelled"]() is False
+            return {
+                "stage": "text",
+                "deferred_count": 1,
+                "interrupted": True,
+                "yielded_to_main": False,
+            }
+
+    monkeypatch.setattr(cli_module, "TraceStageWorker", Worker)
+
+    assert main([
+        "worker-snapshot",
+        "--dev-out-dir",
+        str(tmp_path),
+        "--run-id",
+        "run-1",
+        "--stage",
+        "text",
+        "--item-limit",
+        "3",
+    ]) == 2
+
+    assert calls[0][0] == tmp_path / "runs" / "run-1"
+    assert calls[0][1]["stage"] == "text"
+    assert calls[0][1]["item_limit"] == 3
+    assert json.loads(capsys.readouterr().out)["interrupted"] is True
+
+
 def test_create_atlas_can_disable_generation_with_an_explicit_query(
     monkeypatch,
 ) -> None:

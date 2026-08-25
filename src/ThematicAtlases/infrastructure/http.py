@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 import inspect
 import logging
+import random
 import time
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import requests
+from meta_standards_converter.helpers.request_helper import (
+    HostRequestCooldownDeferred,
+    HostRequestGate,
+)
 from meta_standards_converter.runtime_contracts import (
     ResourceProfile,
     get_resource_profile,
@@ -28,6 +31,16 @@ DEFAULT_ALLOWED_HOST_SUFFIXES = frozenset(
 )
 RequestParameters = Mapping[str, Any] | Sequence[tuple[str, Any]]
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+DEFAULT_HOST_START_INTERVALS = {
+    "eutils.ncbi.nlm.nih.gov": 0.5,
+    "europepmc.org": 0.5,
+    "api.biorxiv.org": 1.0,
+    "biorxiv.org": 1.0,
+    "medrxiv.org": 1.0,
+    "ftp.ncbi.nlm.nih.gov": 1.0,
+    "ftp.ebi.ac.uk": 1.0,
+    "www.ebi.ac.uk": 0.5,
+}
 
 
 class RequestSecurityError(RuntimeError):
@@ -47,7 +60,7 @@ class RequestPolicy:
         timeout: int | float | tuple[int | float, int | float] | None = None,
         max_retries: int = 3,
         retry_statuses: frozenset[int] | set[int] = frozenset(
-            {429, 500, 502, 503, 504}
+            {403, 408, 425, 429, 500, 502, 503, 504}
         ),
         request_get: Callable[..., Any] | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -59,6 +72,10 @@ class RequestPolicy:
         allowed_host_suffixes: set[str] | frozenset[str] = (
             DEFAULT_ALLOWED_HOST_SUFFIXES
         ),
+        host_gate: HostRequestGate | Any | None = None,
+        host_start_intervals: Mapping[str, int | float] | None = None,
+        max_inline_wait: int | float = 30,
+        random_value: Callable[[], float] = random.random,
     ) -> None:
         self.resource_profile = (
             resource_profile.with_overrides(resource_overrides or {})
@@ -78,6 +95,8 @@ class RequestPolicy:
             raise ValueError("timeout must be positive")
         if max_retries < 0:
             raise ValueError("max_retries must not be negative")
+        if max_inline_wait < 0:
+            raise ValueError("max_inline_wait must not be negative")
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_statuses = frozenset(retry_statuses)
@@ -85,6 +104,18 @@ class RequestPolicy:
         self._sleep = sleep
         self._logger = logger or logging.getLogger(__name__)
         self._name = name
+        self._host_gate = host_gate or HostRequestGate.default()
+        self._host_start_intervals = {
+            str(host).casefold().lstrip(".").rstrip("."): float(interval)
+            for host, interval in (
+                host_start_intervals or DEFAULT_HOST_START_INTERVALS
+            ).items()
+        }
+        if any(interval < 0 for interval in self._host_start_intervals.values()):
+            raise ValueError("host start intervals must not be negative")
+        self.max_inline_wait = float(max_inline_wait)
+        self._random_value = random_value
+        self._wall_clock_offset = 0.0
         self.allowed_hosts = frozenset(
             str(host).casefold().rstrip(".") for host in allowed_hosts
         )
@@ -93,6 +124,9 @@ class RequestPolicy:
             for host in allowed_host_suffixes
         )
         self._response_bytes = 0
+        self.provider_attempts = 0
+        self.retry_count = 0
+        self.rate_wait_seconds = 0.0
 
     def get(
         self,
@@ -115,7 +149,18 @@ class RequestPolicy:
             except requests.RequestException as error:
                 if not retry_exceptions or attempt >= retry_limit:
                     raise
-                delay = self.retry_delay(None, attempt)
+                delay = self.retry_delay(
+                    None,
+                    attempt,
+                    random_value=self._random_value,
+                )
+                host = (urlsplit(url).hostname or "").casefold().rstrip(".")
+                retry_at = self._host_gate.defer(
+                    host,
+                    delay_seconds=delay,
+                    clock=self._wall_clock,
+                )
+                self.retry_count += 1
                 self._logger.debug(
                     "%s retry error_type=%s attempt=%s delay=%s",
                     self._name,
@@ -123,11 +168,25 @@ class RequestPolicy:
                     attempt + 1,
                     delay,
                 )
-                self.wait(delay)
+                if delay > self.max_inline_wait:
+                    raise HostRequestCooldownDeferred(host, retry_at) from error
+                self._sleep_and_advance(delay)
+                self.rate_wait_seconds += delay
                 continue
 
             if response.status_code in self.retry_statuses and attempt < retry_limit:
-                delay = self.retry_delay(response, attempt)
+                delay = self.retry_delay(
+                    response,
+                    attempt,
+                    random_value=self._random_value,
+                )
+                host = (urlsplit(url).hostname or "").casefold().rstrip(".")
+                retry_at = self._host_gate.defer(
+                    host,
+                    delay_seconds=delay,
+                    clock=self._wall_clock,
+                )
+                self.retry_count += 1
                 self._logger.debug(
                     "%s retry status=%s attempt=%s delay=%s",
                     self._name,
@@ -136,8 +195,23 @@ class RequestPolicy:
                     delay,
                 )
                 self._close(response)
-                self.wait(delay)
+                if delay > self.max_inline_wait:
+                    raise HostRequestCooldownDeferred(host, retry_at)
+                self._sleep_and_advance(delay)
+                self.rate_wait_seconds += delay
                 continue
+            if response.status_code in {403, 429}:
+                delay = self.retry_delay(
+                    response,
+                    attempt,
+                    random_value=self._random_value,
+                )
+                retry_at = self._host_gate.defer(
+                    (urlsplit(url).hostname or "").casefold().rstrip("."),
+                    delay_seconds=delay,
+                    clock=self._wall_clock,
+                )
+                setattr(response, "_thematic_atlases_retry_at", retry_at)
             if raise_for_status:
                 response.raise_for_status()
             self._enforce_response_limit(response)
@@ -149,7 +223,44 @@ class RequestPolicy:
 
         if delay < 0:
             raise ValueError("delay must not be negative")
+        self._sleep_and_advance(float(delay))
+
+    def defer_retry(
+        self,
+        url: str,
+        *,
+        response: Any | None,
+        attempt: int,
+    ) -> float:
+        """Persist one retry cooldown and honor it within the inline budget."""
+
+        self._validate_url(url)
+        host = (urlsplit(url).hostname or "").casefold().rstrip(".")
+        delay = self.retry_delay(
+            response,
+            attempt,
+            random_value=self._random_value,
+        )
+        retry_at = self._host_gate.defer(
+            host,
+            delay_seconds=delay,
+            clock=self._wall_clock,
+        )
+        self.retry_count += 1
+        if delay > self.max_inline_wait:
+            raise HostRequestCooldownDeferred(host, retry_at)
+        self._sleep_and_advance(delay)
+        self.rate_wait_seconds += delay
+        return delay
+
+    def _wall_clock(self) -> float:
+        return time.time() + self._wall_clock_offset
+
+    def _sleep_and_advance(self, delay: float) -> None:
+        started = time.time()
         self._sleep(float(delay))
+        elapsed = max(time.time() - started, 0.0)
+        self._wall_clock_offset += max(float(delay) - elapsed, 0.0)
 
     def _request_with_redirects(
         self,
@@ -173,6 +284,16 @@ class RequestPolicy:
                 request_get, arguments, "allow_redirects", False
             )
             self._add_supported_argument(request_get, arguments, "stream", True)
+            host = (urlsplit(current).hostname or "").casefold().rstrip(".")
+            waited = self._host_gate.wait(
+                host,
+                min_interval_seconds=self._host_interval(host),
+                max_wait_seconds=self.max_inline_wait,
+                sleep=self._sleep_and_advance,
+                clock=self._wall_clock,
+            )
+            self.rate_wait_seconds += float(waited)
+            self.provider_attempts += 1
             response = request_get(**arguments)
             if response.status_code not in REDIRECT_STATUSES:
                 return response
@@ -222,6 +343,14 @@ class RequestPolicy:
             )
         ):
             raise RequestSecurityError(f"request host is not allowed: {host}")
+
+    def _host_interval(self, host: str) -> float:
+        matches = [
+            interval
+            for suffix, interval in self._host_start_intervals.items()
+            if host == suffix or host.endswith(f".{suffix}")
+        ]
+        return max(matches, default=0.0)
 
     def _enforce_response_limit(self, response: Any) -> None:
         limit = self.resource_profile.max_xml_bytes
@@ -281,22 +410,20 @@ class RequestPolicy:
             close()
 
     @staticmethod
-    def retry_delay(response: Any | None, attempt: int) -> float:
+    def retry_delay(
+        response: Any | None,
+        attempt: int,
+        *,
+        random_value: Callable[[], float] = lambda: 1.0,
+    ) -> float:
         retry_after = None if response is None else response.headers.get("Retry-After")
-        if retry_after is not None:
-            try:
-                delay = float(retry_after)
-            except (TypeError, ValueError):
-                try:
-                    retry_at = parsedate_to_datetime(str(retry_after))
-                    if retry_at.tzinfo is None:
-                        retry_at = retry_at.replace(tzinfo=timezone.utc)
-                    delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
-                except (TypeError, ValueError, OverflowError):
-                    delay = None
-            if delay is not None:
-                return min(max(delay, 0.0), 8.0)
-        return min(0.5 * (2**attempt), 8.0)
+        parsed = HostRequestGate.retry_after_seconds(retry_after)
+        if parsed is not None:
+            return parsed
+        jitter = float(random_value())
+        if not 0 <= jitter <= 1:
+            raise ValueError("random_value must return a number between zero and one")
+        return min(0.5 * (2**attempt), 8.0) * jitter
 
 
 __all__ = [

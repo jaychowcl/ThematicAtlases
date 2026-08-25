@@ -110,6 +110,9 @@ class Atlas:
         resource_overrides: dict[str, int | float] | None = None,
         runtime_provenance: Mapping[str, object] | None = None,
         run_lifecycle: AtlasRunLifecycle | None = None,
+        ncbi_api_key: str | None = None,
+        ncbi_tool: str = "ThematicAtlases",
+        ncbi_email: str | None = None,
     ):
         self.metadata = metadata
         self._resource_profile = (
@@ -129,6 +132,9 @@ class Atlas:
         epmc_wrapper_factory = epmc_wrapper_factory or _configured_factory(
             EuropePMCWrapper,
             resource_profile=self._resource_profile,
+            ncbi_api_key=ncbi_api_key,
+            ncbi_tool=ncbi_tool,
+            ncbi_email=ncbi_email,
         )
         if metadata_handlers is None:
             metadata_handlers = {
@@ -139,6 +145,9 @@ class Atlas:
                 "geo": _configured_factory(
                     GEOWrapper,
                     resource_profile=self._resource_profile,
+                    api_key=ncbi_api_key,
+                    tool=ncbi_tool,
+                    email=ncbi_email,
                 ),
             }
         publication_text_reviewer = (

@@ -88,14 +88,14 @@ Use `--query <keyword>` when the id is unknown.
 - id: request-policy
   title: [Typed resource and request policy](codebase.md#request-policy)
   anchor: request-policy
-  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/decoded-response/aggregate boundaries, per-call retry control, injected pacing, worker limits, and delegated disk preflight.
-  keywords: ResourceProfile, standard, large, resource override, 10% headroom, RequestPolicy, max_retries, wait, HTTPS, redirects, Content-Encoding, Content-Length, compressed response, decoded body, max_xml_bytes, aggregate download, ontology file, not RAM
+  purpose: Standard/large ceilings, explicit overrides, HTTPS/redirect/decoded-response/aggregate boundaries, cross-process host pacing and cooldowns, retry control, worker limits, and delegated disk preflight.
+  keywords: ResourceProfile, standard, large, resource override, RequestPolicy, HostRequestGate, flock, Retry-After, cooldown, full jitter, provider attempts, rate wait, HTTPS, redirects, compressed response, max_xml_bytes, aggregate download
 
 - id: interface-thematic-atlas-cli
   title: [Installed thematic-atlas CLI](codebase.md#interface-thematic-atlas-cli)
   anchor: interface-thematic-atlas-cli
   purpose: Installed command registration, subcommands, theme-first creation defaults, eight staged pauses on create/resume, option forwarding, outputs, and failures.
-  keywords: thematic-atlas, collect-datasets, create-atlas, theme, query generation, thematic review, harmonize-datasets, resume, fork-run, stop-after, query-results, datalinks, accession-graph, metadata, review, harmonization, argparse
+  keywords: thematic-atlas, collect-datasets, create-atlas, theme, query generation, thematic review, harmonize-datasets, resume, fork-run, worker-snapshot, stop-after, query-results, datalinks, accession-graph, metadata, review, harmonization, SIGINT, SIGTERM, exit 2, argparse
 
 - id: interface-python-atlas
   title: [Python Atlas interface](codebase.md#interface-python-atlas)
@@ -197,7 +197,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [Publication text review types](codebase.md#type-publication-text-reviewer)
   anchor: type-publication-text-reviewer
   purpose: Text mapping, generic theme-derived review dispatch, filtering, trace persistence, and bounded concurrent independent-review ownership.
-  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, snapshot_accessions, publication_keys, facade forwarding, resolved metadata gate, main_pipeline_phase, publication_limit, item deadline, bounded lock, incremental_review_progress, checkpoint reuse, pending metadata, stable criteria catalogue, derive_criteria, exclusion_basis, exact quote evidence, evidence contract 2, accessions_to_remove, prune_accessions, review revision 4, contract version 9
+  keywords: AtlasFilterer, PublicationTextReviewer, TracePublicationReviewResumer, snapshot_accessions, publication_keys, facade forwarding, resolved metadata gate, main_pipeline_phase, publication_limit, review_action_limit, cancelled, model cooldown, provider attempts, item deadline, bounded lock, incremental_review_progress, checkpoint reuse, stable criteria catalogue, evidence contract 2, contract version 9
 
 - id: type-atlas-harmonizer
   title: [AtlasHarmonizer](codebase.md#type-atlas-harmonizer)
@@ -208,26 +208,26 @@ Use `--query <keyword>` when the id is unknown.
 - id: type-checkpoint-store
   title: [CheckpointStore](codebase.md#type-checkpoint-store)
   anchor: type-checkpoint-store
-  purpose: SQLite schema, fingerprints, item history, retry selection, discovery checkpoints, comparison archives, deterministic cross-process item locks, stage summaries, and provider pacing.
-  keywords: CheckpointStore, SQLite, pubmed_gds_links, gds_summaries, request_retries, atomic batch, status index, history index, item lock, item_locks, bounded wait, provider slot
+  purpose: SQLite schema, fingerprints, item history, retry selection, discovery checkpoints, comparison archives, deterministic cross-process item locks, and stage summaries; provider pacing is delegated to the host gate.
+  keywords: CheckpointStore, SQLite, pubmed_gds_links, gds_summaries, request_retries, atomic batch, status index, history index, item lock, item_locks, bounded wait, HostRequestGate
 
 - id: type-trace-stage-worker
   title: [TraceStageWorker](codebase.md#type-trace-stage-worker)
   anchor: type-trace-stage-worker
   purpose: Four one-shot text/scrape, PubMed-GDS graph, metadata, and review frontiers sharing canonical checkpoints with the main process.
-  keywords: TraceStageWorker, StageWorkerBusy, worker snapshot, text, graph, metadata, review, Datalinks phase, pause, singleton lock, item limit, yield
+  keywords: TraceStageWorker, StageWorkerBusy, worker snapshot, text, graph, metadata, review, actionable frontier, due retry, cooldown deferred, provider attempts, rate wait, cooperative cancellation, singleton lock, item limit, yield
 
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
   anchor: type-europe-pmc-wrapper
   purpose: Europe PMC network boundary and composition point for Datalinks, publication-text scanning, and injected official PubMed-GDS graph discovery.
-  keywords: EuropePMCWrapper, PubMedGDSLinkGraphWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, ELink, ESummary, pubmed_gds, provider slot, main_pipeline_phase, publication text lock, abstract, identity, deduplication
+  keywords: EuropePMCWrapper, PubMedGDSLinkGraphWrapper, PublicationRecordPolicy, search, datalinks, fullTextXML, ELink, ESummary, pubmed_gds, HostRequestGate, Retry-After, NCBI tool, NCBI email, API key, main_pipeline_phase, publication text lock
 
 - id: type-geo-wrapper
   title: [GEOWrapper](codebase.md#type-geo-wrapper)
   anchor: type-geo-wrapper
   purpose: GEO network/enrichment boundary with injected canonical package projection and deterministic GSE record policy.
-  keywords: GEOWrapper, GEORecordPolicy, NCBI, GEO, MINiML, projection, deduplication, SRA, ENA
+  keywords: GEOWrapper, GEORecordPolicy, NCBI, GEO, MINiML, HostRequestGate, NCBI_API_KEY, tool, email, projection, deduplication, SRA, ENA
 
 - id: type-fibrosis-meta-pubs-recall-benchmark
   title: [Fibrosis meta-publication recall benchmark](codebase.md#type-fibrosis-meta-pubs-recall-benchmark)

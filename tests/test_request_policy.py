@@ -1,5 +1,14 @@
 import requests
 import pytest
+import multiprocessing
+import time
+import logging
+from meta_standards_converter.helpers.request_helper import (
+    HostRequestCooldownDeferred,
+    HostRequestGate,
+    RateLimitedRequester,
+    RequestSettings,
+)
 
 from ThematicAtlases.infrastructure import RequestPolicy
 from ThematicAtlases.infrastructure.http import (
@@ -28,6 +37,44 @@ class StreamingResponse(Response):
 
     def iter_content(self, chunk_size):
         yield self.body
+
+
+class RecordingGate:
+    def __init__(self):
+        self.waits = []
+        self.cooldowns = []
+
+    def wait(self, key, **kwargs):
+        self.waits.append((key, kwargs))
+        return 0.25
+
+    def defer(self, key, **kwargs):
+        self.cooldowns.append((key, kwargs))
+        return kwargs["delay_seconds"]
+
+
+def _take_thematic_atlas_ncbi_slot(directory, barrier, output):
+    policy = RequestPolicy(
+        max_retries=0,
+        request_get=lambda **_kwargs: Response(200),
+        host_gate=HostRequestGate(directory=directory),
+        host_start_intervals={"eutils.ncbi.nlm.nih.gov": 0.05},
+    )
+    barrier.wait(timeout=5)
+    policy.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi")
+    output.put(time.time())
+
+
+def _take_msc_ncbi_slot(directory, barrier, output):
+    requester = RateLimitedRequester(
+        service="ncbi_eutils",
+        settings=RequestSettings(request_delay=0.05, max_retries=0),
+        get=lambda *_args, **_kwargs: Response(200),
+        host_gate=HostRequestGate(directory=directory),
+    )
+    barrier.wait(timeout=5)
+    requester.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi")
+    output.put(time.time())
 
 
 def test_request_policy_retries_declared_status_with_retry_after():
@@ -150,6 +197,7 @@ def test_request_policy_exception_retry_and_final_status_are_caller_controlled()
         max_retries=1,
         request_get=request_get,
         sleep=sleeps.append,
+        random_value=lambda: 1.0,
         allowed_hosts={"example.test"},
     ).get(
         "https://example.test",
@@ -169,7 +217,24 @@ def test_retry_after_never_returns_negative_delay():
 def test_retry_after_http_date_is_parsed_and_bounded():
     assert RequestPolicy.retry_delay(
         Response(429, {"Retry-After": "Wed, 21 Oct 2099 07:28:00 GMT"}), 0
-    ) == 8
+    ) > 8
+
+
+def test_retry_after_past_inline_budget_is_persisted_and_deferred():
+    calls = []
+    policy = RequestPolicy(
+        max_retries=2,
+        max_inline_wait=30,
+        request_get=lambda **kwargs: calls.append(kwargs)
+        or Response(429, {"Retry-After": "60"}),
+        allowed_hosts={"example.test"},
+    )
+
+    with pytest.raises(HostRequestCooldownDeferred):
+        policy.get("https://example.test")
+
+    assert len(calls) == 1
+    assert policy.retry_count == 1
 
 
 def test_request_policy_uses_typed_profile_timeouts_by_default():
@@ -199,6 +264,76 @@ def test_request_policy_rejects_cross_host_redirect():
             request_get=lambda **_kwargs: response,
             allowed_hosts={"example.test"},
         ).get("https://example.test/start")
+
+
+def test_request_policy_gates_every_actual_redirect_attempt():
+    responses = [
+        Response(302, {"Location": "https://example.test/final"}),
+        Response(200),
+    ]
+    gate = RecordingGate()
+    policy = RequestPolicy(
+        max_retries=0,
+        request_get=lambda **_kwargs: responses.pop(0),
+        host_gate=gate,
+        allowed_hosts={"example.test"},
+    )
+
+    assert policy.get("https://example.test/start").status_code == 200
+    assert [key for key, _kwargs in gate.waits] == [
+        "example.test",
+        "example.test",
+    ]
+    assert policy.provider_attempts == 2
+    assert policy.rate_wait_seconds == 0.5
+
+
+def test_default_europe_pmc_start_interval_is_half_a_second():
+    assert RequestPolicy()._host_interval("www.ebi.ac.uk") == 0.5
+
+
+def test_request_policy_logs_no_api_key_or_query_value(caplog):
+    responses = [Response(503), Response(200)]
+    logger = logging.getLogger("tests.safe_request_policy")
+    policy = RequestPolicy(
+        max_retries=1,
+        request_get=lambda **_kwargs: responses.pop(0),
+        allowed_hosts={"example.test"},
+        logger=logger,
+        random_value=lambda: 0,
+    )
+
+    with caplog.at_level("DEBUG", logger=logger.name):
+        policy.get(
+            "https://example.test/data?api_key=secret-key",
+            params={"query": "private-query"},
+            raise_for_status=False,
+        )
+
+    assert "secret-key" not in caplog.text
+    assert "private-query" not in caplog.text
+
+
+def test_thematic_atlas_and_msc_share_ncbi_gate_across_processes(tmp_path):
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(2)
+    output = context.Queue()
+    processes = [
+        context.Process(
+            target=target,
+            args=(str(tmp_path / "shared-gate"), barrier, output),
+        )
+        for target in (_take_thematic_atlas_ncbi_slot, _take_msc_ncbi_slot)
+    ]
+
+    for process in processes:
+        process.start()
+    timestamps = sorted(output.get(timeout=5) for _ in processes)
+    for process in processes:
+        process.join(timeout=5)
+        assert process.exitcode == 0
+
+    assert timestamps[1] - timestamps[0] >= 0.04
 
 
 def test_request_policy_rejects_declared_oversized_response():

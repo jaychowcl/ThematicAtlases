@@ -5,6 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from meta_standards_converter.helpers.request_helper import (
+    HostRequestCooldownDeferred,
+)
 
 from ThematicAtlases.filterer.review import (
     REVIEW_CONTRACT_VERSION,
@@ -1068,11 +1071,13 @@ def test_resume_forwards_worker_snapshot_constraints_to_orchestrator(tmp_path) -
         tmp_path,
         snapshot_accessions=accessions,
         publication_keys=publication_keys,
+        review_action_limit=3,
     )
 
     assert result == {"accessions": [], "publication_texts": {}}
     assert calls[0]["snapshot_accessions"] is accessions
     assert calls[0]["publication_keys"] is publication_keys
+    assert calls[0]["review_action_limit"] == 3
 
 
 def test_resume_preserves_full_snapshot_defaults_when_constraints_are_omitted(
@@ -1093,6 +1098,198 @@ def test_resume_preserves_full_snapshot_defaults_when_constraints_are_omitted(
 
     assert calls[0]["snapshot_accessions"] is None
     assert calls[0]["publication_keys"] is None
+    assert calls[0]["review_action_limit"] is None
+
+
+def test_review_action_limit_is_applied_after_prerequisite_deferrals(tmp_path):
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir, epmc_id="1", datalink_id="GSE1", text="deferred"
+    )
+    traced_publication(
+        trace_dir, epmc_id="2", datalink_id="GSE2", text="eligible second"
+    )
+    traced_publication(
+        trace_dir, epmc_id="3", datalink_id="GSE3", text="eligible third"
+    )
+    available_geo_metadata(store, "GSE2")
+    available_geo_metadata(store, "GSE3")
+    FakeReviewer.calls = []
+
+    result = snapshot_reviewer(
+        SnapshotMetadataCollector(trace_dir=trace_dir)
+    ).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        review_action_limit=1,
+    )
+
+    assert set(result["publication_texts"]) == {"2"}
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "eligible second"
+    ]
+    assert result["metadata_summary"]["review_action_limit"] == 1
+    assert result["metadata_summary"]["review_action_count"] == 1
+    assert result["metadata_summary"]["review_completed_action_count"] == 1
+    assert result["metadata_summary"]["review_reused_count"] == 0
+    assert result["metadata_summary"]["review_actionable_count"] == 2
+    assert result["metadata_summary"]["review_remaining_actionable_count"] == 1
+
+
+def test_review_action_limit_reuses_prefix_then_advances_to_next_action(tmp_path):
+    trace_dir = tmp_path / "trace"
+    traced_publication(
+        trace_dir, epmc_id="1", datalink_id="GSE1", text="first eligible"
+    )
+    traced_publication(
+        trace_dir, epmc_id="2", datalink_id="GSE2", text="second eligible"
+    )
+    FakeReviewer.calls = []
+    review = PublicationTextReviewer()
+
+    first = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        review_action_limit=1,
+    )
+    second = review.resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        review_action_limit=1,
+    )
+
+    assert [call["publication_text"] for call in FakeReviewer.calls] == [
+        "first eligible",
+        "second eligible",
+    ]
+    assert first["metadata_summary"]["review_reused_count"] == 0
+    assert first["metadata_summary"]["review_remaining_actionable_count"] == 1
+    assert second["metadata_summary"]["review_action_count"] == 1
+    assert second["metadata_summary"]["review_completed_action_count"] == 1
+    assert second["metadata_summary"]["review_reused_count"] == 1
+    assert second["metadata_summary"]["review_actionable_count"] == 1
+    assert second["metadata_summary"]["review_remaining_actionable_count"] == 0
+
+
+def test_review_summary_reports_model_request_metrics(tmp_path):
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="eligible publication",
+    )
+    available_geo_metadata(store, "GSE1")
+
+    class ModelMetrics:
+        provider_attempts = 0
+        retry_count = 0
+        rate_wait_seconds = 0.0
+
+    class MeteredReviewer(FakeReviewer):
+        def __init__(self):
+            self.llm = ModelMetrics()
+
+        def review_relevancy(self, **kwargs):
+            result = super().review_relevancy(**kwargs)
+            self.llm.provider_attempts += 3
+            self.llm.retry_count += 1
+            self.llm.rate_wait_seconds += 1.5
+            return result
+
+    reviewer = MeteredReviewer()
+    result = snapshot_reviewer(
+        SnapshotMetadataCollector(trace_dir=trace_dir)
+    ).resume(
+        trace_dir,
+        reviewer=reviewer,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        review_action_limit=1,
+    )
+
+    assert result["metadata_summary"]["provider_attempts"] == 3
+    assert result["metadata_summary"]["retry_count"] == 1
+    assert result["metadata_summary"]["rate_wait_seconds"] == 1.5
+
+
+def test_review_persists_and_defers_future_model_cooldown(tmp_path):
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="eligible publication",
+    )
+    available_geo_metadata(store, "GSE1")
+
+    class ThrottledReviewer(FakeReviewer):
+        def review_relevancy(self, **_kwargs):
+            raise HostRequestCooldownDeferred("model:test", 4_000_000_000)
+
+    first = snapshot_reviewer(
+        SnapshotMetadataCollector(trace_dir=trace_dir)
+    ).resume(
+        trace_dir,
+        reviewer=ThrottledReviewer(),
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        review_action_limit=1,
+    )
+    checkpoint = store.get("thematic_review", "direct:1")
+
+    assert checkpoint["status"] == "retryable_error"
+    assert checkpoint["payload"]["next_retry_at"] == 4_000_000_000
+    FakeReviewer.calls = []
+    second = snapshot_reviewer(
+        SnapshotMetadataCollector(trace_dir=trace_dir)
+    ).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        review_action_limit=1,
+    )
+
+    assert FakeReviewer.calls == []
+    assert first["metadata_summary"]["review_action_count"] == 1
+    assert second["metadata_summary"]["review_action_count"] == 0
+    assert second["metadata_summary"]["review_cooldown_deferred_count"] == 1
+
+
+def test_review_checkpoints_shared_criteria_cooldown_as_retryable(tmp_path):
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="eligible publication",
+    )
+    available_geo_metadata(store, "GSE1")
+
+    class CriteriaThrottledReviewer(FakeReviewer):
+        def derive_criteria(self, _theme):
+            raise HostRequestCooldownDeferred("model:test", 4_000_000_000)
+
+        def review_relevancy(self, criteria=None, **kwargs):
+            raise AssertionError("review must not start without criteria")
+
+    result = snapshot_reviewer(
+        SnapshotMetadataCollector(trace_dir=trace_dir)
+    ).resume(
+        trace_dir,
+        reviewer=CriteriaThrottledReviewer(),
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        review_action_limit=1,
+    )
+    checkpoint = store.get("thematic_review", "direct:1")
+
+    assert checkpoint["status"] == "retryable_error"
+    assert checkpoint["payload"]["next_retry_at"] == 4_000_000_000
+    assert result["metadata_summary"]["review_action_count"] == 1
 
 
 def test_resume_adds_new_checkpointed_publications_without_rereview(tmp_path) -> None:
@@ -1332,6 +1529,12 @@ def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> N
         "snapshot_publication_count": 1,
         "selected_publication_count": 1,
         "publication_limit": None,
+        "review_action_limit": None,
+        "review_action_count": 1,
+        "review_completed_action_count": 1,
+        "review_reused_count": 0,
+        "review_actionable_count": 1,
+        "review_remaining_actionable_count": 0,
         "eligible_publication_count": 1,
         "deferred_publication_count": 0,
         "metadata_attempted_count": 1,
@@ -1343,6 +1546,10 @@ def test_resume_collects_metadata_for_one_fixed_datalink_snapshot(tmp_path) -> N
         "publication_text_timeout_count": 0,
         "review_deferred_count": 0,
         "review_timeout_count": 0,
+        "review_cooldown_deferred_count": 0,
+        "provider_attempts": 0,
+        "retry_count": 0,
+        "rate_wait_seconds": 0.0,
         "metadata_status_counts": {"available": 1},
         "yielded_to_main": False,
         "main_phase": "missing",
@@ -1387,6 +1594,32 @@ def test_snapshot_yields_without_work_when_main_has_left_datalinks(tmp_path) -> 
     assert FakeReviewer.calls == []
     assert (trace_dir / "incremental_review_progress.json").exists()
     assert not (trace_dir / "resume_review_progress.json").exists()
+
+
+def test_snapshot_cancellation_is_not_reported_as_yield_to_main(tmp_path) -> None:
+    trace_dir = tmp_path / "trace"
+    store = traced_publication(
+        trace_dir,
+        epmc_id="1",
+        datalink_id="GSE1",
+        text="cancelled worker",
+    )
+    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    collector = SnapshotMetadataCollector(trace_dir=trace_dir)
+
+    result = snapshot_reviewer(collector).resume(
+        trace_dir,
+        reviewer=FakeReviewer(),
+        collect_metadata=True,
+        require_resolved_metadata=True,
+        defer_metadata_errors=True,
+        require_main_datalinks_phase=True,
+        cancelled=lambda: True,
+    )
+
+    assert result["metadata_summary"]["yielded_to_main"] is False
+    assert result["metadata_summary"]["main_phase"] == "datalinks"
+    assert collector.calls == []
 
 
 def test_snapshot_stops_starting_items_when_main_enters_downstream(tmp_path) -> None:

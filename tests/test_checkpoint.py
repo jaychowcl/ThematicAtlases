@@ -5,8 +5,43 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+import requests
 
-from ThematicAtlases.checkpoint import CheckpointItemLockTimeout, CheckpointStore
+from ThematicAtlases.checkpoint import (
+    CheckpointItemLockTimeout,
+    CheckpointStore,
+    failure_category,
+    is_retryable_error,
+)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.Timeout("timeout"),
+        requests.ConnectionError("connection"),
+        requests.exceptions.ChunkedEncodingError("truncated"),
+        requests.exceptions.ContentDecodingError("decode"),
+    ],
+)
+def test_concrete_transport_errors_are_transient(error) -> None:
+    assert is_retryable_error(error) is True
+    assert failure_category(error) == "transient"
+
+
+def test_invalid_model_output_remains_terminal() -> None:
+    from agentic_curator.curators.structured_response import InvalidModelOutputError
+
+    error = InvalidModelOutputError("invalid")
+    assert is_retryable_error(error) is False
+    assert failure_category(error) == "invalid_output"
+
+
+def test_transport_words_in_an_ordinary_error_do_not_make_it_transient() -> None:
+    error = ValueError("connection timeout while validating field 503")
+
+    assert is_retryable_error(error) is False
+    assert failure_category(error) == "permanent"
 
 
 def test_checkpoint_store_round_trips_items_and_meta(tmp_path) -> None:

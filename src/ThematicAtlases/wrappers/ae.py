@@ -53,6 +53,9 @@ class ArrayExpressWrapper:
                 overrides=resource_overrides,
             )
         )
+        self.provider_attempts = 0
+        self.retry_count = 0
+        self.rate_wait_seconds = 0.0
 
     def collect_accession_metadata(
         self,
@@ -82,6 +85,7 @@ class ArrayExpressWrapper:
                 if checkpoint and checkpoint["status"] in {"no_data", "terminal_error"}:
                     records.append(self._record_from_checkpoint(record, checkpoint))
                     continue
+                converter = None
                 try:
                     converter = self._converter()
                     if (
@@ -181,6 +185,8 @@ class ArrayExpressWrapper:
                         )
                     records.append(self._error_record(record))
                     continue
+                finally:
+                    self._accumulate_request_metrics(converter)
                 package = next(iter(packages), None)
                 status = "available" if package is not None else "no_data"
                 payload = checkpoint_payload(
@@ -196,6 +202,17 @@ class ArrayExpressWrapper:
                     else self._unavailable_record(record)
                 )
         return records
+
+    def _accumulate_request_metrics(self, converter) -> None:
+        requester = getattr(getattr(converter, "fetcher", None), "requester", None)
+        if not all(
+            hasattr(requester, name)
+            for name in ("provider_attempts", "retry_count", "rate_wait_seconds")
+        ):
+            return
+        self.provider_attempts += int(requester.provider_attempts)
+        self.retry_count += int(requester.retry_count)
+        self.rate_wait_seconds += float(requester.rate_wait_seconds)
 
     def _convert_with_evidence(
         self,

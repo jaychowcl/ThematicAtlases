@@ -4,6 +4,7 @@ from contextlib import contextmanager, ExitStack
 import fcntl
 import hashlib
 from pathlib import Path
+import time
 
 from ThematicAtlases.checkpoint import CheckpointItemLockTimeout, CheckpointStore
 from ThematicAtlases.run_archive import workflow_activity_lock
@@ -42,6 +43,7 @@ class TraceStageWorker:
         self._epmc_wrapper_factory = epmc_wrapper_factory
         self._collector_factory = collector_factory
         self._publication_text_reviewer_factory = publication_text_reviewer_factory
+        self._cancellation_check = None
 
     def resume(
         self,
@@ -49,6 +51,7 @@ class TraceStageWorker:
         *,
         stage: str,
         item_limit: int | None = None,
+        cancelled=None,
     ) -> dict:
         if stage not in WORKER_STAGES:
             raise ValueError("worker stage must be one of: " + ", ".join(WORKER_STAGES))
@@ -59,6 +62,7 @@ class TraceStageWorker:
         ):
             raise ValueError("item_limit must be a positive integer")
         directory = Path(trace_dir)
+        self._cancellation_check = cancelled
         trace = DevTraceWriter.existing(directory)
         store = CheckpointStore(
             directory / "atlas_run.sqlite3",
@@ -92,7 +96,11 @@ class TraceStageWorker:
             trace.write(f"incremental_{stage}_progress.json", result)
             trace.run_store.record_event(
                 directory.name,
-                "stage_worker_completed",
+                (
+                    "stage_worker_interrupted"
+                    if result.get("interrupted")
+                    else "stage_worker_completed"
+                ),
                 stage=stage,
                 detail=result,
             )
@@ -102,9 +110,33 @@ class TraceStageWorker:
         self, *, stage, publications, directory, store, item_limit=None
     ) -> dict:
         if stage == "text":
-            return self._run_text(publications[:item_limit], store)
+            frontier = self._text_frontier(publications, store)
+            incomplete = sum(
+                not self._text_publication_complete(store, publication)
+                for publication in publications
+            )
+            selected = frontier[:item_limit]
+            return self._run_text(
+                selected,
+                store,
+                scanned=len(publications),
+                actionable=len(frontier),
+                cooldown_deferred=max(incomplete - len(frontier), 0),
+            )
         if stage == "graph":
-            return self._run_graph(publications[:item_limit], store)
+            frontier = self._graph_frontier(publications, store)
+            incomplete = sum(
+                not self._graph_publication_complete(store, publication)
+                for publication in publications
+            )
+            selected = frontier[:item_limit]
+            return self._run_graph(
+                selected,
+                store,
+                scanned=len(publications),
+                actionable=len(frontier),
+                cooldown_deferred=max(incomplete - len(frontier), 0),
+            )
         if stage == "metadata":
             return self._run_metadata(publications, store, item_limit=item_limit)
         return self._run_review(
@@ -114,14 +146,17 @@ class TraceStageWorker:
             item_limit=item_limit,
         )
 
-    def _run_text(self, publications, store) -> dict:
+    def _run_text(
+        self, publications, store, *, scanned=None, actionable=None,
+        cooldown_deferred=0,
+    ) -> dict:
         wrapper = self._epmc_wrapper_factory()
         completed = 0
         deferred = 0
         yielded = False
         for publication in publications:
-            if not self._worker_allowed(store):
-                yielded = True
+            if not self._continue_work(store):
+                yielded = not self._worker_allowed(store)
                 break
             try:
                 enriched = wrapper.collect_publication_texts(
@@ -138,8 +173,10 @@ class TraceStageWorker:
                 deferred += 1
             except Exception:
                 deferred += 1
-        if yielded:
+        interrupted = self._cancelled()
+        if yielded or interrupted:
             deferred += max(0, len(publications) - completed - deferred)
+        metrics = self._provider_metrics(wrapper)
         return self._summary(
             stage="text",
             selected_count=len(publications),
@@ -147,9 +184,18 @@ class TraceStageWorker:
             deferred_count=deferred,
             yielded_to_main=yielded,
             store=store,
+            scanned=scanned,
+            actionable=actionable,
+            interrupted=interrupted,
+            cooldown_deferred=cooldown_deferred,
+            **metrics,
         )
 
-    def _run_graph(self, publications, store) -> dict:
+    def _run_graph(
+        self, publications, store, *, scanned=None, actionable=None,
+        cooldown_deferred=0,
+    ) -> dict:
+        wrapper = None
         if not publications:
             completed = 0
             deferred = 0
@@ -159,7 +205,7 @@ class TraceStageWorker:
                 wrapper.accessions_from_link_graph(
                     publications,
                     checkpoint_store=store,
-                    continue_predicate=lambda: self._worker_allowed(store),
+                    continue_predicate=lambda: self._continue_work(store),
                 )
                 completed = sum(
                     1
@@ -170,6 +216,7 @@ class TraceStageWorker:
             except (CheckpointItemLockTimeout, TimeoutError):
                 completed = 0
                 deferred = len(publications)
+        metrics = self._provider_metrics(wrapper)
         return self._summary(
             stage="graph",
             selected_count=len(publications),
@@ -177,19 +224,45 @@ class TraceStageWorker:
             deferred_count=deferred,
             yielded_to_main=not self._worker_allowed(store),
             store=store,
+            scanned=scanned,
+            actionable=actionable,
+            interrupted=self._cancelled(),
+            cooldown_deferred=cooldown_deferred,
+            **metrics,
         )
 
     def _run_metadata(self, publications, store, *, item_limit=None) -> dict:
         collector = self._collector()
-        accessions = self._merged_accessions(publications, store)
+        scanned_accessions = self._merged_accessions(publications, store)
+        accessions = []
+        reused = 0
+        cooldown_deferred = 0
+        for accession in scanned_accessions:
+            checkpoint = store.get(
+                self._metadata_stage(accession),
+                str(accession.get("datalink_id") or ""),
+            )
+            if (
+                checkpoint
+                and checkpoint["status"] == "retryable_error"
+                and not self._checkpoint_actionable(checkpoint)
+            ):
+                cooldown_deferred += 1
+                continue
+            if self._metadata_accession_actionable(collector, accession, store):
+                accessions.append(accession)
+            else:
+                reused += 1
+        accessions = self._prioritized_metadata_frontier(accessions, store)
+        actionable = len(accessions)
         if item_limit is not None:
             accessions = accessions[:item_limit]
         completed = 0
         deferred = 0
         yielded = False
         for accession in accessions:
-            if not self._worker_allowed(store):
-                yielded = True
+            if not self._continue_work(store):
+                yielded = not self._worker_allowed(store)
                 break
             try:
                 records = collector.collect_accession_metadata(
@@ -209,8 +282,10 @@ class TraceStageWorker:
                 deferred += 1
             except Exception:
                 deferred += 1
-        if yielded:
+        interrupted = self._cancelled()
+        if yielded or interrupted:
             deferred += max(0, len(accessions) - completed - deferred)
+        metrics = self._provider_metrics(collector)
         return self._summary(
             stage="metadata",
             selected_count=len(accessions),
@@ -218,6 +293,67 @@ class TraceStageWorker:
             deferred_count=deferred,
             yielded_to_main=yielded,
             store=store,
+            scanned=len(scanned_accessions),
+            actionable=actionable,
+            interrupted=interrupted,
+            cooldown_deferred=cooldown_deferred,
+            **metrics,
+        )
+
+    def _metadata_accession_actionable(self, collector, accession, store) -> bool:
+        available = getattr(collector, "available_accession_metadata", None)
+        if callable(available):
+            try:
+                records = available(
+                    jsons=[accession],
+                    metadata_repositories=self._manifest_repositories(
+                        store.path.parent
+                    ),
+                    checkpoint_store=store,
+                )
+            except Exception:
+                return True
+            statuses = {
+                str(record.get("metadata_status") or "missing").casefold()
+                for record in records
+            }
+            return not bool(statuses and statuses <= REVIEWABLE_METADATA_STATUSES)
+        checkpoint = store.get(
+            self._metadata_stage(accession),
+            str(accession.get("datalink_id") or ""),
+        )
+        return not bool(
+            checkpoint
+            and checkpoint["status"] in TERMINAL_CHECKPOINT_STATUSES
+        )
+
+    @classmethod
+    def _prioritized_metadata_frontier(cls, accessions, store):
+        indexed = list(enumerate(accessions))
+
+        def priority(item):
+            ordinal, accession = item
+            checkpoint = store.get(
+                cls._metadata_stage(accession),
+                str(accession.get("datalink_id") or ""),
+            )
+            return (
+                0
+                if checkpoint and checkpoint["status"] == "retryable_error"
+                else 1,
+                ordinal,
+            )
+
+        return [accession for _ordinal, accession in sorted(indexed, key=priority)]
+
+    @staticmethod
+    def _metadata_stage(accession) -> str:
+        repository = str(accession.get("accession_repository") or "").casefold()
+        identity = str(accession.get("datalink_id") or "").upper()
+        return (
+            "arrayexpress_metadata"
+            if repository == "arrayexpress" or identity.startswith("E-")
+            else "geo_metadata"
         )
 
     def _run_review(
@@ -229,8 +365,6 @@ class TraceStageWorker:
             for publication in publications
             if self._review_discovery_terminal(store, publication)
         ]
-        if item_limit is not None:
-            publications = publications[:item_limit]
         publication_keys = [self.review_publication_key(item) for item in publications]
         accessions = self._merged_accessions(publications, store)
         paused = self._explicitly_paused(store)
@@ -241,26 +375,57 @@ class TraceStageWorker:
             defer_metadata_errors=True,
             require_main_datalinks_phase=not paused,
             publication_limit=None,
+            review_action_limit=item_limit,
+            cancelled=self._cancellation_check,
             snapshot_accessions=accessions,
             publication_keys=publication_keys,
             item_lock_timeout_seconds=2.0,
         )
         metadata = result.get("metadata_summary", {})
-        selected = int(metadata.get("selected_publication_count", len(publications)))
-        reviewed = len(result.get("publication_texts") or {})
-        deferred = max(
-            selected - reviewed,
-            int(metadata.get("review_deferred_count", 0)) + int(
-                metadata.get("deferred_publication_count", 0)
-            ),
+        snapshot_selected = int(
+            metadata.get("selected_publication_count", len(publications))
         )
+        reviewed = len(result.get("publication_texts") or {})
+        action_count = int(
+            metadata.get("review_action_count", snapshot_selected)
+        )
+        completed_actions = int(
+            metadata.get("review_completed_action_count", reviewed)
+        )
+        selected = action_count
+        prerequisite_deferred = int(
+            metadata.get("deferred_publication_count", 0)
+        ) + int(metadata.get("publication_text_deferred_count", 0)) + int(
+            metadata.get("publication_text_timeout_count", 0)
+        )
+        deferred = prerequisite_deferred + int(
+            metadata.get("review_deferred_count", 0)
+        ) + int(metadata.get("review_timeout_count", 0))
+        metrics = {
+            "provider_attempts": int(metadata.get("provider_attempts", 0)),
+            "retry_count": int(metadata.get("retry_count", 0)),
+            "rate_wait_seconds": float(metadata.get("rate_wait_seconds", 0.0)),
+        }
         return self._summary(
             stage="review",
             selected_count=selected,
-            completed_count=max(0, selected - deferred),
+            completed_count=completed_actions,
             deferred_count=deferred,
             yielded_to_main=bool(metadata.get("yielded_to_main")),
             store=store,
+            scanned=len(publications),
+            actionable=int(metadata.get("review_actionable_count", action_count)),
+            prerequisite_deferred=prerequisite_deferred,
+            cooldown_deferred=int(
+                metadata.get("review_cooldown_deferred_count", 0)
+            ),
+            interrupted=self._cancelled(),
+            claimed=action_count,
+            reused=int(metadata.get("review_reused_count", 0)),
+            remaining_actionable=int(
+                metadata.get("review_remaining_actionable_count", 0)
+            ),
+            **metrics,
         )
 
     def _merged_accessions(self, publications, store) -> list[dict]:
@@ -306,7 +471,7 @@ class TraceStageWorker:
             return self._publication_text_reviewer_factory()
         from ThematicAtlases.filterer.review import PublicationTextReviewer
 
-        return PublicationTextReviewer()
+        return PublicationTextReviewer(cancelled=self._cancellation_check)
 
     @staticmethod
     def _read_manifest(directory: Path) -> dict:
@@ -324,7 +489,11 @@ class TraceStageWorker:
         if not pmid:
             return True
         checkpoint = store.get("pubmed_gds_links", pmid)
-        if not checkpoint or checkpoint["status"] not in TERMINAL_CHECKPOINT_STATUSES:
+        if (
+            not checkpoint
+            or checkpoint["status"] not in TERMINAL_CHECKPOINT_STATUSES
+            or TraceStageWorker._legacy_transport_terminal(checkpoint)
+        ):
             return False
         target_uids = (checkpoint.get("payload") or {}).get("target_uids", [])
         return all(
@@ -352,6 +521,102 @@ class TraceStageWorker:
             store, publication
         ) and cls._graph_publication_complete(store, publication)
 
+    @classmethod
+    def _text_frontier(cls, publications, store):
+        return cls._prioritized_frontier(
+            [
+                publication
+                for publication in publications
+                if cls._text_publication_actionable(store, publication)
+            ],
+            store=store,
+            stages=("publication_text", "fulltext_accession_discovery"),
+            key=lambda publication: cls.publication_checkpoint_key(publication),
+        )
+
+    @classmethod
+    def _graph_frontier(cls, publications, store):
+        return cls._prioritized_frontier(
+            [
+                publication
+                for publication in publications
+                if cls._graph_publication_actionable(store, publication)
+            ],
+            store=store,
+            stages=("pubmed_gds_links",),
+            key=lambda publication: str(publication.get("pmid") or ""),
+        )
+
+    @staticmethod
+    def _prioritized_frontier(publications, *, store, stages, key):
+        indexed = list(enumerate(publications))
+
+        def priority(item):
+            ordinal, publication = item
+            item_key = key(publication)
+            due_retry = any(
+                bool(
+                    (checkpoint := store.get(stage, item_key))
+                    and checkpoint["status"] == "retryable_error"
+                )
+                for stage in stages
+            )
+            return (0 if due_retry else 1, ordinal)
+
+        return [publication for _ordinal, publication in sorted(indexed, key=priority)]
+
+    @classmethod
+    def _text_publication_actionable(cls, store, publication) -> bool:
+        key = cls.publication_checkpoint_key(publication)
+        return any(
+            cls._checkpoint_actionable(store.get(stage, key))
+            for stage in ("publication_text", "fulltext_accession_discovery")
+        )
+
+    @classmethod
+    def _graph_publication_actionable(cls, store, publication) -> bool:
+        pmid = str(publication.get("pmid") or "")
+        if not pmid:
+            return False
+        link = store.get("pubmed_gds_links", pmid)
+        if cls._legacy_transport_terminal(link or {}):
+            return True
+        if cls._checkpoint_actionable(link):
+            return True
+        return any(
+            cls._checkpoint_actionable(store.get("gds_summaries", str(uid)))
+            for uid in (link.get("payload") or {}).get("target_uids", [])
+        ) if link else False
+
+    @staticmethod
+    def _checkpoint_actionable(checkpoint) -> bool:
+        if checkpoint is None or checkpoint["status"] == "pending":
+            return True
+        if checkpoint["status"] != "retryable_error":
+            return False
+        retry_at = (checkpoint.get("payload") or {}).get("next_retry_at")
+        try:
+            return retry_at is None or float(retry_at) <= time.time()
+        except (TypeError, ValueError):
+            return True
+
+    @staticmethod
+    def _legacy_transport_terminal(checkpoint: dict) -> bool:
+        return bool(
+            checkpoint.get("status") == "terminal_error"
+            and str(checkpoint.get("error_type") or "").casefold()
+            in {
+                "chunkedencodingerror",
+                "contentdecodingerror",
+                "incompleteread",
+                "protocolerror",
+                "connectionerror",
+                "connecttimeout",
+                "readtimeout",
+                "timeout",
+            }
+        )
+
     @staticmethod
     def review_publication_key(publication: dict) -> tuple:
         return tuple(
@@ -368,11 +633,55 @@ class TraceStageWorker:
             return True
         return store.get_meta("main_pipeline_phase", {}).get("phase") == "datalinks"
 
+    def _cancelled(self) -> bool:
+        return bool(
+            self._cancellation_check is not None
+            and self._cancellation_check()
+        )
+
+    def _continue_work(self, store) -> bool:
+        return self._worker_allowed(store) and not self._cancelled()
+
+    @staticmethod
+    def _provider_metrics(*roots) -> dict:
+        """Sum distinct request counters exposed by worker-owned providers."""
+        totals = {
+            "provider_attempts": 0,
+            "retry_count": 0,
+            "rate_wait_seconds": 0.0,
+        }
+        seen = set()
+
+        def visit(candidate) -> None:
+            if candidate is None or id(candidate) in seen:
+                return
+            seen.add(id(candidate))
+            metric_names = tuple(totals)
+            if all(hasattr(candidate, name) for name in metric_names):
+                totals["provider_attempts"] += int(candidate.provider_attempts)
+                totals["retry_count"] += int(candidate.retry_count)
+                totals["rate_wait_seconds"] += float(
+                    candidate.rate_wait_seconds
+                )
+                return
+            for attribute in ("_request_policy", "_link_graph_provider"):
+                visit(getattr(candidate, attribute, None))
+
+        for root in roots:
+            visit(root)
+        return totals
+
     @staticmethod
     def _summary(
         *, stage, selected_count, completed_count, deferred_count,
-        yielded_to_main, store,
+        yielded_to_main, store, scanned=None, actionable=None,
+        prerequisite_deferred=0, cooldown_deferred=0,
+        provider_attempts=0, retry_count=0, rate_wait_seconds=0.0,
+        interrupted=False, claimed=None, reused=None,
+        remaining_actionable=None,
     ) -> dict:
+        scanned = selected_count if scanned is None else int(scanned)
+        actionable = selected_count if actionable is None else int(actionable)
         return {
             "contract_version": "1.0",
             "stage": stage,
@@ -380,6 +689,31 @@ class TraceStageWorker:
             "completed_count": completed_count,
             "deferred_count": deferred_count,
             "yielded_to_main": yielded_to_main,
+            "interrupted": bool(interrupted),
+            "scanned": scanned,
+            "actionable": actionable,
+            "claimed": selected_count if claimed is None else int(claimed),
+            "reused": (
+                max(
+                    scanned
+                    - actionable
+                    - int(prerequisite_deferred)
+                    - int(cooldown_deferred),
+                    0,
+                )
+                if reused is None
+                else int(reused)
+            ),
+            "prerequisite_deferred": int(prerequisite_deferred),
+            "cooldown_deferred": int(cooldown_deferred),
+            "remaining_actionable": (
+                max(actionable - completed_count, 0)
+                if remaining_actionable is None
+                else int(remaining_actionable)
+            ),
+            "provider_attempts": int(provider_attempts),
+            "retry_count": int(retry_count),
+            "rate_wait_seconds": float(rate_wait_seconds),
             "checkpoint_status_counts": store.stage_status_counts(),
         }
 

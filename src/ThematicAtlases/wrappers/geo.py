@@ -9,6 +9,7 @@ from meta_standards_converter.enrichers.miniml_enricher import MINiMLEnricher
 from meta_standards_converter.miniml import MINiMLCodec
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 import requests
+from meta_standards_converter.helpers.request_helper import NCBIApplicationIdentity
 
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.infrastructure import RequestPolicy
@@ -101,7 +102,7 @@ class GEOWrapper:
         tool: str = "ThematicAtlases",
         email: str | None = None,
         timeout: int | float | tuple[int | float, int | float] | None = None,
-        request_delay: float = 0.34,
+        request_delay: float = 0.5,
         max_retries: int = 3,
         request_policy: RequestPolicy | None = None,
         resource_profile: str | ResourceProfile = "standard",
@@ -123,9 +124,10 @@ class GEOWrapper:
             self.resource_profile.connect_timeout_seconds,
             self.resource_profile.read_timeout_seconds,
         )
-        self._api_key = api_key
-        self._tool = tool
-        self._email = email
+        identity_options = {"tool": tool, "email": email}
+        if api_key is not None:
+            identity_options["api_key"] = api_key
+        self._ncbi_identity = NCBIApplicationIdentity(**identity_options)
         self._request_settings = {
             "timeout": effective_timeout,
             "request_delay": request_delay,
@@ -194,6 +196,21 @@ class GEOWrapper:
                                 "retryable_error"
                                 if is_retryable_error(error)
                                 else "terminal_error",
+                                payload={
+                                    "next_retry_at": retry_at
+                                }
+                                if (
+                                    retry_at := getattr(
+                                        error,
+                                        "retry_at",
+                                        getattr(
+                                            getattr(error, "response", None),
+                                            "_thematic_atlases_retry_at",
+                                            None,
+                                        ),
+                                    )
+                                )
+                                else None,
                                 error=safe_error_json(
                                     error,
                                     provider="NCBI GEO",
@@ -406,14 +423,7 @@ class GEOWrapper:
     def _params(self, params: dict) -> dict:
         params = dict(params)
 
-        if self._tool:
-            params["tool"] = self._tool
-
-        if self._email:
-            params["email"] = self._email
-
-        if self._api_key:
-            params["api_key"] = self._api_key
+        params.update(self._ncbi_identity.params())
 
         return params
 
@@ -626,8 +636,27 @@ class GEOWrapper:
                             gse_accession,
                             index,
                             "retryable_error" if retryable else "terminal_error",
-                            payload=(checkpoint or {}).get("payload")
-                            or _metadata_checkpoint_payload([]),
+                            payload={
+                                **(
+                                    (checkpoint or {}).get("payload")
+                                    or _metadata_checkpoint_payload([])
+                                ),
+                                **(
+                                    {"next_retry_at": retry_at}
+                                    if (
+                                        retry_at := getattr(
+                                            error,
+                                            "retry_at",
+                                            getattr(
+                                                getattr(error, "response", None),
+                                                "_thematic_atlases_retry_at",
+                                                None,
+                                            ),
+                                        )
+                                    )
+                                    else {}
+                                ),
+                            },
                             error=safe_error_json(
                                 error,
                                 provider="NCBI GEO",

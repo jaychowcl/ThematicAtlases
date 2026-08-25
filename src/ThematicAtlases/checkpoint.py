@@ -7,9 +7,15 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
+from http.client import IncompleteRead
 from contextlib import contextmanager, ExitStack
 
 import fcntl
+import requests
+from meta_standards_converter.helpers.request_helper import (
+    HostRequestCooldownDeferred,
+)
+from urllib3.exceptions import ProtocolError
 from meta_standards_converter.runtime_contracts import (
     ExecutionStatus,
     OperationStatusV2,
@@ -1099,30 +1105,44 @@ class CheckpointStore:
 
 
 def is_retryable_error(error: Exception) -> bool:
+    try:
+        from agentic_curator.curators.structured_response import (
+            InvalidModelOutputError,
+        )
+    except ImportError:
+        InvalidModelOutputError = ()  # type: ignore[assignment]
+    if InvalidModelOutputError and isinstance(error, InvalidModelOutputError):
+        return False
+    if isinstance(
+        error,
+        (
+            HostRequestCooldownDeferred,
+            TimeoutError,
+            ConnectionError,
+            IncompleteRead,
+            ProtocolError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ContentDecodingError,
+        ),
+    ):
+        return True
     response = getattr(error, "response", None)
     status = getattr(response, "status_code", None)
-    if status in {403, 429} or (isinstance(status, int) and status >= 500):
+    if status in {403, 408, 425, 429} or (
+        isinstance(status, int) and status >= 500
+    ):
         return True
     trace = getattr(error, "request_trace", None)
-    message = str(error).lower()
-    error_type = type(error).__name__.lower()
-    markers = (
-        "timeout",
-        "temporar",
-        "connection",
-        "429",
-        "403",
-        "500",
-        "502",
-        "503",
-        "504",
-        "resource_exhausted",
-    )
-    return (
-        bool(trace and trace.get("status") == "failed")
-        or "timeout" in error_type
-        or "connection" in error_type
-        or any(marker in message for marker in markers)
+    return bool(
+        trace
+        and trace.get("status") in {"failed", "deferred"}
+        and any(
+            item.get("retry_category") == "retryable"
+            for item in trace.get("errors", [])
+            if isinstance(item, dict)
+        )
     )
 
 

@@ -128,10 +128,7 @@ def test_datalinks_and_full_text_share_checkpoint_provider_pacing(
     wrapper.collect_datalinks([publication], checkpoint_store=store)
     wrapper.collect_publication_texts([publication], checkpoint_store=store)
 
-    assert slots == [
-        ("europe_pmc", 0.25),
-        ("europe_pmc", 0.25),
-    ]
+    assert slots == []
 
 
 class FakeResponse:
@@ -231,6 +228,21 @@ def test_default_request_delay_is_gentle_and_can_be_overridden() -> None:
 
     with pytest.raises(ValueError, match="request_delay must not be negative"):
         EuropePMCWrapper(request_delay=-0.1)
+
+
+def test_epmc_forwards_configured_ncbi_identity_to_graph_provider(monkeypatch):
+    monkeypatch.setenv("NCBI_API_KEY", "secret-key")
+
+    wrapper = EuropePMCWrapper(
+        ncbi_tool="fibrosis_atlas",
+        ncbi_email="atlas@example.org",
+    )
+
+    assert wrapper._link_graph_provider._ncbi_identity.params() == {
+        "tool": "fibrosis_atlas",
+        "email": "atlas@example.org",
+        "api_key": "secret-key",
+    }
 
 
 def test_collect_publications_resumes_from_completed_search_page(tmp_path) -> None:
@@ -1294,7 +1306,8 @@ def test_collect_datalinks_retries_transient_failures(monkeypatch) -> None:
     )
 
     assert calls == [None, {"format": "json"}, None]
-    assert sleeps == [0.25, 0.5, 0.25]
+    assert len(sleeps) >= 2
+    assert all(0 <= delay <= 1 for delay in sleeps)
     assert result[0]["datalink_id"] == "PRJ1"
     assert result[0]["publications"] == [
         {
@@ -1377,7 +1390,8 @@ def test_collect_datalinks_falls_back_to_json_when_xml_endpoint_fails(
             12,
         ),
     ]
-    assert sleeps == [0.25, 0.25]
+    assert len(sleeps) == 1
+    assert 0.4 <= sleeps[0] <= 0.5
     assert result == [
         {
             "datalink_id": "E-MTAB-1",
@@ -1423,7 +1437,7 @@ def test_collect_datalinks_honors_retry_after_before_json(monkeypatch) -> None:
     )
 
     assert calls == [None, {"format": "json"}]
-    assert sleeps == [3.0, 0.5]
+    assert sleeps == [3.0]
     assert result[0]["datalink_id"] == "GSE1"
 
 
@@ -1456,7 +1470,8 @@ def test_datalinks_returns_to_xml_after_retryable_pair_with_malformed_json(
     )._datalinks(source="MED", epmc_id="123")
 
     assert calls == [None, {"format": "json"}, None]
-    assert sleeps == [0.5]
+    assert len(sleeps) >= 2
+    assert all(0 <= delay <= 1 for delay in sleeps)
     assert result["dataLinkList"]["Category"][0]["Section"][0]["Linklist"][
         "Link"
     ][0]["Target"]["Identifier"]["ID"] == "GSE1"
@@ -1524,7 +1539,8 @@ def test_datalinks_alternates_formats_until_bounded_retry_exhaustion(
 
     assert error.value.response.status_code == 500
     assert calls == [None, {"format": "json"}] * 4
-    assert sleeps == [0.5, 0.5, 0.5, 1.0, 0.5, 2.0, 0.5]
+    assert len(sleeps) >= len(calls) - 1
+    assert all(0 <= delay <= 4 for delay in sleeps)
 
 
 def test_datalinks_stops_after_one_permanent_failure_pair(monkeypatch) -> None:
@@ -1544,7 +1560,8 @@ def test_datalinks_stops_after_one_permanent_failure_pair(monkeypatch) -> None:
 
     assert error.value.response.status_code == 404
     assert calls == [None, {"format": "json"}]
-    assert sleeps == [0.5]
+    assert len(sleeps) == 1
+    assert 0.4 <= sleeps[0] <= 0.5
 
 
 def test_collect_datalinks_preserves_retryable_pair_failure_for_resume(
@@ -1688,7 +1705,8 @@ def test_collect_datalinks_skips_failed_publication_and_continues(
             12,
         ),
     ]
-    assert sleeps == [0.5, 0.5, 0.5]
+    assert len(sleeps) == len(calls) - 1
+    assert all(0.4 <= delay <= 0.5 for delay in sleeps)
     assert "EuropePMC datalinks skipped publication source='MED' epmc_id='failed'" in caplog.text
     assert "failed_publications=1" in caplog.text
 

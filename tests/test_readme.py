@@ -123,6 +123,7 @@ def test_cli_guide_lists_every_registered_command_and_option() -> None:
         "harmonize-datasets",
         "resume",
         "fork-run",
+        "worker-snapshot",
     }
     assert "placeholder" not in subparsers.choices[
         "harmonize-datasets"

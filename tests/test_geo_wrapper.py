@@ -94,6 +94,18 @@ def test_geo_wrapper_accepts_an_injected_record_policy() -> None:
     ]
 
 
+def test_geo_wrapper_uses_optional_ncbi_api_key_from_environment(monkeypatch):
+    monkeypatch.setenv("NCBI_API_KEY", "secret-key")
+
+    wrapper = GEOWrapper(tool="fibrosis_atlas", email="atlas@example.org")
+
+    assert wrapper._ncbi_identity.params() == {
+        "tool": "fibrosis_atlas",
+        "email": "atlas@example.org",
+        "api_key": "secret-key",
+    }
+
+
 def test_geo_metadata_resume_skips_completed_gse(tmp_path) -> None:
     records = [
         {"datalink_id": "GSE1", "datalink_id_scheme": "GEO", "publications": []},

@@ -79,6 +79,26 @@ def test_arrayexpress_canonicalizes_typed_magetab_package_into_memory() -> None:
     assert result[0]["accession_metadata"] == package()
 
 
+def test_arrayexpress_exposes_converter_request_metrics() -> None:
+    class Requester:
+        provider_attempts = 2
+        retry_count = 1
+        rate_wait_seconds = 0.5
+
+    class Fetcher:
+        requester = Requester()
+
+    class Converter(FakeConverter):
+        fetcher = Fetcher()
+
+    wrapper = ArrayExpressWrapper(converter_factory=Converter)
+    wrapper.collect_accession_metadata([record()])
+
+    assert wrapper.provider_attempts == 2
+    assert wrapper.retry_count == 1
+    assert wrapper.rate_wait_seconds == 0.5
+
+
 def test_arrayexpress_checkpoint_resume_is_offline_and_rebuilds_record(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "atlas.sqlite3")
     FakeConverter.calls = []

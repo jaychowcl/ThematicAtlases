@@ -284,6 +284,128 @@ def test_text_worker_fetches_and_scrapes_one_fixed_terminal_frontier(tmp_path):
     assert progress == result
 
 
+def test_text_worker_reports_actual_request_policy_metrics(tmp_path):
+    trace = _worker_trace(tmp_path)
+
+    class Policy:
+        provider_attempts = 4
+        retry_count = 2
+        rate_wait_seconds = 1.25
+
+    class EPMC:
+        _request_policy = Policy()
+
+        def collect_publication_texts(self, publications, checkpoint_store=None):
+            publication = publications[0]
+            checkpoint_store.put(
+                "publication_text",
+                f"MED:{publication['epmc_id']}",
+                int(publication["pmid"]),
+                "no_data",
+            )
+            return [publication]
+
+        def accessions_from_fulltexts(self, publications, checkpoint_store=None):
+            publication = publications[0]
+            checkpoint_store.put(
+                "fulltext_accession_discovery",
+                f"MED:{publication['epmc_id']}",
+                int(publication["pmid"]),
+                "no_data",
+            )
+            return []
+
+    result = TraceStageWorker(epmc_wrapper_factory=EPMC).resume(
+        trace.directory,
+        stage="text",
+        item_limit=1,
+    )
+
+    assert result["provider_attempts"] == 4
+    assert result["retry_count"] == 2
+    assert result["rate_wait_seconds"] == 1.25
+
+
+def test_text_worker_applies_limit_after_completed_prefix(tmp_path):
+    trace = _worker_trace(tmp_path)
+    for stage in ("publication_text", "fulltext_accession_discovery"):
+        trace.checkpoint_store.put(
+            stage,
+            "MED:1",
+            1,
+            "no_data",
+            payload={"records": []},
+        )
+    calls = []
+
+    class EPMC:
+        def collect_publication_texts(self, publications, checkpoint_store=None):
+            calls.append(publications[0]["pmid"])
+            checkpoint_store.put("publication_text", "MED:2", 2, "no_data")
+            return [publications[0]]
+
+        def accessions_from_fulltexts(self, publications, checkpoint_store=None):
+            checkpoint_store.put(
+                "fulltext_accession_discovery", "MED:2", 2, "no_data"
+            )
+            return []
+
+    result = TraceStageWorker(epmc_wrapper_factory=EPMC).resume(
+        trace.directory,
+        stage="text",
+        item_limit=1,
+    )
+
+    assert calls == ["2"]
+    assert result["selected_count"] == 1
+    assert result["scanned"] == 2
+    assert result["actionable"] == 1
+
+
+def test_text_worker_cancellation_finishes_current_item_and_records_summary(tmp_path):
+    trace = _worker_trace(tmp_path)
+    cancelled = False
+    calls = []
+
+    class EPMC:
+        def collect_publication_texts(self, publications, checkpoint_store=None):
+            nonlocal cancelled
+            publication = publications[0]
+            calls.append(publication["pmid"])
+            checkpoint_store.put(
+                "publication_text",
+                f"MED:{publication['epmc_id']}",
+                int(publication["pmid"]),
+                "no_data",
+            )
+            cancelled = True
+            return [publication]
+
+        def accessions_from_fulltexts(self, publications, checkpoint_store=None):
+            publication = publications[0]
+            checkpoint_store.put(
+                "fulltext_accession_discovery",
+                f"MED:{publication['epmc_id']}",
+                int(publication["pmid"]),
+                "no_data",
+            )
+            return []
+
+    result = TraceStageWorker(epmc_wrapper_factory=EPMC).resume(
+        trace.directory,
+        stage="text",
+        cancelled=lambda: cancelled,
+    )
+
+    assert calls == ["1"]
+    assert result["interrupted"] is True
+    assert result["completed_count"] == 1
+    assert result["deferred_count"] == 1
+    assert trace.run_store.events(trace.directory.name)[-1]["event_type"] == (
+        "stage_worker_interrupted"
+    )
+
+
 def test_graph_worker_terminally_resolves_no_data_datalinks_publications(tmp_path):
     trace = _worker_trace(tmp_path)
 
@@ -309,6 +431,64 @@ def test_graph_worker_terminally_resolves_no_data_datalinks_publications(tmp_pat
     assert result["selected_count"] == 2
     assert result["completed_count"] == 2
     assert result["deferred_count"] == 0
+
+
+def test_graph_worker_applies_limit_after_completed_prefix(tmp_path):
+    trace = _worker_trace(tmp_path)
+    trace.checkpoint_store.put(
+        "pubmed_gds_links", "1", 1, "no_data", payload={"target_uids": []}
+    )
+    calls = []
+
+    class EPMC:
+        def accessions_from_link_graph(
+            self, publications, *, checkpoint_store, continue_predicate
+        ):
+            calls.extend(publication["pmid"] for publication in publications)
+            checkpoint_store.put(
+                "pubmed_gds_links", "2", 2, "no_data", payload={"target_uids": []}
+            )
+            return []
+
+    result = TraceStageWorker(epmc_wrapper_factory=EPMC).resume(
+        trace.directory,
+        stage="graph",
+        item_limit=1,
+    )
+
+    assert calls == ["2"]
+    assert result["selected_count"] == 1
+    assert result["remaining_actionable"] == 0
+
+
+def test_graph_worker_defers_persisted_future_cooldown(tmp_path):
+    trace = _worker_trace(tmp_path)
+    trace.checkpoint_store.put(
+        "pubmed_gds_links",
+        "1",
+        1,
+        "retryable_error",
+        payload={"next_retry_at": 4_000_000_000},
+    )
+    trace.checkpoint_store.put(
+        "pubmed_gds_links", "2", 2, "no_data", payload={"target_uids": []}
+    )
+    calls = []
+
+    class EPMC:
+        def accessions_from_link_graph(self, publications, **kwargs):
+            calls.extend(publications)
+            return []
+
+    result = TraceStageWorker(epmc_wrapper_factory=EPMC).resume(
+        trace.directory,
+        stage="graph",
+        item_limit=1,
+    )
+
+    assert calls == []
+    assert result["actionable"] == 0
+    assert result["cooldown_deferred"] == 1
 
 
 def test_metadata_worker_merges_all_discovery_sources_and_limits_accessions(
@@ -374,6 +554,110 @@ def test_metadata_worker_merges_all_discovery_sources_and_limits_accessions(
     assert calls == ["GSE1", "GSE2"]
     assert result["selected_count"] == 2
     assert result["completed_count"] == 2
+
+
+def test_metadata_worker_applies_limit_after_compatible_prefix(tmp_path):
+    trace = _worker_trace(tmp_path)
+    publication = {"source": "MED", "epmc_id": "1", "pmid": "1"}
+    trace.checkpoint_store.put(
+        "datalinks",
+        "MED:1",
+        1,
+        "available",
+        payload={
+            "rows": [
+                {"datalink_id": "GSE1", "publications": [publication]},
+                {"datalink_id": "GSE2", "publications": [publication]},
+            ]
+        },
+    )
+    calls = []
+
+    class EPMC:
+        def accessions_from_datalinks(self, rows):
+            return rows
+
+        def accessions_from_link_graph(self, publications, **kwargs):
+            return []
+
+        def merge_accessions(self, *groups):
+            return [record for group in groups for record in group]
+
+    class Collector:
+        def filter_accessions(self, accessions, metadata_repositories=None):
+            return accessions
+
+        def available_accession_metadata(self, jsons, **kwargs):
+            return [
+                {
+                    **record,
+                    "metadata_status": (
+                        "available"
+                        if record["datalink_id"] == "GSE1"
+                        else "missing"
+                    ),
+                }
+                for record in jsons
+            ]
+
+        def collect_accession_metadata(self, *, jsons, **kwargs):
+            calls.append(jsons[0]["datalink_id"])
+            return [{**jsons[0], "metadata_status": "available"}]
+
+    result = TraceStageWorker(
+        epmc_wrapper_factory=EPMC,
+        collector_factory=Collector,
+    ).resume(trace.directory, stage="metadata", item_limit=1)
+
+    assert calls == ["GSE2"]
+    assert result["scanned"] == 2
+    assert result["reused"] == 1
+
+
+def test_metadata_worker_reports_collector_provider_metrics(tmp_path):
+    trace = _worker_trace(tmp_path)
+    publication = {"source": "MED", "epmc_id": "1", "pmid": "1"}
+    trace.checkpoint_store.put(
+        "datalinks",
+        "MED:1",
+        1,
+        "available",
+        payload={
+            "rows": [
+                {"datalink_id": "GSE1", "publications": [publication]},
+            ]
+        },
+    )
+
+    class EPMC:
+        def accessions_from_datalinks(self, rows):
+            return rows
+
+        def accessions_from_link_graph(self, publications, **kwargs):
+            return []
+
+        def merge_accessions(self, *groups):
+            return [record for group in groups for record in group]
+
+    class Collector:
+        provider_attempts = 3
+        retry_count = 1
+        rate_wait_seconds = 0.75
+
+        def filter_accessions(self, accessions, metadata_repositories=None):
+            return accessions
+
+        def collect_accession_metadata(self, *, jsons, **kwargs):
+            return [{**jsons[0], "metadata_status": "available"}]
+
+    result = TraceStageWorker(
+        epmc_wrapper_factory=EPMC,
+        collector_factory=Collector,
+    ).resume(trace.directory, stage="metadata", item_limit=1)
+
+    assert result["provider_attempts"] == 3
+    assert result["retry_count"] == 1
+    assert result["rate_wait_seconds"] == 0.75
 
 
 def test_worker_yields_without_claiming_when_main_is_downstream(tmp_path):
@@ -566,6 +850,18 @@ def test_review_worker_limits_real_facade_and_writes_review_checkpoint(tmp_path)
         (trace.directory / "incremental_review_progress.json").read_text()
     )
     assert progress == result
+
+    second = TraceStageWorker(
+        collector_factory=ResolvedMetadataCollector,
+        publication_text_reviewer_factory=reviewer_factory,
+    ).resume(trace.directory, stage="review", item_limit=1)
+
+    assert second["selected_count"] == 1
+    assert second["completed_count"] == 1
+    assert second["claimed"] == 1
+    assert second["reused"] == 1
+    assert second["remaining_actionable"] == 0
+    assert store.get("thematic_review", "direct:2")["status"] == "available"
 
 
 class PausingCollector:

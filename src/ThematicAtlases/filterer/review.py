@@ -36,6 +36,7 @@ class PublicationTextReviewer:
         reviewer_factory=None,
         resume_orchestrator_factory=None,
         capability_registry: RepositoryCapabilityRegistry | None = None,
+        cancelled=None,
     ):
         self._reviewer_factory = reviewer_factory
         self._resume_orchestrator_factory = resume_orchestrator_factory
@@ -43,6 +44,7 @@ class PublicationTextReviewer:
         self._capability_registry = (
             capability_registry or RepositoryCapabilityRegistry()
         )
+        self._cancelled = cancelled
 
     def resume(
         self,
@@ -57,6 +59,8 @@ class PublicationTextReviewer:
         defer_metadata_errors: bool = False,
         require_main_datalinks_phase: bool = False,
         publication_limit: int | None = None,
+        review_action_limit: int | None = None,
+        cancelled=None,
         snapshot_accessions: list[dict] | None = None,
         publication_keys: list[tuple] | None = None,
         item_lock_timeout_seconds: int | float | None = None,
@@ -76,6 +80,8 @@ class PublicationTextReviewer:
             defer_metadata_errors=defer_metadata_errors,
             require_main_datalinks_phase=require_main_datalinks_phase,
             publication_limit=publication_limit,
+            review_action_limit=review_action_limit,
+            cancelled=cancelled,
             snapshot_accessions=snapshot_accessions,
             publication_keys=publication_keys,
             item_lock_timeout_seconds=item_lock_timeout_seconds,
@@ -392,6 +398,11 @@ class PublicationTextReviewer:
                         "strategy": strategy,
                         "publication_ref": publication_ref,
                         "reviewer_identity": reviewer_identity,
+                        **(
+                            {"next_retry_at": float(error.retry_at)}
+                            if getattr(error, "retry_at", None) is not None
+                            else {}
+                        ),
                     },
                     error=safe_error_json(
                         error,
@@ -859,7 +870,7 @@ class PublicationTextReviewer:
 
         from agentic_curator import ThematicReviewer
 
-        return ThematicReviewer()
+        return ThematicReviewer(cancelled=self._cancelled)
 
     def _resume_orchestrator(self):
         if self._resume_orchestrator_instance is not None:

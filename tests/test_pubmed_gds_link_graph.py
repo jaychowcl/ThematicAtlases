@@ -350,6 +350,99 @@ def test_link_graph_checkpoints_sanitized_batch_failure(tmp_path):
         assert "private upstream detail" not in str(item.get("error"))
 
 
+def test_link_graph_recovers_legacy_terminal_chunked_transfer_checkpoint(tmp_path):
+    store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
+    store.put(
+        "pubmed_gds_links",
+        "1",
+        1,
+        "terminal_error",
+        payload={"contract_version": PUBMED_GDS_DISCOVERY_CONTRACT_VERSION},
+        error_type="ChunkedEncodingError",
+        failure_category="permanent",
+    )
+    policy = RequestPolicy([elink_payload({"1": []})])
+
+    records = PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+    ).discover([publication("1")], checkpoint_store=store)
+
+    assert records == []
+    assert len(policy.calls) == 1
+    assert store.get("pubmed_gds_links", "1")["status"] == "no_data"
+
+
+def test_link_graph_splits_truncated_batch_without_poisoning_all_pmids(tmp_path):
+    store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
+    policy = RequestPolicy(
+        [
+            requests.exceptions.ChunkedEncodingError("truncated batch"),
+            elink_payload({"1": [], "2": []}),
+            elink_payload({"3": [], "4": []}),
+        ]
+    )
+
+    records = PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+        link_batch_size=4,
+    ).discover(
+        [publication(str(value)) for value in range(1, 5)],
+        checkpoint_store=store,
+    )
+
+    assert records == []
+    assert len(policy.calls) == 3
+    assert [
+        store.get("pubmed_gds_links", str(value))["status"]
+        for value in range(1, 5)
+    ] == ["no_data"] * 4
+
+
+def test_link_graph_splits_only_once_and_defers_still_malformed_subbatches(
+    tmp_path,
+):
+    store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
+    policy = RequestPolicy(
+        [
+            {"unexpected": "whole batch"},
+            {"unexpected": "first half"},
+            {"unexpected": "second half"},
+        ]
+    )
+
+    PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+        link_batch_size=8,
+    ).discover(
+        [publication(str(value)) for value in range(1, 9)],
+        checkpoint_store=store,
+    )
+
+    assert len(policy.calls) == 3
+    assert [
+        store.get("pubmed_gds_links", str(value))["status"]
+        for value in range(1, 9)
+    ] == ["retryable_error"] * 8
+    assert store.get_meta("pubmed_gds_recommended_link_batch_size") == 4
+
+
+def test_link_graph_isolates_malformed_singleton_as_terminal(tmp_path):
+    store = CheckpointStore(tmp_path / "checkpoints.sqlite3")
+    policy = RequestPolicy([{"unexpected": "payload"}])
+
+    PubMedGDSLinkGraphWrapper(
+        request_policy=policy,
+        request_delay=0,
+    ).discover([publication("1")], checkpoint_store=store)
+
+    item = store.get("pubmed_gds_links", "1")
+    assert item["status"] == "terminal_error"
+    assert item["error_type"] == "ValueError"
+
+
 def test_publication_policy_merges_graph_after_datalink_and_text_provenance():
     publication_record = publication("1")
     datalink = {

@@ -496,6 +496,34 @@ def test_collect_accession_metadata_routes_geo_records(monkeypatch) -> None:
     assert FakeGEOWrapper.jsons == [{**records[0], "_atlas_discovery_ordinal": 0}]
 
 
+def test_collect_accession_metadata_aggregates_handler_request_metrics() -> None:
+    class MeteredHandler:
+        metadata_handler_status = "supported"
+        provider_attempts = 3
+        retry_count = 1
+        rate_wait_seconds = 0.75
+
+        def collect_accession_metadata(self, jsons, **_kwargs):
+            return [
+                {
+                    **record,
+                    "metadata_repository": "geo",
+                    "metadata_status": "available",
+                    "accession_metadata": {},
+                }
+                for record in jsons
+            ]
+
+    collector = AtlasCollector(metadata_handlers={"geo": MeteredHandler})
+    collector.collect_accession_metadata(
+        [{"datalink_id": "GSE1", "datalink_id_scheme": "GEO"}]
+    )
+
+    assert collector.provider_attempts == 3
+    assert collector.retry_count == 1
+    assert collector.rate_wait_seconds == 0.75
+
+
 def test_linked_egeod_and_gse_keep_first_discovered_metadata() -> None:
     class LinkedHandler:
         metadata_handler_status = "supported"
