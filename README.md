@@ -768,6 +768,49 @@ and metadata collaborators and do not make external calls.
 PYTHONDONTWRITEBYTECODE=1 .env/bin/python -m pytest -p no:cacheprovider
 ```
 
+**MSC 7 export migration**
+
+MSC 7 and Curator/ThematicAtlases/GSK adapter 5 make export policy converter-owned.
+Curator produces source-bound patches; MSC applies patches to canonical MINiML,
+which retains source values, `hz_*` evidence and provenance. ThematicAtlases
+publishes that canonical metadata in Atlas v1. GSK's own field names and
+scientific selection rules remain unchanged.
+
+Pass `replacement_profile=profile` directly to MSC JSON2AE, JSON2TSV,
+JSON2H5AD or JSON2OBS conversion methods (including manifest/batch methods).
+The CLI equivalents are mutually exclusive `--replacement-profile JSON` and
+`--replacement-profile-file PATH`. Supplying a profile activates replacement.
+No profile preserves ordinary destination values. Profiles retain schema `1.0`,
+ordered source fallback, multiple values and preservation when no source matches.
+Semantic-invalid profiles warn and disable replacement; malformed CLI JSON,
+non-object inputs and unreadable files fail before output creation.
+
+Curator's `harmonization_overrides` arguments, validation, CLI flags and result
+forwarding are removed. Old MSC `use_harmonization_overrides` is removed.
+An envelope containing `harmonization_overrides` is rejected: pass that mapping
+as the explicit converter argument instead. Profile-free `miniml_json`
+envelopes remain supported, as do native MINiML and Atlas v1 inputs.
+
+MSC exports `hz_*` evidence by default even when replacements are active:
+MAGE-TAB uses characteristic/factor/parameter groups with standard ontology
+companions; units use local `Comment[hz_unit]`. Tables and AnnData use
+`msc.characteristics.hz_*` and assay `hz_value` / `hz_unit` with `_id` and
+`_onto` companions. H5AD metadata is version `2.0` and exported assay metadata
+is `3.0`. MINiML 2 ingestion, MINiML 3, patch 3.1 and MINiML transport versions
+are unchanged. Conversion copies protect the canonical input and patch evidence.
+MSC 7 checkpoint identity includes normalized policy and writes in a separate
+version directory from historical checkpoints.
+
+```python
+profile = {"schema_version": "1.0", "replacements": {"organism_part": ["tissue_name", "high_level_tissue"]}}
+JSON2TSVConverter().export_manifest("atlas.json", outdir="tables", replacement_profile=profile)
+```
+
+```bash
+json2tsv atlas.json --replacement-profile-file export-policy.json --out tables
+```
+
+
 ## Docs
 
 - [Documentation index](docs/index.md) — routing index for stable codebase sections.

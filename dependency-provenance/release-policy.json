@@ -8,7 +8,7 @@
   "lock_scope": "External runtime dependencies; internal distributions require separately hashed and signed release artifacts.",
   "project": {
     "name": "ThematicAtlases",
-    "version": "4.4.0"
+    "version": "5.0.0"
   },
   "release_requirements": {
     "current_offline_advisory_snapshot": true,
