@@ -94,65 +94,29 @@ def test_geo_wrapper_accepts_an_injected_record_policy() -> None:
     ]
 
 
-def test_checkpointed_geo_metadata_accumulates_nested_request_metrics_once(
-    monkeypatch, tmp_path
-) -> None:
-    class Requester:
-        def __init__(self, attempts, retries, waited):
-            self.provider_attempts = attempts
-            self.retry_count = retries
-            self.rate_wait_seconds = waited
-
-    class Fetcher:
-        requester = Requester(2, 1, 0.5)
-
-        @staticmethod
-        def fetch_gse_miniml(gse):
-            assert gse == "GSE1"
-            return "<MINiML/>"
-
-    class Parser:
-        @staticmethod
-        def parse(**_kwargs):
-            return [v2_package("GSE1")]
-
+def test_checkpointed_geo_metadata_accumulates_explicit_request_metrics_once(monkeypatch, tmp_path):
+    from meta_standards_converter.sources.contracts import RequestMetrics
+    class Source:
+        geo_fetcher = None
+        def __init__(self): self.geo_fetcher = self
+        def fetch_gse_miniml(self, gse): return '<MINiML/>'
+        def parse(self, **kwargs): return [v2_package('GSE1')]
+        def metrics(self): return RequestMetrics(2, 1, 0.5)
     class Enricher:
-        pubmed_fetcher = type(
-            "Pubmed",
-            (),
-            {"fetcher": type("Fetcher", (), {"requester": Requester(1, 0, 0.25)})()},
-        )()
-        insdc_fetcher = None
-
-        @staticmethod
-        def enrich(data):
-            return data
-
-    converter = type(
-        "Converter",
-        (),
-        {"geo_fetcher": Fetcher(), "parser": Parser(), "enricher": Enricher()},
-    )()
-    monkeypatch.setattr(geo_module, "geo2json", lambda **_kwargs: converter)
+        def enrich(self, data): return data
+        def metrics(self): return RequestMetrics(1, 0, 0.25)
+    source, enricher = Source(), Enricher()
+    monkeypatch.setattr(geo_module, 'GEOSource', lambda **kwargs: source)
     wrapper = GEOWrapper()
-    store = CheckpointStore(tmp_path / "resume_state.sqlite")
-
-    wrapper._checkpointed_gse_metadata_packages(
-        gse_accession="GSE1",
-        index=1,
-        checkpoint_store=store,
-        retry_tags=None,
-    )
-    wrapper._checkpointed_gse_metadata_packages(
-        gse_accession="GSE1",
-        index=1,
-        checkpoint_store=store,
-        retry_tags=None,
-    )
-
+    monkeypatch.setattr(wrapper, '_checkpointed_enricher', lambda *args: enricher)
+    store = CheckpointStore(tmp_path / 'resume.sqlite')
+    for _ in range(2):
+        wrapper._checkpointed_gse_metadata_packages(gse_accession='GSE1', index=1,
+                                                   checkpoint_store=store, retry_tags=None)
     assert wrapper.provider_attempts == 3
     assert wrapper.retry_count == 1
     assert wrapper.rate_wait_seconds == 0.75
+
 
 
 def test_geo_wrapper_uses_optional_ncbi_api_key_from_environment(monkeypatch):
@@ -229,7 +193,8 @@ def test_geo_checkpoint_captures_source_precanonical_and_diagnostics_before_fail
             self.geo_fetcher = Fetcher()
             self.parser = Parser()
 
-    monkeypatch.setattr(geo_module, "geo2json", Converter)
+    Converter.parse = lambda self, **kwargs: self.parser.parse(**kwargs)
+    monkeypatch.setattr(geo_module, "GEOSource", Converter)
     wrapper = GEOWrapper()
     result = wrapper.collect_accession_metadata(
         [{"datalink_id": "GSE1", "publications": []}], checkpoint_store=store
@@ -256,6 +221,7 @@ def test_geo_checkpoint_captures_source_precanonical_and_diagnostics_before_fail
         [{"datalink_id": "GSE1", "publications": []}], checkpoint_store=store
     )
     assert Fetcher.calls == 1
+
 
 
 def test_geo_checkpoint_retains_accepted_duplicate_sample_title_warnings(
@@ -288,7 +254,8 @@ def test_geo_checkpoint_retains_accepted_duplicate_sample_title_warnings(
             self.parser = Parser()
             self.enricher = Enricher()
 
-    monkeypatch.setattr(geo_module, "geo2json", Converter)
+    Converter.parse = lambda self, **kwargs: self.parser.parse(**kwargs)
+    monkeypatch.setattr(geo_module, "GEOSource", Converter)
     result = GEOWrapper().collect_accession_metadata(
         [{"datalink_id": "GSE1", "publications": []}], checkpoint_store=store
     )
@@ -310,6 +277,7 @@ def test_geo_checkpoint_retains_accepted_duplicate_sample_title_warnings(
         "path": "/sample/1/title",
         "severity": "warning",
     }]
+
 
 
 def test_geo_metadata_checkpoint_rebuilds_latest_publication_provenance(tmp_path) -> None:
@@ -473,14 +441,17 @@ def test_interrupted_identifier_enrichment_reuses_parsed_gse_packages(
     converter_calls = []
 
     class FakeConverter:
-        def __init__(self, enricher):
-            self.enricher = enricher
+        def __init__(self, **kwargs):
+            self.geo_fetcher = self
 
-        def convert(self, **kwargs):
+        def fetch_gse_miniml(self, gse):
+            return "<MINiML/>"
+
+        def parse(self, **kwargs):
             converter_calls.append(kwargs)
             return [MINiMLCodec().decode(v2_package(), strict=True).package]
 
-    monkeypatch.setattr(geo_module, "geo2json", FakeConverter)
+    monkeypatch.setattr(geo_module, "GEOSource", FakeConverter)
 
     class InterruptingEnricher:
         def enrich(self, data):
@@ -513,21 +484,25 @@ def test_interrupted_identifier_enrichment_reuses_parsed_gse_packages(
     assert store.get("geo_metadata", "GSE1")["status"] == "available"
 
 
+
 def test_checkpointed_geo_path_persists_json_native_typed_packages(tmp_path, monkeypatch) -> None:
     typed = MINiMLCodec().decode(v2_package(), strict=True).package
 
     class TypedConverter:
-        def __init__(self, enricher):
-            self.enricher = enricher
+        def __init__(self, **kwargs):
+            self.geo_fetcher = self
 
-        def convert(self, **_kwargs):
+        def fetch_gse_miniml(self, gse):
+            return "<MINiML/>"
+
+        def parse(self, **_kwargs):
             return [typed]
 
     class TypedEnricher:
         def enrich(self, data):
             return data
 
-    monkeypatch.setattr(geo_module, "geo2json", TypedConverter)
+    monkeypatch.setattr(geo_module, "GEOSource", TypedConverter)
     store = CheckpointStore(tmp_path / "run.sqlite3")
 
     packages, payload = GEOWrapper()._checkpointed_gse_metadata_packages(
@@ -546,6 +521,7 @@ def test_checkpointed_geo_path_persists_json_native_typed_packages(tmp_path, mon
         "metadata.json",
         trace.metadata([{"datalink_id": "GSE1", "accession_metadata": packages[0]}]),
     )
+
 
 
 def test_manual_tag_repairs_every_affected_legacy_package(tmp_path, monkeypatch) -> None:
@@ -1033,7 +1009,7 @@ def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
 
     monkeypatch.setattr(
         geo_module,
-        "geo2json",
+        "GEO2JSONConverter",
         lambda: FakeGeo2JsonConverter(),
     )
 
@@ -1049,6 +1025,7 @@ def test_gse_metadata_packages_calls_geo2json_convert(monkeypatch) -> None:
     ]
 
 
+
 def test_gse_metadata_packages_can_skip_identifier_enrichment(monkeypatch) -> None:
     calls = []
     package = v2_package("GSE1")
@@ -1060,7 +1037,7 @@ def test_gse_metadata_packages_can_skip_identifier_enrichment(monkeypatch) -> No
 
     monkeypatch.setattr(
         geo_module,
-        "geo2json",
+        "GEO2JSONConverter",
         lambda: FakeGeo2JsonConverter(),
     )
 
@@ -1078,6 +1055,7 @@ def test_gse_metadata_packages_can_skip_identifier_enrichment(monkeypatch) -> No
     ]
 
 
+
 def test_checkpointed_geo_can_skip_identifier_enrichment(
     tmp_path, monkeypatch
 ) -> None:
@@ -1090,7 +1068,7 @@ def test_checkpointed_geo_can_skip_identifier_enrichment(
 
     monkeypatch.setattr(
         geo_module,
-        "geo2json",
+        "GEO2JSONConverter",
         lambda: FakeGeo2JsonConverter(),
     )
     store = CheckpointStore(tmp_path / "run.sqlite3")
@@ -1119,15 +1097,17 @@ def test_checkpointed_geo_can_skip_identifier_enrichment(
     assert payload["enrichment_state"] == "complete"
 
 
+
 def test_gse_metadata_packages_rejects_unversioned_converter_output(monkeypatch) -> None:
     class FakeGeo2JsonConverter:
         def convert(self, **kwargs):
             return [{"series": {"iid": "GSE1"}}]
 
-    monkeypatch.setattr(geo_module, "geo2json", lambda: FakeGeo2JsonConverter())
+    monkeypatch.setattr(geo_module, "GEO2JSONConverter", lambda: FakeGeo2JsonConverter())
 
     with pytest.raises(ValueError, match="MSC MINiML schema version '3.0'"):
         GEOWrapper()._gse_metadata_packages(gse_accession="GSE1")
+
 
 
 def test_collect_accession_metadata_logs_progress_and_stats(caplog) -> None:

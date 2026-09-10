@@ -215,7 +215,7 @@ Use `--query <keyword>` when the id is unknown.
   title: [TraceStageWorker](codebase.md#type-trace-stage-worker)
   anchor: type-trace-stage-worker
   purpose: Four one-shot text/scrape, PubMed-GDS graph, metadata, and review frontiers sharing canonical checkpoints with the main process.
-  keywords: TraceStageWorker, StageWorkerBusy, worker snapshot, text, graph, metadata, review, actionable frontier, due retry, cooldown deferred, nested MSC metrics, provider attempts, rate wait, cooperative cancellation, pre-claim frontier cancellation, singleton lock, item limit, yield
+  keywords: TraceStageWorker, StageWorkerBusy, worker snapshot, text, graph, metadata, review, actionable frontier, due retry, cooldown deferred, public MSC metrics, provider attempts, rate wait, cooperative cancellation, pre-claim frontier cancellation, singleton lock, item limit, yield
 
 - id: type-europe-pmc-wrapper
   title: [EuropePMCWrapper](codebase.md#type-europe-pmc-wrapper)
@@ -434,3 +434,7 @@ Use `--query <keyword>` when the id is unknown.
   anchor: resume-dependency-wiring
   purpose: One-way injected factory registration that removes collector/filterer mutual and method-local imports.
   keywords: TraceMetadataResumer, TracePublicationReviewResumer, dependency direction, factory, import cycle, injection
+
+- [MSC 6 source migration](codebase.md#msc6-source-migration): direct source services, imports, checkpoints, metrics.
+
+- [MSC 6 direct integration](codebase.md#msc6-direct-integration): owning services, direct consumer migration, preserved data contracts, checkpoint evidence and coordinated run transition. Keywords: MSC6, injection, reader, metrics, source evidence, release.

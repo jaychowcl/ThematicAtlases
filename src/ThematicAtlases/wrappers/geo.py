@@ -1,11 +1,12 @@
+from meta_standards_converter.sources.geo import GEOSource
 import logging
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
-from meta_standards_converter.converters.geo2json import geo2json
-from meta_standards_converter.enrichers.miniml_enricher import MINiMLEnricher
+from meta_standards_converter.converters.geo2json import GEO2JSONConverter
+from meta_standards_converter.metadata.enrichment import MINiMLEnricher
 from meta_standards_converter.miniml import MINiMLCodec
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 import requests
@@ -739,50 +740,38 @@ class GEOWrapper:
         retry_tags: RetryTags | None,
     ) -> tuple[list[dict], dict]:
         enricher = self._checkpointed_enricher(checkpoint_store, retry_tags)
-        converter = geo2json(enricher=enricher)
-        if not hasattr(converter, "geo_fetcher") or not hasattr(converter, "parser"):
+        source = GEOSource(resource_profile=self.resource_profile)
+        source_checkpoint = checkpoint_store.get(GEO_SOURCE_STAGE, gse_accession)
+        if source_checkpoint and source_checkpoint["status"] == "available":
+            miniml = restored_text(source_checkpoint["payload"]["content"])
+        else:
+            logger.debug(
+                "GEO MINiML evidence request gse_accession=%s", gse_accession
+            )
             try:
-                parsed = converter.convert(
-                    gse=gse_accession,
-                    related_series=True,
-                    remove_empty=True,
-                    enrich=False,
-                    out=None,
+                miniml = source.geo_fetcher.fetch_gse_miniml(
+                    gse=gse_accession
                 )
             finally:
-                self._accumulate_request_metrics(converter)
-        else:
-            source_checkpoint = checkpoint_store.get(GEO_SOURCE_STAGE, gse_accession)
-            if source_checkpoint and source_checkpoint["status"] == "available":
-                miniml = restored_text(source_checkpoint["payload"]["content"])
-            else:
-                logger.debug(
-                    "GEO MINiML evidence request gse_accession=%s", gse_accession
-                )
-                try:
-                    miniml = converter.geo_fetcher.fetch_gse_miniml(
-                        gse=gse_accession
-                    )
-                finally:
-                    self._accumulate_request_metrics(converter)
-                checkpoint_store.put(
-                    GEO_SOURCE_STAGE,
-                    gse_accession,
-                    index,
-                    "available",
-                    payload={
-                        "contract_version": 1,
-                        "provider": "geo",
-                        "accession": gse_accession,
-                        "content_type": "application/xml",
-                        "content": compressed_text(miniml),
-                    },
-                )
-            parsed = converter.parser.parse(
-                miniml=miniml,
-                remove_empty=True,
-                related_series=True,
+                self._accumulate_request_metrics(source)
+            checkpoint_store.put(
+                GEO_SOURCE_STAGE,
+                gse_accession,
+                index,
+                "available",
+                payload={
+                    "contract_version": 1,
+                    "provider": "geo",
+                    "accession": gse_accession,
+                    "content_type": "application/xml",
+                    "content": compressed_text(miniml),
+                },
             )
+        parsed = source.parse(
+            miniml=miniml,
+            remove_empty=True,
+            related_series=True,
+        )
         precanonical = checkpoint_precanonical(
             checkpoint_store,
             GEO_PRECANONICAL_STAGE,
@@ -811,10 +800,10 @@ class GEOWrapper:
         for package_index, package in enumerate(packages):
             try:
                 packages[package_index] = canonicalize_miniml_packages(
-                    [converter.enricher.enrich(data=package)]
+                    [enricher.enrich(data=package)]
                 )[0]
             finally:
-                self._accumulate_request_metrics(converter)
+                self._accumulate_request_metrics(enricher)
             payload = _metadata_checkpoint_payload(
                 packages, enrichment_mode="all", enrichment_state="pending"
             )
@@ -1059,7 +1048,7 @@ class GEOWrapper:
 
     def _gse_metadata_packages(self, gse_accession: str) -> list[dict]:
         logger.debug("GEO geo2json request gse_accession=%s", gse_accession)
-        converter = geo2json()
+        converter = GEO2JSONConverter()
         try:
             packages = converter.convert(
                 gse=gse_accession,
@@ -1073,50 +1062,18 @@ class GEOWrapper:
         codec = MINiMLCodec()
         return [codec.encode(codec.decode(package, strict=True).package) for package in packages]
 
-    def _accumulate_request_metrics(self, *roots) -> None:
-        """Collect deltas from nested MSC/Atlas requesters without double counts."""
-
-        metric_names = (
-            "provider_attempts",
-            "retry_count",
-            "rate_wait_seconds",
-        )
-        child_names = (
-            "_request_policy",
-            "requester",
-            "fetcher",
-            "geo_fetcher",
-            "enricher",
-            "pubmed_fetcher",
-            "insdc_fetcher",
-            "ncbi_requester",
-            "ena_requester",
-        )
-        seen = set()
-
-        def visit(candidate) -> None:
-            if candidate is None or id(candidate) in seen:
-                return
-            seen.add(id(candidate))
-            if all(hasattr(candidate, name) for name in metric_names):
-                current = (
-                    int(candidate.provider_attempts),
-                    int(candidate.retry_count),
-                    float(candidate.rate_wait_seconds),
-                )
-                previous = self._request_metric_snapshots.get(
-                    candidate, (0, 0, 0.0)
-                )
-                self.provider_attempts += max(current[0] - previous[0], 0)
-                self.retry_count += max(current[1] - previous[1], 0)
-                self.rate_wait_seconds += max(current[2] - previous[2], 0.0)
-                self._request_metric_snapshots[candidate] = current
-                return
-            for name in child_names:
-                visit(getattr(candidate, name, None))
-
-        for root in roots:
-            visit(root)
+    def _accumulate_request_metrics(self, *providers) -> None:
+        """Accumulate explicit service snapshots without inspecting their internals."""
+        from meta_standards_converter.sources.contracts import request_metrics
+        for provider in {id(p): p for p in providers if p is not None}.values():
+            current_metrics = request_metrics(provider)
+            current = (current_metrics.provider_attempts, current_metrics.retry_count,
+                       current_metrics.rate_wait_seconds)
+            previous = self._request_metric_snapshots.get(provider, (0, 0, 0.0))
+            self.provider_attempts += max(current[0] - previous[0], 0)
+            self.retry_count += max(current[1] - previous[1], 0)
+            self.rate_wait_seconds += max(current[2] - previous[2], 0.0)
+            self._request_metric_snapshots[provider] = current
 
     def _package_gse_accession(self, package: dict) -> str:
         return self._record_policy.package_gse_accession(package)

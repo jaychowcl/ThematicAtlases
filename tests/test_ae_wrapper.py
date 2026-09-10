@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
-from meta_standards_converter.ae_handlers.ae_webfetcher import MAGETabInput, TextResource
+from meta_standards_converter.sources.magetab import MAGETabInput, TextResource
 from meta_standards_converter.miniml import MINiMLCodec
 from meta_standards_converter.runtime_contracts import get_resource_profile
 
@@ -43,12 +43,17 @@ def invalid_reference_package(accession="E-MTAB-1"):
     return value
 
 
-class FakeConverter:
+class FakeResolver:
     calls = []
 
-    def convert(self, **kwargs):
-        self.__class__.calls.append(kwargs)
-        return [MINiMLCodec().decode(package(kwargs["source"]), strict=True).package]
+    def resolve(self, source, sdrf_sources=None):
+        self.__class__.calls.append({"source": source, "sdrf_sources": sdrf_sources})
+        return MAGETabInput(TextResource("idf", "text", "origin"), (), source, "accession")
+
+
+class FakeParser:
+    def parse(self, source):
+        return MINiMLCodec().decode(package(source.source), strict=True).package
 
 
 def test_arrayexpress_default_converter_preserves_typed_resource_overrides() -> None:
@@ -57,21 +62,21 @@ def test_arrayexpress_default_converter_preserves_typed_resource_overrides() -> 
         overrides={"max_xml_bytes": 4096, "network_workers": 2},
     )
 
-    converter = ArrayExpressWrapper(resource_profile=profile)._converter()
+    resolver = ArrayExpressWrapper(resource_profile=profile).source_resolver
 
-    assert converter.fetcher.resource_profile is profile
-    assert converter.fetcher.requester.settings.timeout == (10, 60)
-    assert converter.fetcher.requester.settings.max_in_flight == 2
+    assert resolver.resource_profile is profile
+    assert resolver.requester.settings.timeout == (10, 60)
+    assert resolver.requester.settings.max_in_flight == 2
 
 
 def test_arrayexpress_canonicalizes_typed_magetab_package_into_memory() -> None:
-    FakeConverter.calls = []
-    result = ArrayExpressWrapper(converter_factory=FakeConverter).collect_accession_metadata(
+    FakeResolver.calls = []
+    result = ArrayExpressWrapper(source_resolver=FakeResolver(), parser=FakeParser()).collect_accession_metadata(
         [record()]
     )
 
-    assert FakeConverter.calls == [{
-        "source": "E-MTAB-1", "out": None, "sdrf_sources": None
+    assert FakeResolver.calls == [{
+        "source": "E-MTAB-1", "sdrf_sources": None
     }]
     assert result[0]["metadata_repository"] == "arrayexpress"
     assert result[0]["metadata_source"] == "ae2json"
@@ -80,18 +85,13 @@ def test_arrayexpress_canonicalizes_typed_magetab_package_into_memory() -> None:
 
 
 def test_arrayexpress_exposes_converter_request_metrics() -> None:
-    class Requester:
-        provider_attempts = 2
-        retry_count = 1
-        rate_wait_seconds = 0.5
+    from meta_standards_converter.sources.contracts import RequestMetrics
 
-    class Fetcher:
-        requester = Requester()
+    class Resolver(FakeResolver):
+        def metrics(self):
+            return RequestMetrics(2, 1, 0.5)
 
-    class Converter(FakeConverter):
-        fetcher = Fetcher()
-
-    wrapper = ArrayExpressWrapper(converter_factory=Converter)
+    wrapper = ArrayExpressWrapper(source_resolver=Resolver(), parser=FakeParser())
     wrapper.collect_accession_metadata([record()])
 
     assert wrapper.provider_attempts == 2
@@ -101,13 +101,13 @@ def test_arrayexpress_exposes_converter_request_metrics() -> None:
 
 def test_arrayexpress_checkpoint_resume_is_offline_and_rebuilds_record(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "atlas.sqlite3")
-    FakeConverter.calls = []
-    wrapper = ArrayExpressWrapper(converter_factory=FakeConverter)
+    FakeResolver.calls = []
+    wrapper = ArrayExpressWrapper(source_resolver=FakeResolver(), parser=FakeParser())
     wrapper.collect_accession_metadata([record()], checkpoint_store=store)
     latest = {**record(), "publications": [{"pmid": "new"}]}
 
     result = ArrayExpressWrapper(
-        converter_factory=lambda: (_ for _ in ()).throw(AssertionError("network"))
+        source_resolver=object(), parser=object()
     ).available_accession_metadata([latest], store)
 
     assert result[0]["publications"] == [{"pmid": "new"}]
@@ -136,12 +136,7 @@ def test_arrayexpress_checkpoint_captures_sources_and_diagnostics_before_failure
         def parse(self, _source):
             return MINiMLCodec().decode(invalid_reference_package()).package
 
-    class Converter:
-        def __init__(self):
-            self.fetcher = Fetcher()
-            self.parser = Parser()
-
-    wrapper = ArrayExpressWrapper(converter_factory=Converter)
+    wrapper = ArrayExpressWrapper(source_resolver=Fetcher(), parser=Parser())
     result = wrapper.collect_accession_metadata([record()], checkpoint_store=store)
 
     assert result[0]["metadata_status"] == "error"
@@ -175,13 +170,13 @@ def test_arrayexpress_recomputes_legacy_unversioned_checkpoint(tmp_path) -> None
         "available",
         payload={"checkpoint_version": 1, "packages": [{"mage_tab": {}}]},
     )
-    FakeConverter.calls = []
+    FakeResolver.calls = []
 
-    result = ArrayExpressWrapper(converter_factory=FakeConverter).collect_accession_metadata(
+    result = ArrayExpressWrapper(source_resolver=FakeResolver(), parser=FakeParser()).collect_accession_metadata(
         [record()], checkpoint_store=store
     )
 
-    assert FakeConverter.calls
+    assert FakeResolver.calls
     assert result[0]["accession_metadata"] == package()
 
 
@@ -202,14 +197,14 @@ def test_arrayexpress_offline_resume_marks_legacy_checkpoint_pending(tmp_path) -
 
 
 def test_arrayexpress_isolates_errors_and_no_data() -> None:
-    class PartialConverter:
-        def convert(self, source, **_kwargs):
-            if source == "E-MTAB-1":
+    class PartialParser:
+        def parse(self, source):
+            if source.source == "E-MTAB-1":
                 raise ValueError("invalid MAGE-TAB")
-            return []
+            return None
 
     result = ArrayExpressWrapper(
-        converter_factory=PartialConverter
+        source_resolver=FakeResolver(), parser=PartialParser()
     ).collect_accession_metadata([record(), record("E-MTAB-2")])
 
     assert [item["metadata_status"] for item in result] == ["error", "unavailable"]

@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from meta_standards_converter.insdc_handlers.insdc_webfetcher import INSDCWebfetcher
-from meta_standards_converter.pubmed_handlers.pubmed_webfetcher import PubmedWebFetcher
+from meta_standards_converter.sources.insdc import INSDCWebfetcher
+from meta_standards_converter.sources.pubmed import PubmedWebFetcher
 from meta_standards_converter.runtime_contracts import ResourceProfile
 from meta_standards_converter.xml_safety import parse_xml
 
@@ -123,6 +123,10 @@ class CheckpointedPubmedFetcher:
         self.forced_identifiers = {str(item).strip() for item in forced_identifiers}
         self.tag_id = tag_id
 
+    def metrics(self):
+        from meta_standards_converter.sources.contracts import request_metrics
+        return request_metrics(self.fetcher)
+
     def pubmed_summary(self, pubmed_id: str) -> tuple:
         identifier = str(pubmed_id).strip()
         with self.store.item_lock(self.stage, identifier):
@@ -165,7 +169,7 @@ class CheckpointedPubmedFetcher:
             return result
 
 
-class CheckpointedINSDCFetcher(INSDCWebfetcher):
+class CheckpointedINSDCFetcher:
     def __init__(
         self,
         checkpoint_store,
@@ -178,10 +182,9 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides=None,
     ):
-        super().__init__(
-            resource_profile=resource_profile,
-            resource_overrides=resource_overrides,
-        )
+        from meta_standards_converter.runtime_contracts import get_resource_profile
+        self.resource_profile = get_resource_profile(resource_profile, overrides=resource_overrides)
+        self.service = INSDCWebfetcher(client=self, resource_profile=self.resource_profile)
         self.store = checkpoint_store
         self.fetcher = fetcher or INSDCWebfetcher(
             resource_profile=resource_profile,
@@ -196,13 +199,23 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
         )
         self.tag_id = tag_id
 
+    def fetch_sra_runs(self, accession):
+        return self.service.fetch_sra_runs(accession)
+
+    def extract_sra_accessions(self, value):
+        return self.service.extract_sra_accessions(value)
+
+    def metrics(self):
+        from meta_standards_converter.sources.contracts import request_metrics
+        return request_metrics(self.fetcher)
+
     def fetch_ena_fastq_files(self, accession: str) -> dict:
         identifier = str(accession).strip().upper()
         if self.ena_identifiers is not None and identifier not in self.ena_identifiers:
             return {}
-        return super().fetch_ena_fastq_files(accession=identifier)
+        return self.service.fetch_ena_fastq_files(accession=identifier)
 
-    def _ncbi_nrx(self, nrx: str):
+    def fetch_sra_xml(self, nrx: str):
         identifier = str(nrx).strip().upper()
         return self._checkpointed_xml(identifier)
 
@@ -225,7 +238,7 @@ class CheckpointedINSDCFetcher(INSDCWebfetcher):
                         "<root/>", max_bytes=self.resource_profile.max_xml_bytes
                     )
             try:
-                root = self.fetcher._ncbi_nrx(nrx=identifier)
+                root = self.fetcher.fetch_sra_xml(nrx=identifier)
             except Exception as error:
                 self.store.put(
                     stage,

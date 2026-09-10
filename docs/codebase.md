@@ -2629,3 +2629,23 @@ default factories after concrete classes are defined; explicit factories remain
 authoritative in tests and custom integrations. This preserves the public
 `TraceMetadataResumer()` and `PublicationTextReviewer.resume()` behavior while
 making the dependency direction one-way and inspectable.
+
+<a id="msc6-source-migration"></a>
+## MSC 6 source-service migration
+
+GEO and ArrayExpress converter classes now use explicit uppercase names. Provider
+imports use `meta_standards_converter.sources`; enrichment uses
+`meta_standards_converter.metadata.enrichment`. Source serialization is unchanged.
+
+Checkpointed GEO ingestion composes `GEOSource` and `MINiMLEnricher` directly.
+Source XML, pre-canonical packages, diagnostics and incremental enrichment retain
+the existing checkpoint stages. Checkpointed INSDC retrieval implements a public
+client interface instead of inheriting private XML retrieval; metrics use explicit
+snapshots. The focused GEO/enrichment regression suite passes 60 tests.
+
+<a id="msc6-direct-integration"></a>
+## MSC 6 direct integration
+
+GEO ingestion injects `GEOSource`, a network-free `GEOParser`, and checkpoint-aware enrichment clients. `CheckpointedINSDCFetcher` implements public SRA XML and ENA file-report retrieval; no private `_ncbi_nrx` override remains. `ArrayExpressWrapper(source_resolver=None, parser=None, ...)` resolves MAGE-TAB directly through `AEWebFetcher` and `AEParser`. Both paths checkpoint source evidence before parsing and preserve validation diagnostics. Metrics accumulate deltas from cumulative public snapshots. The checkpoint ingestion path retains its original publication inheritance rules.
+
+The coordinated release preserves MINiML 3.0, retained patches 3.1, Atlas documents 1.0 and serialized checkpoint/status contracts. Historical runs retain their original revision provenance. A new implementation does not authorize automatic production resume: validate a disposable transition using the supported workflow mechanism, or start a new run. Never mix old and new workers against shared state. Processed H5AD checkpoints use version-specific destinations without changing the fingerprint algorithm.

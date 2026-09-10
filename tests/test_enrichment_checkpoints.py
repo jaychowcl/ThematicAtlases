@@ -145,7 +145,7 @@ class FakeINSDC:
         self.sra_calls = []
         self.ena_calls = []
 
-    def _ncbi_nrx(self, nrx):
+    def fetch_sra_xml(self, nrx):
         self.sra_calls.append(nrx)
         if self.sra_error:
             raise self.sra_error
@@ -226,7 +226,7 @@ def test_cached_sra_xml_rejects_dtd_declarations(tmp_path) -> None:
     )
 
     with pytest.raises(UnsafeXMLDocumentError):
-        CheckpointedINSDCFetcher(store, fetcher=FakeINSDC())._ncbi_nrx("SRX1")
+        CheckpointedINSDCFetcher(store, fetcher=FakeINSDC()).fetch_sra_xml("SRX1")
 
 
 def _legacy_package():

@@ -4,8 +4,9 @@ import logging
 from contextlib import nullcontext
 from collections.abc import Mapping
 
-from meta_standards_converter.converters.ae2json import ae2json
-from meta_standards_converter.ae_handlers.ae_webfetcher import (
+from meta_standards_converter.magetab.parser import AEParser
+from meta_standards_converter.sources.contracts import RequestMetrics, request_metrics
+from meta_standards_converter.sources.magetab import (
     AEWebFetcher,
     MAGETabInput,
     TextResource,
@@ -38,11 +39,11 @@ class ArrayExpressWrapper:
 
     def __init__(
         self,
-        converter_factory=None,
+        source_resolver=None,
+        parser=None,
         resource_profile: str | ResourceProfile = "standard",
         resource_overrides=None,
     ):
-        self._converter_factory = converter_factory
         self.resource_profile = (
             resource_profile.with_overrides(resource_overrides)
             if isinstance(resource_profile, ResourceProfile) and resource_overrides
@@ -53,6 +54,9 @@ class ArrayExpressWrapper:
                 overrides=resource_overrides,
             )
         )
+        self.source_resolver = source_resolver if source_resolver is not None else AEWebFetcher(resource_profile=self.resource_profile)
+        self.parser = parser if parser is not None else AEParser()
+        self._request_metrics = RequestMetrics()
         self.provider_attempts = 0
         self.retry_count = 0
         self.rate_wait_seconds = 0.0
@@ -85,31 +89,17 @@ class ArrayExpressWrapper:
                 if checkpoint and checkpoint["status"] in {"no_data", "terminal_error"}:
                     records.append(self._record_from_checkpoint(record, checkpoint))
                     continue
-                converter = None
                 try:
-                    converter = self._converter()
-                    if (
-                        checkpoint_store is not None
-                        and hasattr(converter, "fetcher")
-                        and hasattr(converter, "parser")
-                    ):
+                    if checkpoint_store is not None:
                         packages = self._convert_with_evidence(
-                            converter=converter,
                             accession=accession,
                             index=index,
                             checkpoint_store=checkpoint_store,
                         )
                     else:
-                        converted = converter.convert(
-                            source=accession,
-                            out=None,
-                            sdrf_sources=None,
-                        )
-                        packages = [
-                            canonicalize_miniml_package(item)
-                            for item in converted
-                            if isinstance(item, Mapping)
-                        ]
+                        resolved = self.source_resolver.resolve(accession, sdrf_sources=None)
+                        parsed = self.parser.parse(resolved)
+                        packages = [canonicalize_miniml_package(parsed)] if isinstance(parsed, Mapping) else []
                 except Exception as error:
                     logger.warning(
                         "ArrayExpress metadata failed accession=%s error_type=%s",
@@ -186,7 +176,7 @@ class ArrayExpressWrapper:
                     records.append(self._error_record(record))
                     continue
                 finally:
-                    self._accumulate_request_metrics(converter)
+                    self._accumulate_request_metrics()
                 package = next(iter(packages), None)
                 status = "available" if package is not None else "no_data"
                 payload = checkpoint_payload(
@@ -203,21 +193,17 @@ class ArrayExpressWrapper:
                 )
         return records
 
-    def _accumulate_request_metrics(self, converter) -> None:
-        requester = getattr(getattr(converter, "fetcher", None), "requester", None)
-        if not all(
-            hasattr(requester, name)
-            for name in ("provider_attempts", "retry_count", "rate_wait_seconds")
-        ):
-            return
-        self.provider_attempts += int(requester.provider_attempts)
-        self.retry_count += int(requester.retry_count)
-        self.rate_wait_seconds += float(requester.rate_wait_seconds)
+    def _accumulate_request_metrics(self) -> None:
+        current = request_metrics(self.source_resolver)
+        previous = self._request_metrics
+        self.provider_attempts += max(current.provider_attempts - previous.provider_attempts, 0)
+        self.retry_count += max(current.retry_count - previous.retry_count, 0)
+        self.rate_wait_seconds += max(current.rate_wait_seconds - previous.rate_wait_seconds, 0.0)
+        self._request_metrics = current
 
     def _convert_with_evidence(
         self,
         *,
-        converter,
         accession: str,
         index: int,
         checkpoint_store,
@@ -228,7 +214,7 @@ class ArrayExpressWrapper:
         if source_checkpoint and source_checkpoint["status"] == "available":
             source = self._restore_source(source_checkpoint["payload"])
         else:
-            source = converter.fetcher.resolve(accession, sdrf_sources=None)
+            source = self.source_resolver.resolve(accession, sdrf_sources=None)
             checkpoint_store.put(
                 ARRAYEXPRESS_SOURCE_STAGE,
                 accession,
@@ -236,7 +222,7 @@ class ArrayExpressWrapper:
                 "available",
                 payload=self._source_payload(source),
             )
-        parsed = [converter.parser.parse(source)]
+        parsed = [self.parser.parse(source)]
         precanonical = checkpoint_precanonical(
             checkpoint_store,
             ARRAYEXPRESS_PRECANONICAL_STAGE,
@@ -290,13 +276,6 @@ class ArrayExpressWrapper:
             ),
             str(value.get("source") or ""),
             str(value.get("source_kind") or ""),
-        )
-
-    def _converter(self):
-        if self._converter_factory is not None:
-            return self._converter_factory()
-        return ae2json(
-            fetcher=AEWebFetcher(resource_profile=self.resource_profile)
         )
 
     def available_accession_metadata(
