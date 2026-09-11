@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ThematicAtlases"
-version = "5.0.0"
+version = "6.0.0"
 description = "Tools for building thematic atlases of biomedical datasets."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 authors = []
 dependencies = [
-    "agentic-curator>=5,<6",
+    "agentic-curator>=6,<7",
     "google-auth>=2,<3",
-    "meta-standards-converter>=7,<8",
+    "meta-standards-converter>=8,<9",
     "requests>=2.31,<3",
 ]
 

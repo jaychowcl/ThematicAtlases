@@ -36,7 +36,7 @@ def _status(execution=ExecutionStatus.SUCCEEDED, *, errors=()) -> dict:
 
 def _v2_package(sample_id: str) -> dict:
     return {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "test"},
         "database": [],
         "organization": [],

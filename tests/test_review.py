@@ -251,7 +251,7 @@ def traced_publication(
 
 def available_geo_metadata(store: CheckpointStore, accession: str, *, partial=False):
     package = {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "test"},
         "database": [],
         "organization": [],
@@ -2054,7 +2054,7 @@ def test_snapshot_and_main_metadata_collection_share_accession_lock(tmp_path) ->
             assert release.wait(timeout=5)
             return [
                 {
-                    "miniml_schema_version": "2.0",
+                    "miniml_schema_version": "3.0",
                     "source": {"format": "test"},
                     "database": [],
                     "organization": [],
@@ -2137,7 +2137,7 @@ def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch)
         "available",
         payload=checkpoint_payload(
             [{
-                "miniml_schema_version": "2.0",
+                "miniml_schema_version": "3.0",
                 "source": {"format": "test"},
                 "database": [], "organization": [], "contributor": [],
                 "platform": [], "sample": [],

@@ -96,7 +96,6 @@ def canonicalize_with_diagnostics(
                     "severity": issue.severity,
                 }
                 for issue in result.diagnostics
-                if issue.code != "schema_migrated"
             )
         except MINiMLCompatibilityError as error:
             issues.extend(error.diagnostics)

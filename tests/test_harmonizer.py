@@ -68,7 +68,7 @@ class RecordingOntologyHarmonizer:
 
 def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     document = {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "test"},
         "database": [], "organization": [], "contributor": [], "platform": [],
         "series": {"iid": "GSE1"},
@@ -228,7 +228,7 @@ def test_review_decisions_selectively_change_matching_work_key_and_are_forwarded
 
 def test_explicit_legacy_harmonizer_output_is_strictly_validated() -> None:
     document = {
-        "miniml_schema_version": "2.0",
+        "miniml_schema_version": "3.0",
         "source": {"format": "test"},
         "database": [], "organization": [], "contributor": [], "platform": [],
         "series": {"iid": "GSE1"}, "sample": [],

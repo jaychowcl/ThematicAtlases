@@ -440,3 +440,5 @@ Use `--query <keyword>` when the id is unknown.
 - [MSC 6 direct integration](codebase.md#msc6-direct-integration): owning services, direct consumer migration, preserved data contracts, checkpoint evidence and coordinated run transition. Keywords: MSC6, injection, reader, metrics, source evidence, release.
 
 - [MSC 7 export policy](codebase.md#msc7-export-policy): canonical Atlas metadata, converter-owned replacement_profile, Curator 5 interfaces, hz exports, major-version migration.
+
+- [MINiML v3-only cutover](codebase.md#miniml-v3-only-cutover): MSC 8 and consumer 6 release; v2 rejection, direct source import, removed migration APIs, saved-input guidance, provenance, tests and checkpoint separation.

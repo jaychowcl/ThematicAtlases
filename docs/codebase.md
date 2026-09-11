@@ -71,9 +71,8 @@ and [project layout](#project-purpose-and-layout).
   `CheckpointStore` owns internal item results, fingerprints, retry history,
   and atomic amendments.
 - **Package boundary:** `ThematicAtlases` owns atlas workflow policy.
-  Agentic Curator 4.x owns typed MSC MINiML 3.0 harmonization patches and
-  Meta Standards Converter 5.x owns strict package decoding plus deterministic
-  MINiML 2.0 migration; this repository transports canonical 3.0 packages
+  Agentic Curator 6.x owns typed MSC MINiML 3.0 harmonization patches and
+  Meta Standards Converter 8.x owns strict v3-only package decoding; this repository transports canonical 3.0 packages
   without weakening either boundary.
   `benchmark_ThematicAtlases` reads query and reviewed-output recall traces
   without workflow mutation; its review runner instead resolves public
@@ -436,9 +435,9 @@ the Python API, or the canonical parent-adapter workflow documented in the
   Dataset `metadata` remains open for non-MINiML application mappings. A value
   declaring `miniml_schema_version` or the legacy `mage_tab` marker, or a
   `{"packages": [...]}` collection, is instead a strict MSC-owned boundary:
-  MINiML 3.0 packages and migratable 2.0 packages accepted by
+  Only MINiML 3.0 packages accepted by
   `MINiMLCodec.decode(..., strict=True)` are retained as canonical JSON-native
-  3.0. MINiML 1.x and malformed nested
+  3.0. MINiML 1.x, 2.0, and malformed nested
   packages are rejected rather than silently reinterpreted. ThematicAtlases
   owns the surrounding Atlas v1 model, not the nested MINiML package schema.
 <a id="type-atlas-run-store"></a>
@@ -2583,7 +2582,7 @@ material and never an import boundary.
 <a id="test-and-verification-status"></a>
 ## Test And Verification Status
 
-The deterministic gate reported `723 passed, 4 skipped` on 2026-08-25. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, MINiML 2.0 migration and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, actionable-frontier limits for all four workers, legacy transport-checkpoint recovery, deterministic graph batch splitting and singleton isolation, cooperative cancellation during pre-claim scans and in-flight work, shared cross-process HTTP/model pacing and cooldowns, Retry-After persistence, metadata/review read-only reuse, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, interruption and item-level resume across providers, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, repository resolution, packaged recall references, resumable reviewer hydration, source-faithful metadata retention, privacy-safe diagnostics, and trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
+The deterministic gate reported `723 passed, 4 skipped` on 2026-08-25. Tests cover an offline real-component Atlas system workflow, empty and nested outputs, summaries, strict Atlas v1 scalar/list/boolean/integer types, opt-in trace checkpoints and path safety, persisted runtime provenance/resource profiles, canonical exact resume selection, SQLite durability/fingerprints, atomic concurrent event allocation, selective retry atomicity, review-decision run/source validation and selective checkpoint invalidation, terminal/retryable harmonization reuse, cache invalidation across complete harmonization execution identities, v3-only MINiML validation and canonical 3.0 transport, harmonized summary projection from `hz_*` groups, archive copy/publication/fsync/cleanup failures, transient SQLite-sidecar races, durable archive mutation rejection, actionable-frontier limits for all four workers, legacy transport-checkpoint recovery, deterministic graph batch splitting and singleton isolation, cooperative cancellation during pre-claim scans and in-flight work, shared cross-process HTTP/model pacing and cooldowns, Retry-After persistence, metadata/review read-only reuse, canonical sidecar-to-main checkpoint reuse, metadata audit/typed repair artifacts, grounded direct review, interruption and item-level resume across providers, method-owned query generation, credential preflight, immutable repository capability routing, status 2.0 propagation, resource profile/CLI overrides, safe error persistence, bounded external-DTD XML parsing, compressed-response/redirect/aggregate limits, GEO filtering, publication review, configurable/cached/parallel ontology harmonization, CLI forwarding, repository resolution, packaged recall references, resumable reviewer hydration, source-faithful metadata retention, privacy-safe diagnostics, and trace-free thematic-review benchmarking. Network, HTTP/socket, subprocess, model, Docker, and nf-core effects are blocked or replaced by default.
 
 Useful checks:
 
@@ -2679,7 +2678,7 @@ MAGE-TAB uses characteristic/factor/parameter groups with standard ontology
 companions; units use local `Comment[hz_unit]`. Tables and AnnData use
 `msc.characteristics.hz_*` and assay `hz_value` / `hz_unit` with `_id` and
 `_onto` companions. H5AD metadata is version `2.0` and exported assay metadata
-is `3.0`. MINiML 2 ingestion, MINiML 3, patch 3.1 and MINiML transport versions
+is `3.0`. MINiML 3, patch 3.1 and MINiML transport versions
 are unchanged. Conversion copies protect the canonical input and patch evidence.
 MSC 7 checkpoint identity includes normalized policy and writes in a separate
 version directory from historical checkpoints.
@@ -2694,3 +2693,31 @@ json2tsv atlas.json --replacement-profile-file export-policy.json --out tables
 ```
 
 Publication applies no export profile. The Atlas v1 metadata field remains canonical MINiML; converters apply caller policy later. Dependency tests assert Curator 5 and MSC 7 compatibility.
+
+
+<a id="miniml-v3-only-cutover"></a>
+## MINiML v3-only cutover
+
+MSC 8.0.0, Agentic Curator 6.0.0, ThematicAtlases 6.0.0, and the GSK adapter
+6.0.0 require canonical MSC MINiML `3.0` at application boundaries. MSC no
+longer exports `MINiMLV2Migrator` or `MINiMLCodec.migrate_v2`; v2 packages are
+rejected, including packages embedded in Atlas metadata and profile-free
+Curator envelopes. GEO and MAGE-TAB source ingestion remains supported and
+constructs v3 directly, including harmonized values, units, ontology companions,
+hierarchy depth, and indexed occurrences. Explicit unversioned/1.0 source
+import remains available through `miniml-migrate legacy.json canonical.json`.
+
+Saved v2 documents must be regenerated from source or converted with the
+preceding MSC 7 release in a separate environment before loading. Changing only
+the version marker is insufficient when annotation arrays are present. This
+release does not rewrite historical runs, caches, checkpoints, or archives.
+The converter version separates new processed checkpoints from earlier releases;
+replacement profiles remain part of checkpoint identity.
+
+The canonical v3 wire schema is unchanged: raw values and `hz_*` evidence remain
+additive; source-bound patch evidence stays in `extensions.msc_harmonization`.
+Curator's evidence remains optional. Patch 3.1, Atlas 1.0, H5AD metadata 2.0,
+assay export 3.0, and unrelated status-v2 contracts keep their versions. GSK
+scientific selection policy is unchanged. Boundary rejection, fresh ingestion,
+semantic export/reparse, source preservation, profiles, and consumer integration
+are covered by the maintained v3 fixtures and `test_miniml_v3_only.py` tests.

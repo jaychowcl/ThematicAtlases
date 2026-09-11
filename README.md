@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. MINiML 2.0 remains readable through MSC's deterministic migration, while canonical Atlas encoding emits only 3.0.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. Only MSC MINiML 3.0 is accepted; older package versions must be regenerated or converted before loading.
 
 The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package separately measures raw query-result recall, post-discovery/review recall, and labeled thematic-review classification.
 
@@ -796,7 +796,7 @@ MAGE-TAB uses characteristic/factor/parameter groups with standard ontology
 companions; units use local `Comment[hz_unit]`. Tables and AnnData use
 `msc.characteristics.hz_*` and assay `hz_value` / `hz_unit` with `_id` and
 `_onto` companions. H5AD metadata is version `2.0` and exported assay metadata
-is `3.0`. MINiML 2 ingestion, MINiML 3, patch 3.1 and MINiML transport versions
+is `3.0`. MINiML 3, patch 3.1 and MINiML transport versions
 are unchanged. Conversion copies protect the canonical input and patch evidence.
 MSC 7 checkpoint identity includes normalized policy and writes in a separate
 version directory from historical checkpoints.
@@ -823,3 +823,5 @@ json2tsv atlas.json --replacement-profile-file export-policy.json --out tables
 ## Authors
 
 Created by [jaychowcl](https://github.com/jaychowcl) @ [Saez-Rodriguez Group](https://saezlab.org) & [EMBL-EBI Functional Genomics Team](https://www.ebi.ac.uk/about/teams/functional-genomics/) on May 2026
+
+MSC MINiML v2 input support has been removed. Supply v3 or regenerate from source; see [v3-only migration guidance](docs/codebase.md#miniml-v3-only-cutover).
