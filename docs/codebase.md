@@ -2745,3 +2745,21 @@ Tests: `tests/test_magetab_source_contract.py` exercises actual MSC parsing of a
 nonempty catalogue, source-only restoration, nested/ambiguous filenames, complete
 row preservation, old-MSC construction, legacy snapshots and available-result
 reuse. Offline tests isolate default ontology storage as well as provider gates.
+
+<a id="workflow-ownership"></a>
+## Workflow ownership
+
+`Atlas` preserves its public signatures and injected-service/subclass hooks while
+operation-local workflow objects implement `create`, `collect`, `resume`,
+`harmonize`, and query `amend` in `ThematicAtlases.workflows`. Each workflow receives
+the facade as its compatibility context and owns its execution order; it does not
+construct shared provider clients. `runtime.pauses.AtlasPauseController` owns
+pause snapshots and frontier counts. Existing public methods delegate explicitly.
+
+Creation and resume still reach overridden `collect_datasets` and
+`harmonize_datasets` methods through the existing compatibility adapters. Storage,
+publication, stage names and fingerprint policies are unchanged by extraction.
+Tests in `test_workflow_boundaries.py` freeze the public Python signatures and
+exercise independently invoked workflows, subclass overrides and validation
+before external work. Existing creation/resume/pause suites cover lifecycle and
+artifact parity.

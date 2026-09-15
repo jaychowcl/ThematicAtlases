@@ -444,3 +444,5 @@ Use `--query <keyword>` when the id is unknown.
 - [MINiML v3-only cutover](codebase.md#miniml-v3-only-cutover): MSC 8 and consumer 6 release; v2 rejection, direct source import, removed migration APIs, saved-input guidance, provenance, tests and checkpoint separation.
 
 - [MAGE-TAB source evidence v2](codebase.md#magetab-source-evidence-v2): lossless MSC catalogue checkpoint/restoration, legacy accession recollection and old-runtime compatibility. Keywords: MAGETabInput, file_catalogue, source evidence, SourceEvidenceCompatibilityError, v2.
+
+- [Workflow ownership](codebase.md#workflow-ownership): Atlas facade delegation, operation-local workflow objects, subclass compatibility and pause ownership. Keywords: workflows, CreateAtlasWorkflow, CollectDatasetsWorkflow, ResumeAtlasWorkflow, AtlasPauseController.
