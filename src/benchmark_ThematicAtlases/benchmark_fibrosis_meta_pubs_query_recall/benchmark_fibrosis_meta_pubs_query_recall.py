@@ -123,57 +123,25 @@ def _load_query_snapshot(trace_directory: Path) -> dict:
             f"trace does not contain atlas_run.sqlite3: {trace_directory}"
         )
 
-    connection = sqlite3.connect(
-        f"{database.resolve().as_uri()}?mode=ro",
-        uri=True,
-        timeout=30,
-    )
-    connection.row_factory = sqlite3.Row
+    from ThematicAtlases.runtime.snapshots import read_checkpoint_snapshot
+    snapshot = read_checkpoint_snapshot(trace_directory, stages=('search_queries', 'search_pages'))
+    if 'resolved_queries' not in snapshot.metadata:
+        raise ValueError("trace database is missing resolved_queries metadata")
     try:
-        connection.execute("PRAGMA query_only=ON")
-        connection.execute("BEGIN")
-        tables = {
-            row["name"]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
-        for required in ("checkpoint_meta", "checkpoint_items"):
-            if required not in tables:
-                raise ValueError(f"trace database is missing required table: {required}")
+        resolved_queries = json.loads(snapshot.metadata["resolved_queries"])
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError("resolved_queries metadata is not valid JSON") from error
+    if (
+        not isinstance(resolved_queries, list)
+        or not resolved_queries
+        or any(not isinstance(query, str) or not query.strip() for query in resolved_queries)
+    ):
+        raise ValueError("resolved_queries metadata must be a non-empty list of queries")
+    if len(set(resolved_queries)) != len(resolved_queries):
+        raise ValueError("resolved_queries metadata contains duplicate queries")
 
-        resolved_row = connection.execute(
-            "SELECT value FROM checkpoint_meta WHERE key = ?",
-            ("resolved_queries",),
-        ).fetchone()
-        if resolved_row is None:
-            raise ValueError("trace database is missing resolved_queries metadata")
-        try:
-            resolved_queries = json.loads(resolved_row["value"])
-        except (TypeError, json.JSONDecodeError) as error:
-            raise ValueError("resolved_queries metadata is not valid JSON") from error
-        if (
-            not isinstance(resolved_queries, list)
-            or not resolved_queries
-            or any(not isinstance(query, str) or not query.strip() for query in resolved_queries)
-        ):
-            raise ValueError("resolved_queries metadata must be a non-empty list of queries")
-        if len(set(resolved_queries)) != len(resolved_queries):
-            raise ValueError("resolved_queries metadata contains duplicate queries")
+    checkpoint_rows = snapshot.items
 
-        checkpoint_rows = list(
-            connection.execute(
-                """
-                SELECT stage, item_key, ordinal, status, payload, error
-                FROM checkpoint_items
-                WHERE stage IN ('search_queries', 'search_pages')
-                ORDER BY ordinal, item_key
-                """
-            )
-        )
-    finally:
-        connection.rollback()
-        connection.close()
 
     search_queries = {
         row["item_key"]: row for row in checkpoint_rows if row["stage"] == "search_queries"

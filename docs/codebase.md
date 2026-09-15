@@ -2784,3 +2784,29 @@ deduplication and output ordering remain unchanged.
 
 Focused tests cover cross-repository batching/order, embedded text reuse, review
 checkpoints, failed/reused harmonization, discovery pauses and worker behaviour.
+
+<a id="runtime-construction-and-management"></a>
+## Runtime construction and management
+
+`bootstrap.AtlasRuntimeFactory` is the supported reusable construction boundary.
+It accepts provider/metadata/reviewer factories, repository selection, resource
+profiles, NCBI identity and capabilities; builds Atlas through `build_atlas`; and
+creates fresh collectors, filterers, reviewer continuations and workers. Injected
+services pass through unchanged. Construction makes no provider/model call.
+Explicit classification remains a caller policy; the default remains unknown.
+`Atlas.__init__` delegates initialization to this same construction module while
+retaining its public signature and lazy query/cache behaviour.
+
+`DevTraceWriter.manager` exposes `runtime.manager.AtlasRunManager`, bound to one
+run identity. It supports retry selection, status counts, redacted events and
+failure recording without exposing store layout to callers. Failure recording
+preserves item checkpoints and publishes the existing retry-report artifact.
+`runtime.snapshots.read_checkpoint_snapshot` opens a query-only SQLite transaction
+and returns coherent metadata/rows without constructing or migrating stores. The
+query recall benchmark uses this boundary. Store schemas and projection triggers
+remain unchanged.
+
+Tests: `test_bootstrap.py`, `test_run_management.py`, existing CLI, trace and query
+benchmark suites cover lazy construction, resource/cancellation propagation,
+operation lifetimes, selected retries, preservation of available evidence and
+read-only snapshots.

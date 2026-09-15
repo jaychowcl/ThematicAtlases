@@ -1,3 +1,4 @@
+from ThematicAtlases.bootstrap import initialize_atlas, _configured_factory, _json_runtime_provenance
 from ThematicAtlases.workflows.create import CreateAtlasWorkflow
 from ThematicAtlases.workflows.collect import CollectDatasetsWorkflow
 from ThematicAtlases.workflows.resume import ResumeAtlasWorkflow
@@ -59,39 +60,8 @@ from ThematicAtlases.wrappers.pubmed_gds import (
 logger = logging.getLogger(__name__)
 
 
-def _configured_factory(factory, **configuration):
-    parameters = inspect.signature(factory).parameters.values()
-    if not any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters
-    ):
-        accepted = {parameter.name for parameter in parameters}
-        configuration = {
-            key: value
-            for key, value in configuration.items()
-            if key in accepted
-        }
-    return partial(factory, **configuration)
 
 
-def _json_runtime_provenance(
-    value: Mapping[str, object] | None,
-) -> dict[str, object]:
-    if value is None:
-        return {}
-    if not isinstance(value, Mapping):
-        raise TypeError("runtime_provenance must be a mapping or None")
-    try:
-        normalized = json.loads(
-            json.dumps(value, sort_keys=True, separators=(",", ":"))
-        )
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            "runtime_provenance must be JSON-compatible"
-        ) from error
-    if not isinstance(normalized, dict):
-        raise TypeError("runtime_provenance must normalize to an object")
-    return normalized
 
 
 class Atlas:
@@ -120,87 +90,30 @@ class Atlas:
         ncbi_tool: str = "ThematicAtlases",
         ncbi_email: str | None = None,
     ):
-        self.metadata = metadata
-        self._resource_profile = (
-            resource_profile.with_overrides(resource_overrides)
-            if isinstance(resource_profile, ResourceProfile) and resource_overrides
-            else resource_profile
-            if isinstance(resource_profile, ResourceProfile)
-            else get_resource_profile(
-                resource_profile,
-                overrides=resource_overrides,
-            )
-        )
-        self._runtime_provenance = _json_runtime_provenance(runtime_provenance)
-        self._capability_registry = (
-            capability_registry or RepositoryCapabilityRegistry()
-        )
-        epmc_wrapper_factory = epmc_wrapper_factory or _configured_factory(
-            EuropePMCWrapper,
-            resource_profile=self._resource_profile,
-            ncbi_api_key=ncbi_api_key,
-            ncbi_tool=ncbi_tool,
-            ncbi_email=ncbi_email,
-        )
-        if metadata_handlers is None:
-            metadata_handlers = {
-                "arrayexpress": _configured_factory(
-                    ArrayExpressWrapper,
-                    resource_profile=self._resource_profile,
-                ),
-                "geo": _configured_factory(
-                    GEOWrapper,
-                    resource_profile=self._resource_profile,
-                    api_key=ncbi_api_key,
-                    tool=ncbi_tool,
-                    email=ncbi_email,
-                ),
-            }
-        publication_text_reviewer = (
-            publication_text_reviewer
-            or PublicationTextReviewer(
-                capability_registry=self._capability_registry
-            )
-        )
-        self._collector = collector or AtlasCollector(
+        initialize_atlas(
+            self,
+            metadata=metadata,
             epmc_wrapper_factory=epmc_wrapper_factory,
             metadata_handlers=metadata_handlers,
             metadata_repositories=metadata_repositories,
-            capability_registry=self._capability_registry,
-        )
-        self._filterer = filterer or AtlasFilterer(
-            epmc_wrapper_factory=epmc_wrapper_factory,
             publication_text_reviewer=publication_text_reviewer,
-        )
-        if harmonizer is not None and (ontostore is not None or cache_ontologies):
-            raise ValueError(
-                "ontostore/cache_ontologies cannot be combined with a custom harmonizer"
-            )
-        if cache_ontologies and ontostore is None:
-            from agentic_curator.curators.ontology_harmonizer import OntoStore
-
-            ontostore = OntoStore(resource_profile=self._resource_profile)
-        self._ontostore = ontostore
-        self._cache_ontologies = cache_ontologies
-        self._ontologies_cached = False
-        self.ontology_cache_result = None
-        self._harmonizer = harmonizer or AtlasHarmonizer(
+            collector=collector,
+            filterer=filterer,
+            harmonizer=harmonizer,
             ontostore=ontostore,
+            cache_ontologies=cache_ontologies,
+            query_generator=query_generator,
             credential_checker=credential_checker,
-            capability_registry=self._capability_registry,
-            max_workers=self._resource_profile.network_workers,
-            resource_profile=self._resource_profile,
-        )
-        self._query_generator_instance = query_generator
-        self._credential_checker = credential_checker
-        self._credentials_checked = False
-        self._documents = AtlasDocumentService(
-            adapter=document_adapter or AtlasDocumentAdapter(),
-            publisher=artifact_publisher or JsonArtifactBundlePublisher(),
-        )
-        self._run_lifecycle = run_lifecycle or AtlasRunLifecycle(
-            metadata=self.metadata,
-            documents=self._documents,
+            document_adapter=document_adapter,
+            artifact_publisher=artifact_publisher,
+            capability_registry=capability_registry,
+            resource_profile=resource_profile,
+            resource_overrides=resource_overrides,
+            runtime_provenance=runtime_provenance,
+            run_lifecycle=run_lifecycle,
+            ncbi_api_key=ncbi_api_key,
+            ncbi_tool=ncbi_tool,
+            ncbi_email=ncbi_email,
         )
 
     def create_atlas(

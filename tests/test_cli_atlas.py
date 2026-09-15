@@ -4,7 +4,7 @@ import json
 import pytest
 
 from ThematicAtlases.cli_atlas import _configure_logging, main
-from ThematicAtlases import atlas as atlas_module
+from ThematicAtlases import bootstrap as atlas_module
 from ThematicAtlases import cli_atlas as cli_module
 from ThematicAtlases.domain import AtlasDocument
 from meta_standards_converter.runtime_contracts import (

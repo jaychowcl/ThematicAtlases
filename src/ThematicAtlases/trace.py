@@ -51,6 +51,12 @@ class DevTraceWriter:
             )
 
     @property
+    def manager(self):
+        """Supported run operations bound to this trace's identity."""
+        from ThematicAtlases.runtime.manager import AtlasRunManager
+        return AtlasRunManager(self)
+
+    @property
     def checkpoint_store(self) -> CheckpointStore:
         if self._checkpoint_store is None:
             _ = self.run_store

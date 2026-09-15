@@ -448,3 +448,5 @@ Use `--query <keyword>` when the id is unknown.
 - [Workflow ownership](codebase.md#workflow-ownership): Atlas facade delegation, operation-local workflow objects, subclass compatibility and pause ownership. Keywords: workflows, CreateAtlasWorkflow, CollectDatasetsWorkflow, ResumeAtlasWorkflow, AtlasPauseController.
 
 - [Typed stage operations](codebase.md#typed-stage-operations): shared discovery/metadata/text/review/harmonization request/result boundaries and legacy adapters. Keywords: stages, StagePort, MetadataRequest, ReviewResult, HarmonizationResult.
+
+- [Runtime construction and management](codebase.md#runtime-construction-and-management): shared lazy builders, explicit service lifetimes, trace-bound run operations and read-only snapshots. Keywords: AtlasRuntimeFactory, bootstrap, AtlasRunManager, request_retries, read_checkpoint_snapshot.
