@@ -1,3 +1,4 @@
+from ThematicAtlases.stages.text import PublicationTextStage, PublicationTextRequest
 import json
 import logging
 
@@ -162,80 +163,11 @@ class AtlasFilterer:
         publication_texts: dict | None = None,
         checkpoint_store=None,
     ) -> dict:
-        publication_texts = dict(publication_texts or {})
-        publications = []
-        publication_index = {}
-
-        for record in jsons:
-            for publication in record.get(PUBLICATIONS, []):
-                publication_ref = self.publication_text_ref(publication=publication)
-
-                if publication_ref in publication_texts:
-                    continue
-                if (
-                    publication.get("text_source")
-                    or publication.get("full_text_status")
-                ):
-                    publication_texts[publication_ref] = {
-                        "text": publication.get("text", ""),
-                        "text_source": publication.get("text_source", "none"),
-                        "full_text_status": publication.get(
-                            "full_text_status",
-                            "unavailable",
-                        ),
-                    }
-                    continue
-
-                publication_key = self.publication_key(publication=publication)
-
-                if publication_key not in publication_index:
-                    publication_index[publication_key] = len(publications)
-                    publications.append(publication)
-
-        if not publications:
-            logger.info(
-                "Atlas publication text stats input_accessions=%s unique_publications=0 publication_texts=%s",
-                len(jsons),
-                len(publication_texts),
-            )
-            return publication_texts
-
-        logger.info(
-            "Atlas publication text progress unique_publications=%s",
-            len(publications),
-        )
-        text_options = {"publications": publications}
-        if checkpoint_store is not None:
-            text_options["checkpoint_store"] = checkpoint_store
-        enriched_publications = self._epmc_wrapper().collect_publication_texts(
-            **text_options
-        )
-
-        publication_texts.update(
-            {
-                publication_ref: {
-                    "text": publication.get("text", ""),
-                    "text_source": publication.get("text_source", "none"),
-                    "full_text_status": publication.get(
-                        "full_text_status",
-                        "unavailable",
-                    ),
-                }
-                for publication in enriched_publications
-                if (
-                    publication_ref := self.publication_text_ref(
-                        publication=publication
-                    )
-                )
-            }
-        )
-        logger.info(
-            "Atlas publication text stats input_accessions=%s unique_publications=%s publication_texts=%s",
-            len(jsons),
-            len(publications),
-            len(publication_texts),
-        )
-        return publication_texts
+        return PublicationTextStage(self).run(PublicationTextRequest(
+            jsons=jsons,
+            publication_texts=publication_texts,
+            checkpoint_store=checkpoint_store,
+        )).publication_texts
 
     def accessions_with_publication_text_refs(
         self,

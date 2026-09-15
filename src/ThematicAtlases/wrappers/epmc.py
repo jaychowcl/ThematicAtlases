@@ -1,3 +1,4 @@
+from ThematicAtlases.stages.discovery import DiscoveryStage, DiscoveryRequest
 import logging
 import hashlib
 import time
@@ -128,108 +129,14 @@ class EuropePMCWrapper:
         scrape_fulltext_accessions: bool = True,
         stop_after: str | None = None,
     ) -> list[dict]:
-        if stop_after is not None and stop_after not in DISCOVERY_STOP_STAGES:
-            raise ValueError(
-                "EuropePMC stop_after must be a discovery stage: "
-                + ", ".join(DISCOVERY_STOP_STAGES)
-            )
-        if stop_after in {"publication-text", "fulltext-accessions"} and not (
-            scrape_fulltext_accessions
-        ):
-            raise ValueError(
-                f"stop_after={stop_after!r} requires "
-                "scrape_fulltext_accessions=True"
-            )
-        if checkpoint_store is not None:
-            checkpoint_store.set_meta(
-                "main_pipeline_phase",
-                {"phase": "datalinks"},
-            )
-            self._set_pipeline_stage(checkpoint_store, "query-results", "running")
-        publication_options = {
-            "queries": queries,
-            "max_publications": max_publications,
-        }
-        if max_publications_per_query is not None:
-            publication_options["max_publications_per_query"] = (
-                max_publications_per_query
-            )
-        datalink_options = {}
-        if checkpoint_store is not None:
-            publication_options["checkpoint_store"] = checkpoint_store
-            datalink_options["checkpoint_store"] = checkpoint_store
-        publications = self.collect_publications(**publication_options)
-        self._set_pipeline_stage(checkpoint_store, "query-results", "complete")
-        if stop_after == "query-results":
-            raise AtlasStagePause(
-                "query-results",
-                {"accessions": [], "publication_texts": {}, "publications": publications},
-            )
-        self._set_pipeline_stage(checkpoint_store, "datalinks", "running")
-        accessions = self.collect_datalinks(
-            publications=publications,
-            **datalink_options,
-        )
-        self._set_pipeline_stage(checkpoint_store, "datalinks", "complete")
-        if stop_after == "datalinks":
-            raise AtlasStagePause(
-                "datalinks",
-                {"accessions": accessions, "publication_texts": {}},
-            )
-        if checkpoint_store is not None:
-            checkpoint_store.set_meta(
-                "main_pipeline_phase",
-                {"phase": "downstream"},
-            )
-        enriched_publications = publications
-        scraped = []
-        if scrape_fulltext_accessions:
-            self._set_pipeline_stage(checkpoint_store, "publication-text", "running")
-            text_options = {"publications": publications}
-            if checkpoint_store is not None:
-                text_options["checkpoint_store"] = checkpoint_store
-            enriched_publications = self.collect_publication_texts(**text_options)
-            self._set_pipeline_stage(checkpoint_store, "publication-text", "complete")
-            if stop_after == "publication-text":
-                raise AtlasStagePause(
-                    "publication-text",
-                    {"accessions": accessions, "publication_texts": {}},
-                )
-            accessions = self._accessions_with_enriched_publications(
-                accessions,
-                enriched_publications,
-            )
-            self._set_pipeline_stage(
-                checkpoint_store, "fulltext-accessions", "running"
-            )
-            scraped = self.accessions_from_fulltexts(
-                enriched_publications,
-                checkpoint_store=checkpoint_store,
-            )
-            self._set_pipeline_stage(
-                checkpoint_store, "fulltext-accessions", "complete"
-            )
-            if stop_after == "fulltext-accessions":
-                raise AtlasStagePause(
-                    "fulltext-accessions",
-                    {
-                        "accessions": self.merge_accessions(accessions, scraped),
-                        "publication_texts": {},
-                    },
-                )
-        self._set_pipeline_stage(checkpoint_store, "accession-graph", "running")
-        graph = self.accessions_from_link_graph(
-            enriched_publications,
+        return DiscoveryStage(self).run(DiscoveryRequest(
+            queries=queries,
+            max_publications=max_publications,
+            max_publications_per_query=max_publications_per_query,
             checkpoint_store=checkpoint_store,
-        )
-        self._set_pipeline_stage(checkpoint_store, "accession-graph", "complete")
-        merged = self.merge_accessions(accessions, scraped, graph)
-        if stop_after == "accession-graph":
-            raise AtlasStagePause(
-                "accession-graph",
-                {"accessions": merged, "publication_texts": {}},
-            )
-        return merged
+            scrape_fulltext_accessions=scrape_fulltext_accessions,
+            stop_after=stop_after,
+        )).records
 
     @staticmethod
     def _set_pipeline_stage(checkpoint_store, stage: str, state: str) -> None:

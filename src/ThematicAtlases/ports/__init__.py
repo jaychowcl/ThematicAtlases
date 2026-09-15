@@ -40,3 +40,17 @@ __all__ = [
     "FiltererPort",
     "HarmonizerPort",
 ]
+
+# New internal stage boundaries carry explicit request/result types. Existing
+# mapping-based public ports above remain supported for injected consumers.
+from typing import TypeVar
+
+RequestT = TypeVar('RequestT', contravariant=True)
+ResultT = TypeVar('ResultT', covariant=True)
+
+
+class StagePort(Protocol[RequestT, ResultT]):
+    def run(self, request: RequestT) -> ResultT: ...
+
+
+__all__.append('StagePort')

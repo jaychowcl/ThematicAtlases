@@ -2763,3 +2763,24 @@ Tests in `test_workflow_boundaries.py` freeze the public Python signatures and
 exercise independently invoked workflows, subclass overrides and validation
 before external work. Existing creation/resume/pause suites cover lifecycle and
 artifact parity.
+
+<a id="typed-stage-operations"></a>
+## Typed stage operations
+
+`ThematicAtlases.stages` holds discovery, metadata collection, publication text,
+per-publication review and harmonization operations. Each receives a frozen
+request dataclass and returns an explicit result (`RecordsResult`,
+`PublicationTextsResult`, `ReviewResult`, or `HarmonizationResult`). `StagePort`
+describes this internal boundary. Requests retain source values and references;
+they do not duplicate MSC's structural metadata model or deep-copy service state.
+
+Existing collector/filterer/reviewer/harmonizer/provider methods construct these
+requests and adapt results to their original public shapes. Main, resume and
+worker callers therefore share the operations while retaining their scheduling,
+locking and eligibility rules. Operation-local stage instances receive the owning
+service's dependencies and extension hooks; they do not confer thread safety on
+injected mutable clients. Review input identities, retry outcomes, harmonization
+deduplication and output ordering remain unchanged.
+
+Focused tests cover cross-repository batching/order, embedded text reuse, review
+checkpoints, failed/reused harmonization, discovery pauses and worker behaviour.

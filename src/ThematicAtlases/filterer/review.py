@@ -1,3 +1,4 @@
+from ThematicAtlases.stages.review import PublicationReviewStage, PublicationReviewRequest
 import json
 import logging
 import hashlib
@@ -299,158 +300,20 @@ class PublicationTextReviewer:
         reviewer_identity: dict,
         criteria: list[dict[str, str]] | None,
     ) -> dict:
-        checkpoint_key = self._review_checkpoint_key(strategy, publication_ref)
-        checkpoint = (
-            checkpoint_store.get("thematic_review", checkpoint_key)
-            if checkpoint_store is not None
-            else None
-        )
-        payload = (checkpoint or {}).get("payload") or {}
-        if checkpoint and checkpoint["status"] in {
-            "available",
-            "terminal_error",
-        } and (
-            payload.get("input_hash") == input_hash
-        ):
-            publication_text = dict(
-                payload.get("publication_text", publication_text)
-            )
-
-        existing_review = publication_text.get(AGENTIC_CURATOR)
-        coverage_context = self._metadata_context(context)
-        if (
-            isinstance(existing_review, dict)
-            and existing_review.get("theme") == theme
-            and existing_review.get("strategy") == strategy
-            and existing_review.get("review_input_hash") == input_hash
-        ):
-            return {
-                "publication_text": publication_text,
-                "reviewed": 0,
-                "reused": 1,
-                "failed": 0,
-            }
-
-        try:
-            review_options = {
-                "publication_text": publication_text.get("text", ""),
-                "theme": theme,
-                "metadata": context.get("metadata"),
-                "title": context.get("title"),
-                "accessions": context.get("accessions", []),
-                "strategy": strategy,
-            }
-            if criteria is not None:
-                review_options["criteria"] = criteria
-            signature = inspect.signature(reviewer.review_relevancy)
-            accepts_kwargs = any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD
-                for parameter in signature.parameters.values()
-            )
-            if not accepts_kwargs:
-                review_options = {
-                    key: value
-                    for key, value in review_options.items()
-                    if key in signature.parameters
-                }
-            review = reviewer.review_relevancy(
-                **review_options
-            )
-        except Exception as error:
-            logger.error(
-                "Atlas thematic review failed publication_ref=%s error_type=%s; retaining publication as unreviewed",
-                publication_ref,
-                type(error).__name__,
-            )
-            safe_error = safe_error_mapping(
-                error,
-                provider="agentic_curator",
-                stage="thematic_review",
-                item_id=publication_ref,
-                retryable=is_retryable_error(error),
-            )
-            failed_review = {
-                "theme": theme,
-                "strategy": strategy,
-                "review_status": "failed",
-                "error_type": type(error).__name__,
-                "error": safe_error,
-                "review_input_hash": input_hash,
-                "review_contract_version": REVIEW_CONTRACT_VERSION,
-                "reviewer_identity": reviewer_identity,
-            }
-            if coverage_context is not None:
-                failed_review["metadata_context"] = coverage_context
-            publication_text[AGENTIC_CURATOR] = failed_review
-            if checkpoint_store is not None:
-                checkpoint_store.put(
-                    "thematic_review",
-                    checkpoint_key,
-                    index,
-                    "retryable_error"
-                    if is_retryable_error(error)
-                    else "terminal_error",
-                    payload={
-                        "publication_text": publication_text,
-                        "input_hash": input_hash,
-                        "identity_hash": identity_hash,
-                        "review_contract_version": REVIEW_CONTRACT_VERSION,
-                        "strategy": strategy,
-                        "publication_ref": publication_ref,
-                        "reviewer_identity": reviewer_identity,
-                        **(
-                            {"next_retry_at": float(error.retry_at)}
-                            if getattr(error, "retry_at", None) is not None
-                            else {}
-                        ),
-                    },
-                    error=safe_error_json(
-                        error,
-                        provider="agentic_curator",
-                        stage="thematic_review",
-                        item_id=publication_ref,
-                        retryable=is_retryable_error(error),
-                    ),
-                    error_type=type(error).__name__,
-                    failure_category=failure_category(error),
-                )
-            return {
-                "publication_text": publication_text,
-                "reviewed": 0,
-                "reused": 0,
-                "failed": 1,
-            }
-
-        publication_text[AGENTIC_CURATOR] = self.agentic_curator_review(
+        return PublicationReviewStage(self).run(PublicationReviewRequest(
+            publication_ref=publication_ref,
+            publication_text=publication_text,
+            context=context,
             theme=theme,
-            review=review,
+            reviewer=reviewer,
+            checkpoint_store=checkpoint_store,
+            index=index,
+            input_hash=input_hash,
+            identity_hash=identity_hash,
             strategy=strategy,
-            review_input_hash=input_hash,
-            metadata_context=coverage_context,
             reviewer_identity=reviewer_identity,
-        )
-        if checkpoint_store is not None:
-            checkpoint_store.put(
-                "thematic_review",
-                checkpoint_key,
-                index,
-                "available",
-                payload={
-                    "publication_text": publication_text,
-                    "input_hash": input_hash,
-                    "identity_hash": identity_hash,
-                    "review_contract_version": REVIEW_CONTRACT_VERSION,
-                    "strategy": strategy,
-                    "publication_ref": publication_ref,
-                    "reviewer_identity": reviewer_identity,
-                },
-            )
-        return {
-            "publication_text": publication_text,
-            "reviewed": 1,
-            "reused": 0,
-            "failed": 0,
-        }
+            criteria=criteria,
+        )).to_mapping()
 
     def _review_criteria(
         self,
