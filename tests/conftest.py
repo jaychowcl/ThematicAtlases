@@ -96,3 +96,10 @@ def block_external_effects(request, monkeypatch) -> None:
         monkeypatch.setattr(socket.socket, "connect_ex", _blocked_network)
     if request.node.get_closest_marker("allow_subprocess") is None:
         monkeypatch.setattr(subprocess, "Popen", _blocked_subprocess)
+
+
+@pytest.fixture(autouse=True)
+def isolate_default_ontology_store(tmp_path, monkeypatch):
+    """Never initialize a shared ontology store from an offline test default."""
+    from agentic_curator.curators.ontology_harmonizer import OntoStore
+    monkeypatch.setattr(OntoStore, 'DEFAULT_STORAGE_DIR', tmp_path / 'ontology-store')

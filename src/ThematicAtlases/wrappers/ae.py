@@ -13,6 +13,10 @@ from meta_standards_converter.sources.magetab import (
 )
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
 
+from ThematicAtlases.integrations.magetab import (
+    SourceEvidenceCompatibilityError, resource_payload, restore_resource,
+    source_payload, restore_source,
+)
 from ThematicAtlases.checkpoint import is_retryable_error
 from ThematicAtlases.miniml_boundary import checkpoint_packages, checkpoint_payload, canonicalize_miniml_package
 from ThematicAtlases.runtime_contracts import safe_error_json, safe_error_mapping
@@ -100,6 +104,10 @@ class ArrayExpressWrapper:
                         resolved = self.source_resolver.resolve(accession, sdrf_sources=None)
                         parsed = self.parser.parse(resolved)
                         packages = [canonicalize_miniml_package(parsed)] if isinstance(parsed, Mapping) else []
+                except SourceEvidenceCompatibilityError:
+                    # Incomplete historical source evidence is not a provider
+                    # failure. Preserve the source and derived checkpoints.
+                    raise
                 except Exception as error:
                     logger.warning(
                         "ArrayExpress metadata failed accession=%s error_type=%s",
@@ -238,45 +246,10 @@ class ArrayExpressWrapper:
             ordinal=index,
         )
 
-    @staticmethod
-    def _resource_payload(resource: TextResource) -> dict:
-        return {
-            "name": resource.name,
-            "origin": resource.origin,
-            "content": compressed_text(resource.text),
-        }
-
-    @classmethod
-    def _source_payload(cls, source: MAGETabInput) -> dict:
-        return {
-            "contract_version": 1,
-            "provider": "arrayexpress",
-            "source": source.source,
-            "source_kind": source.source_kind,
-            "idf": cls._resource_payload(source.idf),
-            "sdrfs": [cls._resource_payload(item) for item in source.sdrfs],
-        }
-
-    @staticmethod
-    def _restore_resource(value: Mapping) -> TextResource:
-        return TextResource(
-            str(value.get("name") or ""),
-            restored_text(value.get("content") or {}),
-            str(value.get("origin") or ""),
-        )
-
-    @classmethod
-    def _restore_source(cls, value: Mapping) -> MAGETabInput:
-        return MAGETabInput(
-            cls._restore_resource(value.get("idf") or {}),
-            tuple(
-                cls._restore_resource(item)
-                for item in value.get("sdrfs", [])
-                if isinstance(item, Mapping)
-            ),
-            str(value.get("source") or ""),
-            str(value.get("source_kind") or ""),
-        )
+    _resource_payload = staticmethod(resource_payload)
+    _restore_resource = staticmethod(restore_resource)
+    _source_payload = staticmethod(source_payload)
+    _restore_source = staticmethod(restore_source)
 
     def available_accession_metadata(
         self,

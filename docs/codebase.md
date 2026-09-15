@@ -2721,3 +2721,27 @@ assay export 3.0, and unrelated status-v2 contracts keep their versions. GSK
 scientific selection policy is unchanged. Boundary rejection, fresh ingestion,
 semantic export/reparse, source preservation, profiles, and consumer integration
 are covered by the maintained v3 fixtures and `test_miniml_v3_only.py` tests.
+
+<a id="magetab-source-evidence-v2"></a>
+## MAGE-TAB source evidence v2
+
+`integrations.magetab` owns the lossless MSC `MAGETabInput` checkpoint codec.
+Catalogue-capable MSC writes ArrayExpress source payload v2 with the complete,
+ordered `file_catalogue`; parsing restored evidence must equal fresh parsing.
+The existing wrapper codec methods delegate to this adapter. This changes only
+the source-evidence payload, not SQLite, Atlas v1, or MINiML schemas.
+
+Older MSC without the optional catalogue field continues to read/write v1.
+A v2 snapshot requires catalogue-capable MSC. Under the newer runtime, v1
+accession evidence lacks a known catalogue: source-only reparsing raises
+`SourceEvidenceCompatibilityError` and requests complete recollection in a fresh
+run, without fetching or rewriting historical evidence. Available metadata reuse
+retains its existing rules; v1 local/URL snapshots retain their empty-catalogue
+resolver contract. Invalid/future payloads fail explicitly. Compatibility errors
+escape the wrapper's provider-failure handler rather than being cached as a
+terminal provider error. Run provenance checks still apply.
+
+Tests: `tests/test_magetab_source_contract.py` exercises actual MSC parsing of a
+nonempty catalogue, source-only restoration, nested/ambiguous filenames, complete
+row preservation, old-MSC construction, legacy snapshots and available-result
+reuse. Offline tests isolate default ontology storage as well as provider gates.

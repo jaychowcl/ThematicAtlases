@@ -1,0 +1,49 @@
+{
+  "description": "Offline MSC MAGETabInput catalogue roundtrip control; fictional identifiers and example.org locations, no retrieval.",
+  "source": "E-GEOD-1",
+  "source_kind": "accession",
+  "idf": {
+    "name": "x.idf.txt",
+    "origin": "memory:idf",
+    "text": "Investigation Accession\tE-GEOD-1\nInvestigation Title\tCatalogue checkpoint control\nSDRF File\tx.sdrf.txt\n"
+  },
+  "sdrfs": [
+    {
+      "name": "x.sdrf.txt",
+      "origin": "memory:sdrf",
+      "text": "Source Name\tDerived Array Data File\ns1\ta.txt\ns1\tb.txt\ns1\tresults/a.txt\ns1\tunknown.txt\n"
+    }
+  ],
+  "file_catalogue": [
+    {
+      "path": "results/a.txt",
+      "uri": "https://example.org/Files/results/a.txt"
+    },
+    {
+      "path": "one/b.txt",
+      "uri": "https://example.org/Files/one/b.txt"
+    },
+    {
+      "path": "two/b.txt",
+      "uri": "https://example.org/Files/two/b.txt"
+    }
+  ],
+  "expected": [
+    {
+      "name": "a.txt",
+      "uri": "https://example.org/Files/results/a.txt"
+    },
+    {
+      "name": "b.txt",
+      "uri": null
+    },
+    {
+      "name": "results/a.txt",
+      "uri": "https://example.org/Files/results/a.txt"
+    },
+    {
+      "name": "unknown.txt",
+      "uri": null
+    }
+  ]
+}
