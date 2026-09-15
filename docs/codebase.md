@@ -1,5 +1,12 @@
 # ThematicAtlases Codebase Handoff
 
+Current organization: [package boundaries](#package-boundaries-and-compatibility),
+[workflow ownership](#workflow-ownership), [typed stages](#typed-stage-operations),
+and [runtime construction](#runtime-construction-and-management). Public symbols
+below remain compatibility entrypoints; their implementations now live in the
+owning packages described in those sections.
+
+
 This is the canonical architecture, interface, and workflow handoff for the
 implemented package. It is evidence-backed by the production modules, package
 metadata, supported interfaces, and tests in this repository.
@@ -423,7 +430,7 @@ the Python API, or the canonical parent-adapter workflow documented in the
   marker into Atlas `schema_version`. A metadata collection represented as
   `{"packages": [...]}` is validated package by package.
 <a id="type-atlas-document"></a>
-- [`AtlasDocument`](../src/ThematicAtlases/domain.py) is the canonical v1
+- [`AtlasDocument`](../src/ThematicAtlases/domain/atlas.py) is the canonical v1
   exchange model. Frozen standard-library dataclasses and string enums own
   Atlas identity, run configuration/status, ordered datasets, publications,
   review/harmonization values, diagnostics, artifacts, and derived summary.
@@ -610,7 +617,7 @@ otherwise.
 
 | Qualified export | Constructor/value and public contract |
 | --- | --- |
-| [`ThematicAtlases.domain`](../src/ThematicAtlases/domain.py) | Formally exports the `AtlasDocument` v1 type family and enums through its `__all__`. The codec accepts a mapping or UTF-8 JSON path and returns frozen typed values; validation failures raise `ValueError`; `dump` creates parents and atomically replaces deterministic JSON. [`tests/fixtures/contracts/atlas-document-v1.json`](../tests/fixtures/contracts/atlas-document-v1.json) is the owner-produced downstream wire-contract fixture. |
+| [`ThematicAtlases.domain`](../src/ThematicAtlases/domain/atlas.py) | Formally exports the `AtlasDocument` v1 type family and enums through its `__all__`. The codec accepts a mapping or UTF-8 JSON path and returns frozen typed values; validation failures raise `ValueError`; `dump` creates parents and atomically replaces deterministic JSON. [`tests/fixtures/contracts/atlas-document-v1.json`](../tests/fixtures/contracts/atlas-document-v1.json) is the owner-produced downstream wire-contract fixture. |
 | [`ThematicAtlases.application.AtlasDocumentService`](../src/ThematicAtlases/application/atlas_documents.py) | `(*, adapter=None, publisher=None)`; `assemble(...) -> AtlasDocument`, `to_legacy(document) -> dict`, `summary(document, atlas_path, *, unsupported_accessions_report=None, unsupported_accessions_path=None) -> dict`, `publish(document, out, *, include_summary, unsupported_accessions_report=None, unsupported_accessions_path=None) -> dict`, and `publish_unsupported_accessions(report, out) -> None`. Validation and publication errors propagate; bundle rollback belongs to its publisher port. |
 | [`ThematicAtlases.unsupported_accessions`](../src/ThematicAtlases/unsupported_accessions.py) | Formally exports report schema version `1.0`, `is_unsupported_accession(record)`, `partition_unsupported_accessions(records)`, and `build_unsupported_accessions_report(records, *, atlas_id, run_id)`. The report keeps sanitized discovery/publication attribution and aggregate repository counts outside Atlas v1. |
 | [`ThematicAtlases.ports`](../src/ThematicAtlases/ports/__init__.py) | Formally exports runtime-checkable `CollectorPort`, `FiltererPort`, `HarmonizerPort`, and `ArtifactPublisherPort`. They specify callable inputs/outputs for injected application collaborators; concrete exceptions and side effects remain owned by each implementation. |
@@ -1002,6 +1009,7 @@ dataset -> eligible? -- no --> not_run/original
 
 ```text
 Atlas.harmonize_datasets(datasets)              # interface
+  -> HarmonizeDatasetsWorkflow.run               # operation-local orchestration
   -> AtlasDocument.from_mapping                 # strict v1 validation
   -> AtlasDocumentAdapter.to_legacy             # internal projection
   -> AtlasHarmonizer.harmonize_datasets         # internal call
@@ -2810,3 +2818,29 @@ Tests: `test_bootstrap.py`, `test_run_management.py`, existing CLI, trace and qu
 benchmark suites cover lazy construction, resource/cancellation propagation,
 operation lifetimes, selected retries, preservation of available evidence and
 read-only snapshots.
+
+<a id="package-boundaries-and-compatibility"></a>
+## Package boundaries and compatibility
+
+The implementation is organized by responsibility:
+
+- `domain/atlas.py`: Atlas document models and validation, exported by `domain`.
+- `workflows/`: create, collect, resume, harmonize, amend and cooperative workers.
+- `stages/`: typed operations shared by the workflows and legacy service facades.
+- `integrations/`: Europe PMC, GEO, ArrayExpress and MSC source-evidence adapters.
+- `runtime/`: checkpoint/run stores, traces, archive/lifecycle, pauses, management
+  and read-only snapshots. Storage SQL and authority remain unchanged.
+- `publication/`: document adaptation/assembly, summaries and durable publication.
+- `cli/atlas.py`: argument parsing and dispatch, including explicit factory
+  injection for offline callers/tests. The installed `cli_atlas.main` entrypoint
+  retains its original signature and delegates here.
+- `bootstrap.py`: construction of shared services and fresh continuation objects.
+
+Former modules remain compatibility exports of the same classes/functions. Private
+module-level monkeypatches must target the owning implementation; supported
+constructor injection and public subclass methods remain valid. Provider log
+names remain stable across relocation. Wrapper package exports load lazily so a
+provider can import shared helpers without an eager provider-import cycle.
+Tests in `test_package_boundaries.py` check old/new import identity and injected
+CLI dispatch; the workflow signature fixture checks public arguments/defaults
+and exported annotation types independently of their implementation module names.

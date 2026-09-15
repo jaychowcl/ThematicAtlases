@@ -91,6 +91,7 @@ def block_external_effects(request, monkeypatch) -> None:
         monkeypatch.setattr(requests.sessions.Session, "request", guarded_request)
         monkeypatch.setattr(requests.sessions.Session, "send", guarded_send)
     else:
+        monkeypatch.setattr(socket, "getaddrinfo", _blocked_network)
         monkeypatch.setattr(socket, "create_connection", _blocked_network)
         monkeypatch.setattr(socket.socket, "connect", _blocked_network)
         monkeypatch.setattr(socket.socket, "connect_ex", _blocked_network)

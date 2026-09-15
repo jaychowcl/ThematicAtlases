@@ -288,8 +288,15 @@ def test_harmonize_datasets_documentation_matches_ast_call_flow() -> None:
         if isinstance(node, ast.Call)
     }
 
-    assert "self._harmonizer.harmonize_datasets" in calls
-    assert all(not call.endswith(".harmonize_jsons") for call in calls)
+    assert "HarmonizeDatasetsWorkflow(self).run" in calls
+    implementation = ROOT / "src" / "ThematicAtlases" / "workflows" / "harmonize.py"
+    workflow_calls = {
+        ast.unparse(node.func)
+        for node in ast.walk(ast.parse(implementation.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+    }
+    assert "context._harmonizer.harmonize_datasets" in workflow_calls
+    assert all(not call.endswith(".harmonize_jsons") for call in calls | workflow_calls)
     workflow = CODEBASE.read_text(encoding="utf-8").split(
         '<a id="workflow-harmonization"></a>', 1
     )[1].split('<a id="workflow-resume-and-retry"></a>', 1)[0]

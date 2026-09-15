@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ThematicAtlases.integrations.magetab import SourceEvidenceCompatibilityError
+
 import json
 import logging
 import signal
@@ -733,6 +735,8 @@ class TracePublicationReviewResumer:
                     "Incremental metadata collection deferred for busy item accession=%s",
                     record.get("datalink_id", ""),
                 )
+            except SourceEvidenceCompatibilityError:
+                raise
             except Exception as error:
                 logger.warning(
                     "Incremental metadata collection deferred accession=%s "

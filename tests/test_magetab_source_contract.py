@@ -14,6 +14,8 @@ from ThematicAtlases.wrappers.metadata_evidence import ARRAYEXPRESS_SOURCE_STAGE
 
 
 def source_fixture():
+    if 'file_catalogue' not in MAGETabInput.__dataclass_fields__:
+        pytest.skip('fixture requires catalogue-capable MSC')
     data = json.loads((Path(__file__).parent / 'fixtures/contracts/msc-magetab-catalogue.json').read_text())
     return MAGETabInput(
         TextResource(**data['idf']), tuple(TextResource(**r) for r in data['sdrfs']),
@@ -108,13 +110,13 @@ def test_old_msc_keeps_four_argument_contract_and_rejects_v2(monkeypatch):
         sdrfs: tuple
         source: str
         source_kind: str
-    modern_payload = ArrayExpressWrapper._source_payload(source_fixture())
     monkeypatch.setattr(magetab, 'MAGETabInput', OldInput)
     original = OldInput(TextResource('x', 'text', 'origin'), (), 'E-MTAB-1', 'accession')
     legacy = ArrayExpressWrapper._source_payload(original)
     assert legacy['contract_version'] == 1
     assert 'file_catalogue' not in legacy
     assert ArrayExpressWrapper._restore_source(legacy) == original
+    modern_payload = {**legacy, 'contract_version': 2, 'file_catalogue': []}
     with pytest.raises(magetab.SourceEvidenceCompatibilityError, match='MSC'):
         ArrayExpressWrapper._restore_source(modern_payload)
 
@@ -133,3 +135,43 @@ def test_available_metadata_reuse_does_not_reparse_legacy_source(tmp_path):
     legacy.pop('file_catalogue')
     store.put(ARRAYEXPRESS_SOURCE_STAGE, source.source, 1, 'available', payload=legacy)
     assert ArrayExpressWrapper(source_resolver=object(), parser=object()).collect_accession_metadata([record], store) == fresh
+
+
+def test_metadata_worker_surfaces_incompatible_source_instead_of_deferring(tmp_path):
+    from ThematicAtlases.integrations.magetab import SourceEvidenceCompatibilityError
+    from ThematicAtlases.stage_worker import TraceStageWorker
+    class Collector:
+        def collect_accession_metadata(self, **kwargs):
+            raise SourceEvidenceCompatibilityError('recollect in a fresh run')
+    class Worker(TraceStageWorker):
+        def _collector(self): return Collector()
+        def _merged_accessions(self, publications, store):
+            return [{'datalink_id':'E-MTAB-1','datalink_id_scheme':'arrayexpress'}]
+        def _metadata_accession_actionable(self, *args): return True
+        def _continue_work(self, store): return True
+        def _manifest_repositories(self, directory): return ['arrayexpress']
+    with pytest.raises(SourceEvidenceCompatibilityError, match='fresh run'):
+        Worker()._run_metadata([], CheckpointStore(tmp_path/'worker.sqlite3'))
+
+
+def test_review_continuation_surfaces_incompatible_source(tmp_path):
+    from ThematicAtlases.integrations.magetab import SourceEvidenceCompatibilityError
+    from ThematicAtlases.filterer.resume import TracePublicationReviewResumer
+    record = {'datalink_id':'E-MTAB-1','metadata_status':'pending'}
+    class Collector:
+        def available_accession_metadata(self, **kwargs): return [record]
+        def collect_accession_metadata(self, **kwargs):
+            raise SourceEvidenceCompatibilityError('recollect in a fresh run')
+    with pytest.raises(SourceEvidenceCompatibilityError, match='fresh run'):
+        TracePublicationReviewResumer._collect_snapshot_metadata(
+            collector=Collector(), accessions=[record], repositories=['arrayexpress'],
+            store=CheckpointStore(tmp_path/'review.sqlite3'),
+            datalink_checkpoint_count=1, datalink_row_count=1,
+        )
+
+
+@pytest.mark.parametrize('content', [[], {'encoding':'unknown'}, {'encoding':'gzip+base64','data':'bad'}])
+def test_corrupt_text_resource_is_a_source_compatibility_error(content):
+    from ThematicAtlases.integrations.magetab import restore_resource, SourceEvidenceCompatibilityError
+    with pytest.raises(SourceEvidenceCompatibilityError, match='text resource'):
+        restore_resource({'name':'study.idf.txt','origin':'fixture','content':content})

@@ -32,7 +32,14 @@ def restore_resource(value: Mapping) -> TextResource:
     from ThematicAtlases.wrappers.metadata_evidence import restored_text
     if not isinstance(value, Mapping):
         raise SourceEvidenceCompatibilityError('Invalid MAGE-TAB text resource')
-    return TextResource(str(value.get('name') or ''), restored_text(value.get('content') or {}), str(value.get('origin') or ''))
+    content = value.get('content')
+    if not isinstance(content, Mapping):
+        raise SourceEvidenceCompatibilityError('Invalid MAGE-TAB text resource content')
+    try:
+        text = restored_text(content)
+    except (TypeError, ValueError) as error:
+        raise SourceEvidenceCompatibilityError('Corrupt or unsupported MAGE-TAB text resource content') from error
+    return TextResource(str(value.get('name') or ''), text, str(value.get('origin') or ''))
 
 
 def source_payload(source: MAGETabInput) -> dict:

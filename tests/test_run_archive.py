@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from ThematicAtlases.atlas import Atlas
-from ThematicAtlases import run_archive
+from ThematicAtlases.runtime import archive as run_archive
 from ThematicAtlases.run_archive import ArchiveDurabilityError, workflow_activity_lock
 from ThematicAtlases.trace import DevTraceWriter
 

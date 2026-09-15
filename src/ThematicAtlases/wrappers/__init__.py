@@ -1,11 +1,22 @@
-from ThematicAtlases.wrappers.ae import ArrayExpressWrapper
-from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
-from ThematicAtlases.wrappers.geo import GEOWrapper
-from ThematicAtlases.wrappers.pubmed_gds import PubMedGDSLinkGraphWrapper
+"""Compatibility provider exports, loaded only when requested.
 
-__all__ = [
-    "ArrayExpressWrapper",
-    "EuropePMCWrapper",
-    "GEOWrapper",
-    "PubMedGDSLinkGraphWrapper",
-]
+Provider implementations may import shared wrapper helpers. Eager imports here
+would form a cycle when an owning integration module is imported directly.
+"""
+from importlib import import_module
+
+_EXPORTS = {
+    'ArrayExpressWrapper': 'ThematicAtlases.integrations.arrayexpress',
+    'EuropePMCWrapper': 'ThematicAtlases.integrations.europe_pmc',
+    'GEOWrapper': 'ThematicAtlases.integrations.geo',
+    'PubMedGDSLinkGraphWrapper': 'ThematicAtlases.wrappers.pubmed_gds',
+}
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(name)
+    value = getattr(import_module(_EXPORTS[name]), name)
+    globals()[name] = value
+    return value

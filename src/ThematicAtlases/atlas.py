@@ -60,10 +60,6 @@ from ThematicAtlases.wrappers.pubmed_gds import (
 logger = logging.getLogger(__name__)
 
 
-
-
-
-
 class Atlas:
     def __init__(
         self,
@@ -142,7 +138,31 @@ class Atlas:
         prune_accessions: bool = False,
         stop_after: str | None = None,
     ) -> dict:
-        return CreateAtlasWorkflow(self).run(query, file, out, theme, review_filter, review_strategy, metadata_repositories, max_publications, max_publications_per_query, reviewer, collect_metadata, dev_trace, dev_out_dir, harmonization_details_out, generate_queries, max_generated_queries, harmonization_options, review_before_metadata, scrape_fulltext_accessions, unsupported_accessions_out, thematic_review, prune_accessions, stop_after)
+        return CreateAtlasWorkflow(self).run(
+            query,
+            file,
+            out,
+            theme,
+            review_filter,
+            review_strategy,
+            metadata_repositories,
+            max_publications,
+            max_publications_per_query,
+            reviewer,
+            collect_metadata,
+            dev_trace,
+            dev_out_dir,
+            harmonization_details_out,
+            generate_queries,
+            max_generated_queries,
+            harmonization_options,
+            review_before_metadata,
+            scrape_fulltext_accessions,
+            unsupported_accessions_out,
+            thematic_review,
+            prune_accessions,
+            stop_after,
+        )
 
     def fork_run(
         self,
@@ -188,7 +208,17 @@ class Atlas:
         review_decisions: dict | None = None,
         stop_after: str | None = None,
     ) -> dict:
-        return ResumeAtlasWorkflow(self).run(dev_out_dir, run_id, out, stop_before_review, retry_stages, retry_items, retry_degraded_stages, review_decisions, stop_after)
+        return ResumeAtlasWorkflow(self).run(
+            dev_out_dir,
+            run_id,
+            out,
+            stop_before_review,
+            retry_stages,
+            retry_items,
+            retry_degraded_stages,
+            review_decisions,
+            stop_after,
+        )
 
     def amend_queries(
         self,
@@ -198,7 +228,12 @@ class Atlas:
         queries: list[str],
         max_publications_per_query: list[int | None],
     ) -> Path:
-        return AmendQueriesWorkflow(self).run(dev_out_dir=dev_out_dir, run_id=run_id, queries=queries, max_publications_per_query=max_publications_per_query)
+        return AmendQueriesWorkflow(self).run(
+            dev_out_dir=dev_out_dir,
+            run_id=run_id,
+            queries=queries,
+            max_publications_per_query=max_publications_per_query,
+        )
 
     def collect_datasets(
         self,
@@ -225,7 +260,30 @@ class Atlas:
         prune_accessions: bool = False,
         _trace_writer: DevTraceWriter | None = None,
     ) -> dict:
-        return CollectDatasetsWorkflow(self).run(query, file, out, theme, review_filter, review_strategy, metadata_repositories, max_publications, max_publications_per_query, reviewer, collect_metadata, generate_queries, max_generated_queries, dev_trace, dev_out_dir, run_id, review_before_metadata, stop_before_review, scrape_fulltext_accessions, unsupported_accessions_out, prune_accessions, _trace_writer)
+        return CollectDatasetsWorkflow(self).run(
+            query,
+            file,
+            out,
+            theme,
+            review_filter,
+            review_strategy,
+            metadata_repositories,
+            max_publications,
+            max_publications_per_query,
+            reviewer,
+            collect_metadata,
+            generate_queries,
+            max_generated_queries,
+            dev_trace,
+            dev_out_dir,
+            run_id,
+            review_before_metadata,
+            stop_before_review,
+            scrape_fulltext_accessions,
+            unsupported_accessions_out,
+            prune_accessions,
+            _trace_writer,
+        )
 
     def _collect_datasets_legacy(
         self,
@@ -256,7 +314,34 @@ class Atlas:
         _thematic_review: bool = True,
         stop_after: str | None = None,
     ) -> dict:
-        return CollectDatasetsWorkflow(self).run_stage(query, file, out, theme, review_filter, review_strategy, metadata_repositories, max_publications, max_publications_per_query, reviewer, collect_metadata, generate_queries, max_generated_queries, dev_trace, dev_out_dir, run_id, review_before_metadata, stop_before_review, scrape_fulltext_accessions, unsupported_accessions_out, prune_accessions, _trace_writer, _finalize_trace, _resolution, _thematic_review, stop_after)
+        return CollectDatasetsWorkflow(self).run_stage(
+            query,
+            file,
+            out,
+            theme,
+            review_filter,
+            review_strategy,
+            metadata_repositories,
+            max_publications,
+            max_publications_per_query,
+            reviewer,
+            collect_metadata,
+            generate_queries,
+            max_generated_queries,
+            dev_trace,
+            dev_out_dir,
+            run_id,
+            review_before_metadata,
+            stop_before_review,
+            scrape_fulltext_accessions,
+            unsupported_accessions_out,
+            prune_accessions,
+            _trace_writer,
+            _finalize_trace,
+            _resolution,
+            _thematic_review,
+            stop_after,
+        )
 
     def _metadata_for_reviewed_datasets(
         self,
@@ -299,7 +384,12 @@ class Atlas:
         harmonization_options: dict | None = None,
         review_decisions: dict | None = None,
     ) -> dict:
-        return HarmonizeDatasetsWorkflow(self).run(datasets, harmonization_details_out, harmonization_options, review_decisions)
+        return HarmonizeDatasetsWorkflow(self).run(
+            datasets,
+            harmonization_details_out,
+            harmonization_options,
+            review_decisions,
+        )
 
     def _collect_jsons(
         self,

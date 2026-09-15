@@ -7,7 +7,7 @@ import requests
 import pytest
 
 from ThematicAtlases.checkpoint import CheckpointStore
-from ThematicAtlases.wrappers import geo as geo_module
+from ThematicAtlases.integrations import geo as geo_module
 from ThematicAtlases.wrappers.geo import GEOWrapper
 from ThematicAtlases.wrappers.enrichment import RetryTags
 from ThematicAtlases.trace import DevTraceWriter
@@ -1111,7 +1111,7 @@ def test_gse_metadata_packages_rejects_unversioned_converter_output(monkeypatch)
 
 
 def test_collect_accession_metadata_logs_progress_and_stats(caplog) -> None:
-    caplog.set_level(logging.INFO, logger=geo_module.__name__)
+    caplog.set_level(logging.INFO, logger=geo_module.logger.name)
 
     FakeGEOWrapper().collect_accession_metadata(
         jsons=[
@@ -1128,7 +1128,7 @@ def test_collect_accession_metadata_logs_progress_and_stats(caplog) -> None:
 
 
 def test_collect_gse_metadata_records_logs_progress_and_stats(caplog) -> None:
-    caplog.set_level(logging.INFO, logger=geo_module.__name__)
+    caplog.set_level(logging.INFO, logger=geo_module.logger.name)
 
     FakeGEOWrapper()._collect_gse_metadata_records(
         records=[
@@ -1146,7 +1146,7 @@ def test_collect_gse_metadata_records_logs_progress_and_stats(caplog) -> None:
 
 
 def test_deduplicate_gse_jsons_logs_stats(caplog) -> None:
-    caplog.set_level(logging.INFO, logger=geo_module.__name__)
+    caplog.set_level(logging.INFO, logger=geo_module.logger.name)
 
     GEOWrapper()._deduplicate_gse_jsons(
         jsons=[
@@ -1433,7 +1433,7 @@ def test_get_gse_retries_transient_failures(monkeypatch, caplog) -> None:
 
     monkeypatch.setattr(geo_module.requests, "get", fake_get)
     monkeypatch.setattr(geo_module.time, "sleep", lambda delay: None)
-    caplog.set_level(logging.DEBUG, logger=geo_module.__name__)
+    caplog.set_level(logging.DEBUG, logger=geo_module.logger.name)
 
     assert GEOWrapper(max_retries=1).get_gse("GSM1") is None
     assert len(calls) == 2
