@@ -25,7 +25,7 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct"}
-REVIEW_CONTRACT_VERSION = 9
+REVIEW_CONTRACT_VERSION = 10
 _CRITERION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 logger = logging.getLogger(__name__)

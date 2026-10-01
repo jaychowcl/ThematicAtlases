@@ -270,7 +270,7 @@ def test_worker_snapshot_cli_forwards_cooperative_cancellation_and_exit_code(
         "3",
     ]) == 2
 
-    assert calls[0][0] == tmp_path / "runs" / "run-1"
+    assert calls[0][0] == tmp_path / "run-1"
     assert calls[0][1]["stage"] == "text"
     assert calls[0][1]["item_limit"] == 3
     assert json.loads(capsys.readouterr().out)["interrupted"] is True

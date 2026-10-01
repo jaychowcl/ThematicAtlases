@@ -75,6 +75,13 @@ def run_benchmark(*, trace_dir: str | Path, references_tsv: str | Path) -> dict:
 def _load_trace(directory: Path) -> tuple[dict, dict]:
     if not directory.is_dir():
         raise ValueError(f"trace directory does not exist or is not a directory: {directory}")
+    manifest_path = directory / "00_run_manifest.json"
+    if manifest_path.is_file() and json.loads(manifest_path.read_text()).get("workflow_checkpoint_contract") == "2.0":
+        from ThematicAtlases.runtime.views import CheckpointViews
+        views = CheckpointViews.from_directory(directory)
+        return views.review(), {"kind":"dev_trace", "artifact":str(directory / "atlas_run.sqlite3"),
+            "view":"post_filter", "complete":not any(item['status'] in {'pending','retryable_error'} for item in views.store.items('thematic_review')),
+            "limitations":[POST_FILTER_LIMITATION]}
     artifact, view, complete = _trace_artifact(directory)
     with artifact.open(encoding="utf-8") as handle:
         output = json.load(handle)

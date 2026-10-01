@@ -23,7 +23,7 @@ def validate_stop_after(value: str | None) -> str | None:
         raise ValueError(
             "stop_after must be one of: " + ", ".join(STOP_AFTER_STAGES)
         )
-    return value
+    return "publication-text" if value == "fulltext-accessions" else value
 
 
 @dataclass(eq=False)
@@ -36,4 +36,3 @@ class AtlasStagePause(RuntimeError):
     def __post_init__(self) -> None:
         validate_stop_after(self.stage)
         RuntimeError.__init__(self, f"Atlas paused after {self.stage}")
-

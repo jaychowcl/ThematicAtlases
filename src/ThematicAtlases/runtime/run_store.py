@@ -32,6 +32,8 @@ class AtlasRunStore:
         event_emitter: OperationalEventEmitter | None = None,
     ):
         self.path = Path(path)
+        from ThematicAtlases.runtime.contracts import validate_trace
+        validate_trace(self.path.parent, required=False)
         self._event_emitter = event_emitter
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()

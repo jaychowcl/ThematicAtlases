@@ -31,25 +31,11 @@ CHECKPOINT_STATUSES = {
 }
 
 STAGE_POLICIES = {
-    "query_generation": "discovery",
-    "search_queries": "discovery",
-    "datalinks": "discovery",
-    "fulltext_accession_discovery": "discovery",
-    "pubmed_gds_links": "discovery",
-    "gds_summaries": "discovery",
-    "publication_text": "review",
-    "geo_resolution": "metadata",
-    "geo_metadata": "metadata",
-    "arrayexpress_metadata": "metadata",
-    "geo_miniml_source": "metadata",
-    "arrayexpress_magetab_source": "metadata",
-    "geo_precanonical_metadata": "metadata",
-    "arrayexpress_precanonical_metadata": "metadata",
-    "metadata_validation_diagnostics": "metadata",
-    "pubmed_enrichment": "metadata",
-    "sra_xml": "metadata",
-    "ena_fastq": "metadata",
-    "thematic_review": "review",
+    "query_generation": "discovery", "search_queries": "discovery",
+    "search_pages": "discovery", "datalinks": "discovery",
+    "publication_text": "discovery", "pubmed_gds_links": "discovery",
+    "gds_summaries": "discovery", "geo_resolution": "metadata",
+    "metadata_conversion": "metadata", "thematic_review": "review",
     "harmonization": "harmonization",
 }
 
@@ -86,6 +72,8 @@ class CheckpointStore:
         default_item_lock_timeout_seconds: int | float | None = None,
     ):
         self.path = Path(path)
+        from ThematicAtlases.runtime.contracts import validate_trace
+        validate_trace(self.path.parent, required=False)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self.default_item_lock_timeout_seconds = self._validated_lock_timeout(
@@ -334,6 +322,14 @@ class CheckpointStore:
 
     def set_meta(self, key: str, value) -> None:
         with self._lock, self._connection() as connection:
+            if key == "pipeline_position" and connection.execute("SELECT 1 FROM sqlite_master WHERE name='run_metadata'").fetchone():
+                current = connection.execute("SELECT value_json FROM run_metadata WHERE key=?", (key,)).fetchone()
+                merged = {**(json.loads(current[0]) if current else {}), **value}
+                connection.execute("INSERT INTO run_metadata(run_id,key,value_json) SELECT run_id,?,? FROM run WHERE 1 ON CONFLICT(run_id,key) DO UPDATE SET value_json=excluded.value_json", (key, self._json(merged)))
+                return
+            if key == "pipeline_position":
+                row = connection.execute("SELECT value FROM checkpoint_meta WHERE key=?", (key,)).fetchone()
+                value = {**(json.loads(row[0]) if row else {}), **value}
             connection.execute(
                 """
                 INSERT INTO checkpoint_meta(key, value) VALUES (?, ?)
@@ -344,6 +340,9 @@ class CheckpointStore:
 
     def get_meta_json(self, key: str) -> str | None:
         with self._lock, self._connection() as connection:
+            if key == "pipeline_position" and connection.execute("SELECT 1 FROM sqlite_master WHERE name='run_metadata'").fetchone():
+                row = connection.execute("SELECT value_json FROM run_metadata WHERE key=?", (key,)).fetchone()
+                return None if row is None else str(row[0])
             row = connection.execute(
                 "SELECT value FROM checkpoint_meta WHERE key = ?", (key,)
             ).fetchone()
@@ -656,7 +655,8 @@ class CheckpointStore:
                     "error_type", "failure_category",
                 )
             }
-            if status in automatic_statuses:
+            retained_conversion = item["stage"] == "metadata_conversion" and bool((item.get("payload") or {}).get("packages")) and item.get("error_type") != "ManualRetry"
+            if status in automatic_statuses and not retained_conversion:
                 stage_report["automatic"].append(detail)
                 report["automatic_retry_count"] += 1
             else:
@@ -703,7 +703,8 @@ class CheckpointStore:
                     raise ValueError(
                         f"checkpoint item was not found: {stage}:{key}"
                     )
-                if item["status"] not in {"terminal_error", "retryable_error"}:
+                partial_conversion = stage == "metadata_conversion" and item["status"] == "available" and (item.get("payload") or {}).get("outcome", {}).get("completeness") == "partial"
+                if item["status"] not in {"terminal_error", "retryable_error"} and not partial_conversion:
                     raise ValueError(
                         f"checkpoint item is not failed: {stage}:{key}"
                     )

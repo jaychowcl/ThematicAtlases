@@ -297,10 +297,11 @@ class AtlasDocumentAdapter:
                 )
             else:
                 message = "metadata enrichment repair completed partially"
+            conversion_partial = isinstance(record.get("metadata_conversion"), Mapping)
             diagnostics.append(
                 Diagnostic(
-                    code="metadata_repair_partial",
-                    message=message,
+                    code="metadata_conversion_partial" if conversion_partial else "metadata_repair_partial",
+                    message="metadata conversion is partial; retaining valid metadata" if conversion_partial else message,
                     severity=DiagnosticSeverity.WARNING,
                 )
             )

@@ -201,6 +201,7 @@ class CollectDatasetsWorkflow:
                 root=dev_out_dir,
                 run_id=effective_run_id,
                 manifest={
+                    "debug_snapshots": context._debug_snapshots,
                     "command": "collect-datasets",
                     "created_at": effective_run_id,
                     "atlas_id": str(
@@ -275,19 +276,12 @@ class CollectDatasetsWorkflow:
                     separators=(",", ":"),
                 ).encode("utf-8")
             ).hexdigest()
-            resolved_queries = (
-                checkpoint_store.get_meta("resolved_queries")
-                if checkpoint_store is not None
-                else None
-            )
             generation_checkpoint = (
                 checkpoint_store.get("query_generation", generation_key)
                 if checkpoint_store is not None
                 else None
             )
-            if resolved_queries is not None:
-                query = resolved_queries
-            elif (
+            if (
                 generation_checkpoint
                 and generation_checkpoint["status"] == "available"
             ):
@@ -341,9 +335,16 @@ class CollectDatasetsWorkflow:
                             "input": generation_input,
                         },
                     )
-            if checkpoint_store is not None:
-                checkpoint_store.set_meta("resolved_queries", query)
             file = None
+        elif checkpoint_store is not None:
+            query = list(query or ()) + (context._load_queries(file=file) if file is not None else [])
+            generation_input = {"query": query, "generate_queries": False}
+            generation_key = hashlib.sha256(json.dumps(generation_input, sort_keys=True).encode()).hexdigest()
+            if checkpoint_store.get("query_generation", generation_key) is None:
+                checkpoint_store.put("query_generation", generation_key, 0, "available", payload={"queries": query, "input": generation_input})
+            file = None
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta("resolved_query_key", generation_key)
         if _resolution is not None:
             _resolution["queries"] = list(query or ())
         if checkpoint_store is not None:
@@ -426,7 +427,7 @@ class CollectDatasetsWorkflow:
             )
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
-                "main_pipeline_stage",
+                "pipeline_position",
                 {"stage": "review", "state": "running", "contract_version": "1.0"},
             )
         result = context._filter_jsons(
@@ -449,7 +450,7 @@ class CollectDatasetsWorkflow:
         )
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
-                "main_pipeline_stage",
+                "pipeline_position",
                 {"stage": "review", "state": "complete", "contract_version": "1.0"},
             )
         result = {

@@ -67,17 +67,17 @@ def test_collect_accessions_publishes_main_phase_transition_before_text(
     publications = [{"source": "MED", "epmc_id": "1", "abstractText": "text"}]
 
     def collect_publications(**_kwargs):
-        phase = store.get_meta("main_pipeline_phase")
+        phase = store.get_meta("pipeline_position")
         assert phase["phase"] == "datalinks"
         return publications
 
     def collect_datalinks(**_kwargs):
-        phase = store.get_meta("main_pipeline_phase")
+        phase = store.get_meta("pipeline_position")
         assert phase["phase"] == "datalinks"
         return []
 
     def collect_publication_texts(**_kwargs):
-        phase = store.get_meta("main_pipeline_phase")
+        phase = store.get_meta("pipeline_position")
         assert phase["phase"] == "downstream"
         return publications
 
@@ -89,7 +89,7 @@ def test_collect_accessions_publishes_main_phase_transition_before_text(
         queries=["fibrosis"],
         checkpoint_store=store,
     ) == []
-    assert store.get_meta("main_pipeline_phase")["phase"] == "downstream"
+    assert store.get_meta("pipeline_position")["phase"] == "downstream"
 
 
 def test_datalinks_and_full_text_share_checkpoint_provider_pacing(

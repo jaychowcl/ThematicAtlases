@@ -34,6 +34,7 @@ class PublicationTextStage:
         publication_texts: dict | None = None,
         checkpoint_store=None,
     ) -> dict:
+        import inspect
         stage_owner = self.owner
         publication_texts = dict(publication_texts or {})
         publications = []
@@ -41,6 +42,11 @@ class PublicationTextStage:
 
         for record in jsons:
             for publication in record.get(PUBLICATIONS, []):
+                if checkpoint_store is not None:
+                    saved = checkpoint_store.get("publication_text", f"{publication.get('source', '')}:{publication.get('epmc_id', '')}")
+                    if saved and saved["status"] in {"available", "no_data", "terminal_error"}:
+                        saved_publication = (saved.get("payload") or {}).get("publication", {})
+                        publication = {**publication, **{key: saved_publication[key] for key in ("text", "text_source", "full_text_status") if key in saved_publication}}
                 publication_ref = stage_owner.publication_text_ref(publication=publication)
 
                 if publication_ref in publication_texts:
@@ -50,7 +56,8 @@ class PublicationTextStage:
                     or publication.get("full_text_status")
                 ):
                     publication_texts[publication_ref] = {
-                        "text": publication.get("text", ""),
+                        **({"checkpoint_key": f"{publication.get('source', '')}:{publication.get('epmc_id', '')}"} if checkpoint_store is not None and publication.get("epmc_id") else {}),
+                    "text": publication.get("text", ""),
                         "text_source": publication.get("text_source", "none"),
                         "full_text_status": publication.get(
                             "full_text_status",
@@ -80,13 +87,15 @@ class PublicationTextStage:
         text_options = {"publications": publications}
         if checkpoint_store is not None:
             text_options["checkpoint_store"] = checkpoint_store
-        enriched_publications = stage_owner._epmc_wrapper().collect_publication_texts(
-            **text_options
-        )
+        wrapper = stage_owner._epmc_wrapper()
+        if "extract_accessions" in inspect.signature(wrapper.collect_publication_texts).parameters:
+            text_options["extract_accessions"] = False
+        enriched_publications = wrapper.collect_publication_texts(**text_options)
 
         publication_texts.update(
             {
                 publication_ref: {
+                    **({"checkpoint_key": f"{publication.get('source', '')}:{publication.get('epmc_id', '')}"} if checkpoint_store is not None and publication.get("epmc_id") else {}),
                     "text": publication.get("text", ""),
                     "text_source": publication.get("text_source", "none"),
                     "full_text_status": publication.get(

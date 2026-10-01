@@ -25,6 +25,8 @@ def read_checkpoint_snapshot(directory: str | Path, *, stages: tuple[str, ...]) 
             if required not in tables:
                 raise ValueError(f'trace database is missing required table: {required}')
         metadata = {row['key']: row['value'] for row in connection.execute('SELECT key, value FROM checkpoint_meta')}
+        if 'run_metadata' in tables:
+            metadata.update({row['key']: row['value'] for row in connection.execute('SELECT key, value_json AS value FROM run_metadata')})
         if stages:
             placeholders = ','.join('?' for _ in stages)
             items = tuple(dict(row) for row in connection.execute(

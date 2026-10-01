@@ -165,17 +165,11 @@ def test_real_component_atlas_system_workflow_is_offline_and_checkpointed(tmp_pa
     run_dir = next(path for path in trace_root.iterdir() if path.is_dir())
     assert {path.name for path in run_dir.iterdir()} == {
         "00_run_manifest.json",
-        "01_collected_accessions.json",
-        "02_reviewed_datasets.json",
-        "03_pre_harmonization_accession_metadata.json",
-        "04_harmonization_details.json",
-        "05_post_harmonization_accession_metadata.json",
         "06_final_atlas.json",
             "07_summary.json",
             "08_retry_report.json",
             "atlas_run.sqlite3",
         "atlas_run.sqlite3.locks",
-        "resume_review_progress.json",
         "unsupported_accessions.json",
     }
     store = CheckpointStore(run_dir / "atlas_run.sqlite3")

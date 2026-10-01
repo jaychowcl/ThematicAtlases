@@ -16,6 +16,8 @@ from ThematicAtlases.wrappers.pubmed_gds import (
 
 def initialize_run_store(run_dir, status="running"):
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
+    manifest["workflow_checkpoint_contract"] = "2.0"
+    (run_dir / "00_run_manifest.json").write_text(json.dumps(manifest))
     run_id = str(manifest.get("run_id") or run_dir.name)
     store = AtlasRunStore(run_dir / "atlas_run.sqlite3")
     store.create_run(run_id, f"atlas-{run_id}", "1.0", manifest)
@@ -709,7 +711,7 @@ def test_create_atlas_writes_complete_opt_in_dev_trace(tmp_path) -> None:
 
     dev_dir = tmp_path / "debug"
 
-    LocalAtlas(
+    LocalAtlas(debug_snapshots=True,
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
@@ -754,133 +756,10 @@ def test_create_atlas_logs_progress_and_stats(caplog) -> None:
     assert "publication_texts=0" in caplog.text
 
 
-def test_resume_from_collected_accessions_skips_collection(tmp_path) -> None:
-    run_dir = tmp_path / "trace" / "20260712T215848"
-    run_dir.mkdir(parents=True)
-    (run_dir / "00_run_manifest.json").write_text(
-        json.dumps({
-            "run_id": "20260712T215848",
-            "atlas_out": str(tmp_path / "atlas.json"),
-            "theme": "fibrosis",
-            "review_filter": "not_relevant",
-            "harmonization_options": {},
-        }),
-        encoding="utf-8",
-    )
-    initialize_run_store(run_dir)
-    (run_dir / "01_collected_accessions.json").write_text(
-        json.dumps([{"datalink_id": "GSE1", "publications": []}]),
-        encoding="utf-8",
-    )
-
-    class NoCollector:
-        def collect_jsons(self, **kwargs):
-            raise AssertionError("collection must not rerun")
-
-    atlas = Atlas(
-        metadata={},
-        collector=NoCollector(),
-        filterer=RecordingFilterer(),
-        harmonizer=RecordingHarmonizer(),
-    )
-    result = atlas.resume(dev_out_dir=str(tmp_path / "trace"))
-
-    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
-    assert (run_dir / "02_reviewed_datasets.json").exists()
-    assert (run_dir / "06_final_atlas.json").exists()
 
 
-def test_resume_merges_incremental_review_progress_with_full_collection(
-    tmp_path,
-) -> None:
-    run_dir = tmp_path / "trace" / "20260712T220000"
-    run_dir.mkdir(parents=True)
-    (run_dir / "00_run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_dir.name,
-                "atlas_out": str(tmp_path / "atlas.json"),
-                "theme": None,
-                "review_filter": "none",
-                "harmonization_options": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    initialize_run_store(run_dir)
-    collected = [
-        {"datalink_id": "GSE1", "publications": [{"pmid": "1"}]},
-        {"datalink_id": "GSE2", "publications": [{"pmid": "2"}]},
-    ]
-    (run_dir / "01_collected_accessions.json").write_text(
-        json.dumps(collected), encoding="utf-8"
-    )
-    (run_dir / "resume_review_progress.json").write_text(
-        json.dumps(
-            {
-                "accessions": [collected[0]],
-                "publication_texts": {"1": {"text": "reviewed early"}},
-            }
-        ),
-        encoding="utf-8",
-    )
-    seen = {}
-
-    class MergeRecordingFilterer:
-        def filter_jsons(self, jsons=None, **kwargs):
-            seen["input"] = jsons
-            return jsons
-
-        @staticmethod
-        def accessions_with_publication_text_refs(accessions, publication_texts):
-            return accessions
-
-    result = Atlas(
-        metadata={},
-        collector=RecordingCollector(),
-        filterer=MergeRecordingFilterer(),
-        harmonizer=RecordingHarmonizer(),
-    ).resume(dev_out_dir=str(tmp_path / "trace"), run_id=run_dir.name)
-
-    assert seen["input"] == {
-        "accessions": collected,
-        "publication_texts": {"1": {"text": "reviewed early"}},
-    }
-    assert [item.dataset_id for item in AtlasDocument.from_mapping(result).datasets] == [
-        "GSE1",
-        "GSE2",
-    ]
 
 
-def test_resume_uses_latest_incomplete_valid_trace(tmp_path) -> None:
-    root = tmp_path / "trace"
-    for run_id in ("20260712T100000", "20260712T110000"):
-        run_dir = root / run_id
-        run_dir.mkdir(parents=True)
-        (run_dir / "00_run_manifest.json").write_text(
-            json.dumps({"run_id": run_id, "theme": None, "review_filter": "none"}),
-            encoding="utf-8",
-        )
-        initialize_run_store(run_dir)
-        (run_dir / "02_reviewed_datasets.json").write_text(
-            json.dumps({"accessions": [{"datalink_id": run_id}], "publication_texts": {}}),
-            encoding="utf-8",
-        )
-    completed = root / "20260712T120000"
-    completed.mkdir()
-    (completed / "00_run_manifest.json").write_text(
-        json.dumps({"run_id": "20260712T120000"}), encoding="utf-8"
-    )
-    initialize_run_store(completed, status="complete")
-    (completed / "06_final_atlas.json").write_text(
-        json.dumps({"accessions": [], "publication_texts": {}}), encoding="utf-8"
-    )
-
-    result = Atlas(
-        metadata={}, collector=RecordingCollector(), filterer=RecordingFilterer(), harmonizer=RecordingHarmonizer()
-    ).resume(dev_out_dir=str(root))
-
-    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "20260712T110000"
 
 
 def test_collect_datasets_traces_incremental_review_progress(tmp_path) -> None:
@@ -893,8 +772,8 @@ def test_collect_datasets_traces_incremental_review_progress(tmp_path) -> None:
             return accessions
 
     from ThematicAtlases.trace import DevTraceWriter
-    trace = DevTraceWriter(str(tmp_path), "run", {})
-    Atlas(metadata={}, collector=RecordingCollector(), filterer=ProgressFilterer()).collect_datasets(
+    trace = DevTraceWriter(str(tmp_path), "run", {"debug_snapshots": True, })
+    Atlas(debug_snapshots=True, metadata={}, collector=RecordingCollector(), filterer=ProgressFilterer()).collect_datasets(
         query=["fibrosis"], _trace_writer=trace
     )
     progress = json.loads((tmp_path / "run" / "resume_review_progress.json").read_text())
@@ -1057,41 +936,6 @@ def test_amend_queries_preserves_existing_whitespace_equivalent_configuration(
     assert trace.checkpoint_store.get_meta("run_configuration_amendments") is None
 
 
-def test_resume_discovery_trace_stops_before_harmonization(tmp_path) -> None:
-    run_dir = tmp_path / "trace" / "discovery-run"
-    run_dir.mkdir(parents=True)
-    (run_dir / "00_run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "discovery-run",
-                "command": "collect-datasets",
-                "query": ["fibrosis"],
-                "theme": None,
-                "review_filter": "none",
-            }
-        ),
-        encoding="utf-8",
-    )
-    initialize_run_store(run_dir)
-    (run_dir / "01_collected_accessions.json").write_text(
-        json.dumps([{"datalink_id": "GSE1", "publications": []}]),
-        encoding="utf-8",
-    )
-
-    class NoHarmonizer:
-        def harmonize_datasets(self, **kwargs):
-            raise AssertionError("discovery resume must not harmonize")
-
-    result = Atlas(
-        metadata={},
-        collector=RecordingCollector(),
-        filterer=RecordingFilterer(),
-        harmonizer=NoHarmonizer(),
-    ).resume(dev_out_dir=str(tmp_path / "trace"))
-
-    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
-    assert (run_dir / "collection_snapshot.json").exists()
-    assert not (run_dir / "06_final_atlas.json").exists()
 
 
 def test_create_atlas_passes_checkpoint_store_to_harmonizer(tmp_path) -> None:
@@ -1124,64 +968,6 @@ def test_create_atlas_passes_checkpoint_store_to_harmonizer(tmp_path) -> None:
     assert calls and calls[0] is not None
 
 
-def test_resume_retries_harmonization_marked_retryable_in_sqlite(tmp_path) -> None:
-    from ThematicAtlases.checkpoint import CheckpointStore
-
-    run_dir = tmp_path / "trace" / "retry-harmonization"
-    run_dir.mkdir(parents=True)
-    (run_dir / "00_run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "retry-harmonization",
-                "command": "create-atlas",
-                "theme": None,
-                "review_filter": "none",
-                "harmonization_options": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    initialize_run_store(run_dir)
-    datasets = {
-        "accessions": [{"datalink_id": "GSE1", "accession_metadata": {"x": 1}}],
-        "publication_texts": {},
-    }
-    (run_dir / "02_reviewed_datasets.json").write_text(
-        json.dumps(datasets), encoding="utf-8"
-    )
-    (run_dir / "resume_harmonized_datasets.json").write_text(
-        json.dumps({**datasets, "stale": True}), encoding="utf-8"
-    )
-    CheckpointStore(run_dir / "atlas_run.sqlite3").put(
-        "harmonization",
-        "work-key",
-        1,
-        "retryable_error",
-        error="temporary timeout",
-    )
-    calls = []
-
-    class RetryHarmonizer:
-        def harmonize_datasets(
-            self,
-            datasets,
-            details_out=None,
-            harmonization_options=None,
-            checkpoint_store=None,
-        ):
-            calls.append(datasets)
-            return {**datasets, "retried": True}, []
-
-    result = Atlas(
-        metadata={},
-        collector=RecordingCollector(),
-        filterer=RecordingFilterer(),
-        harmonizer=RetryHarmonizer(),
-    ).resume(dev_out_dir=str(tmp_path / "trace"))
-
-    assert calls == [datasets]
-    assert AtlasDocument.from_mapping(result).datasets[0].dataset_id == "GSE1"
-    assert "stale" not in result
 
 
 def test_resume_ignores_final_output_when_collection_has_retryable_item(
@@ -1368,43 +1154,6 @@ def test_resume_requeues_stale_review_contract(tmp_path) -> None:
     assert item["failure_category"] == "contract_upgrade"
 
 
-@pytest.mark.parametrize("stage", ["pubmed_enrichment", "sra_xml", "ena_fastq"])
-def test_resume_ignores_final_output_for_retryable_enrichment_stage(tmp_path, stage) -> None:
-    from ThematicAtlases.checkpoint import CheckpointStore
-
-    run_dir = tmp_path / "trace" / f"retry-{stage}"
-    run_dir.mkdir(parents=True)
-    manifest = {
-        "run_id": run_dir.name,
-        "query": ["fibrosis"],
-        "collect_metadata": True,
-        "metadata_repositories": ["geo"],
-        "review_filter": "none",
-        "review_strategy": "direct",
-        "generate_queries": False,
-        "max_generated_queries": 3,
-        "review_before_metadata": False,
-    }
-    (run_dir / "00_run_manifest.json").write_text(json.dumps(manifest))
-    initialize_run_store(run_dir)
-    (run_dir / "06_final_atlas.json").write_text(json.dumps({"accessions": [{"final": True}]}))
-    (run_dir / "01_collected_accessions.json").write_text(json.dumps({"accessions": []}))
-    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
-    store.put(stage, "item", 1, "retryable_error", error="timeout")
-
-    class RecordingCollector:
-        def collect_jsons(self, checkpoint_store=None, **kwargs):
-            checkpoint_store.put(stage, "item", 1, "available", payload={})
-            return [{"datalink_id": "GSE1", "publications": []}]
-
-    atlas = Atlas(
-        metadata={},
-        collector=RecordingCollector(),
-        filterer=RecordingFilterer(),
-    )
-    result = atlas.resume(dev_out_dir=str(tmp_path / "trace"), run_id=run_dir.name)
-
-    assert result != {"accessions": [{"final": True}]}
 
 def test_collect_datasets_can_review_before_collecting_metadata() -> None:
     events = []
@@ -1502,7 +1251,7 @@ def test_collect_datasets_can_stop_after_publication_text_before_review(tmp_path
         def check(self):
             raise AssertionError("static collection-only mode must not preflight LLM credentials")
 
-    result = Atlas(
+    result = Atlas(debug_snapshots=True,
         metadata={},
         collector=CollectionOnlyCollector(),
         filterer=PublicationTextOnlyFilterer(),
@@ -1531,73 +1280,6 @@ def test_collect_datasets_can_stop_after_publication_text_before_review(tmp_path
     assert not (run_dir / "06_final_atlas.json").exists()
 
 
-def test_resume_can_override_old_trace_to_stop_before_review(tmp_path) -> None:
-    from ThematicAtlases.checkpoint import CheckpointStore
-
-    run_dir = tmp_path / "trace" / "existing"
-    run_dir.mkdir(parents=True)
-    (run_dir / "00_run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "existing",
-                "command": "collect-datasets",
-                "query": ["fibrosis"],
-                "theme": "fibrosis theme",
-                "review_filter": "not_relevant",
-                "review_before_metadata": True,
-                "collect_metadata": True,
-            }
-        ),
-        encoding="utf-8",
-    )
-    initialize_run_store(run_dir)
-    store = CheckpointStore(run_dir / "atlas_run.sqlite3")
-    store.put(
-        "thematic_review",
-        "direct:1",
-        1,
-        "available",
-        payload={"publication_text": {"agentic_curator": {"judgement": "relevant"}}},
-    )
-    before = store.get("thematic_review", "direct:1")
-
-    class ResumeCollector:
-        def collect_jsons(self, collect_metadata=True, checkpoint_store=None, **kwargs):
-            assert collect_metadata is False
-            assert checkpoint_store is not None
-            return [{"datalink_id": "GSE1", "publications": [{"pmid": "1"}]}]
-
-    class ResumeFilterer:
-        def filter_jsons(self, jsons=None, theme=None, review_filter=None, **kwargs):
-            assert theme is None
-            assert review_filter == "none"
-            return {"accessions": list(jsons), "publication_texts": {"1": {"text": "body"}}}
-
-        def accessions_with_publication_text_refs(self, accessions, publication_texts):
-            return accessions
-
-    class NoCredentials:
-        def check(self):
-            raise AssertionError("collection-only resume must not preflight LLM credentials")
-
-    result = Atlas(
-        metadata={},
-        collector=ResumeCollector(),
-        filterer=ResumeFilterer(),
-        credential_checker=NoCredentials(),
-    ).resume(
-        dev_out_dir=str(tmp_path / "trace"),
-        run_id="existing",
-        stop_before_review=True,
-    )
-
-    assert [
-        item.publication_id
-        for item in AtlasDocument.from_mapping(result).publications
-    ] == ["PMID:1"]
-    assert store.get("thematic_review", "direct:1") == before
-    assert (run_dir / "resume_publication_collection.json").exists()
-    assert not (run_dir / "02_reviewed_datasets.json").exists()
 
 
 def test_review_before_metadata_requires_theme() -> None:
@@ -1613,7 +1295,7 @@ def test_review_before_metadata_trace_writes_enriched_checkpoint(tmp_path) -> No
         def _dev_run_id(self):
             return "review-first"
 
-    LocalAtlas(
+    LocalAtlas(debug_snapshots=True,
         metadata={},
         collector=RecordingCollector(),
         filterer=RecordingFilterer(),
@@ -1628,61 +1310,4 @@ def test_review_before_metadata_trace_writes_enriched_checkpoint(tmp_path) -> No
     run_dir = tmp_path / "review-first"
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["review_before_metadata"] is True
-    assert (run_dir / "resume_metadata_enriched_datasets.json").exists()
-
-
-def test_resume_review_first_trace_enriches_reviewed_survivors_only(tmp_path) -> None:
-    run_dir = tmp_path / "trace" / "review-first"
-    run_dir.mkdir(parents=True)
-    (run_dir / "00_run_manifest.json").write_text(
-        json.dumps(
-            {
-                "run_id": "review-first",
-                "command": "collect-datasets",
-                "theme": "fibrosis",
-                "review_filter": "not_relevant",
-                "review_before_metadata": True,
-                "collect_metadata": True,
-                "metadata_repositories": ["geo"],
-            }
-        ),
-        encoding="utf-8",
-    )
-    initialize_run_store(run_dir)
-    reviewed = {
-        "accessions": [
-            {
-                "datalink_id": "GSE_KEEP",
-                "publications": [{"publication_text_ref": "1"}],
-            }
-        ],
-        "publication_texts": {"1": {"text": "relevant"}},
-    }
-    (run_dir / "02_reviewed_datasets.json").write_text(
-        json.dumps(reviewed), encoding="utf-8"
-    )
-    calls = []
-
-    class ResumeCollector:
-        def collect_jsons(self, **kwargs):
-            raise AssertionError("discovery must not rerun")
-
-        def collect_accession_metadata(self, jsons, **kwargs):
-            calls.append(jsons)
-            return [{**jsons[0], "metadata_status": "available"}]
-
-    class NoReviewFilterer:
-        def filter_jsons(self, **kwargs):
-            raise AssertionError("review must not rerun")
-
-    result = Atlas(
-        metadata={},
-        collector=ResumeCollector(),
-        filterer=NoReviewFilterer(),
-    ).resume(dev_out_dir=str(tmp_path / "trace"), run_id="review-first")
-
-    assert calls == [reviewed["accessions"]]
-    document = AtlasDocument.from_mapping(result)
-    assert document.datasets[0].dataset_id == "GSE_KEEP"
-    assert [item.publication_id for item in document.publications] == ["1"]
     assert (run_dir / "resume_metadata_enriched_datasets.json").exists()

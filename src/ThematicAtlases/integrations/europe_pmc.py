@@ -142,7 +142,7 @@ class EuropePMCWrapper:
     def _set_pipeline_stage(checkpoint_store, stage: str, state: str) -> None:
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
-                "main_pipeline_stage",
+                "pipeline_position",
                 {"stage": stage, "state": state, "contract_version": "1.0"},
             )
 
@@ -156,69 +156,6 @@ class EuropePMCWrapper:
         records = []
         repository_counts: dict[str, int] = {}
         for index, publication in enumerate(publications, start=1):
-            source = str(publication.get("source", ""))
-            epmc_id = str(publication.get("epmc_id", ""))
-            checkpoint_key = f"{source}:{epmc_id}"
-            if checkpoint_store is not None:
-                try:
-                    with checkpoint_store.item_lock(
-                        "fulltext_accession_discovery",
-                        checkpoint_key,
-                    ):
-                        checkpoint = checkpoint_store.get(
-                            "fulltext_accession_discovery",
-                            checkpoint_key,
-                        )
-                        checkpoint_payload = (checkpoint or {}).get("payload") or {}
-                        if checkpoint and checkpoint_payload.get(
-                            "contract_version"
-                        ) == FULLTEXT_ACCESSION_CONTRACT_VERSION and checkpoint[
-                            "status"
-                        ] in {"available", "no_data", "terminal_error"}:
-                            records.extend(checkpoint_payload.get("records", []))
-                            continue
-                        item_records = self.accessions_from_fulltexts(
-                            [publication],
-                            checkpoint_store=None,
-                        )
-                        checkpoint_store.put(
-                            "fulltext_accession_discovery",
-                            checkpoint_key,
-                            index,
-                            "available" if item_records else "no_data",
-                            payload={
-                                "contract_version": FULLTEXT_ACCESSION_CONTRACT_VERSION,
-                                "records": item_records,
-                            },
-                        )
-                        records.extend(item_records)
-                    continue
-                except CheckpointItemLockTimeout:
-                    logger.info(
-                        "Europe PMC fulltext accession discovery deferred for busy item source=%r epmc_id=%r",
-                        source,
-                        epmc_id,
-                    )
-                    continue
-            checkpoint = (
-                checkpoint_store.get(
-                    "fulltext_accession_discovery",
-                    checkpoint_key,
-                )
-                if checkpoint_store is not None
-                else None
-            )
-            checkpoint_payload = (checkpoint or {}).get("payload") or {}
-            if checkpoint and checkpoint_payload.get(
-                "contract_version"
-            ) == FULLTEXT_ACCESSION_CONTRACT_VERSION and checkpoint["status"] in {
-                "available",
-                "no_data",
-                "terminal_error",
-            }:
-                records.extend(checkpoint_payload.get("records", []))
-                continue
-
             matches = []
             text_source = str(publication.get("text_source", ""))
             discovery_source = None
@@ -266,17 +203,6 @@ class EuropePMCWrapper:
                     repository_counts.get(repository, 0) + 1
                 )
             records.extend(publication_records)
-            if checkpoint_store is not None:
-                checkpoint_store.put(
-                    "fulltext_accession_discovery",
-                    checkpoint_key,
-                    index,
-                    "available" if publication_records else "no_data",
-                    payload={
-                        "contract_version": FULLTEXT_ACCESSION_CONTRACT_VERSION,
-                        "records": publication_records,
-                    },
-                )
         logger.info(
             "EuropePMC fulltext accession stats publications_checked=%s "
             "accessions_discovered=%s repositories=%s",
@@ -389,6 +315,8 @@ class EuropePMCWrapper:
                 query_checkpoint = checkpoint_store.get(
                     "search_queries", query_hash
                 )
+                if query_checkpoint and query_checkpoint["status"] == "no_data":
+                    continue
                 if query_checkpoint and query_checkpoint["status"] == "terminal_error":
                     raise RuntimeError(
                         query_checkpoint.get("error") or "Europe PMC search failed"
@@ -695,6 +623,7 @@ class EuropePMCWrapper:
         self,
         publications: list[dict],
         checkpoint_store=None,
+        extract_accessions: bool = True,
     ) -> list[dict]:
         enriched_publications = []
         full_text_available = 0
@@ -725,6 +654,14 @@ class EuropePMCWrapper:
                 enriched_publication = checkpoint_payload.get(
                     "publication", publication
                 )
+                if extract_accessions and not checkpoint_payload.get("extraction_enabled"):
+                    records = self.accessions_from_fulltexts([enriched_publication])
+                    for record in records:
+                        for linked in record.get("publications", []):
+                            linked.pop("text", None)
+                            linked.pop("full_text_links", None)
+                    checkpoint_store.put("publication_text", checkpoint_key, index, checkpoint["status"],
+                        payload={**checkpoint_payload, "records": records, "extraction_complete": True, "extraction_enabled": True})
                 enriched_publications.append(enriched_publication)
                 continue
 
@@ -830,6 +767,9 @@ class EuropePMCWrapper:
                     "text"
                 ):
                     checkpoint_status = "no_data"
+                extracted = self.accessions_from_fulltexts([enriched_publication]) if extract_accessions else []
+                for record in extracted:
+                    record["publications"] = [{k: v for k, v in pub.items() if k not in {"text", "full_text_links"}} for pub in record["publications"]]
                 checkpoint_store.put(
                     "publication_text",
                     checkpoint_key,
@@ -838,6 +778,9 @@ class EuropePMCWrapper:
                     payload={
                         "contract_version": PUBLICATION_TEXT_CONTRACT_VERSION,
                         "publication": enriched_publication,
+                        "records": extracted,
+                        "extraction_complete": True,
+                        "extraction_enabled": extract_accessions,
                         **(
                             {"next_retry_at": checkpoint_retry_at}
                             if checkpoint_retry_at is not None

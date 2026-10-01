@@ -234,7 +234,7 @@ inventory, excluded before review and harmonization, and remain absent from the
 Atlas v1 datasets until a supported metadata handler is added.
 
 The default ArrayExpress wrapper downloads BioStudies MAGE-TAB content into
-memory through MSC `ae2json`, checkpoints the parsed package, and passes the
+memory through MSC `Converter.convert()`, checkpoints the completed conversion, and passes the
 common and enriched metadata into harmonization. It creates no temporary IDF,
 SDRF, or JSON files. The selected typed resource profile is propagated into
 MSC, whose fetcher enforces HTTPS/public-host egress, bounded redirects,
@@ -255,7 +255,8 @@ It additionally supports:
 | `--query-generator`, `--no-query-generator` | Enable or disable theme-derived query generation. Enabled by default for creation. Disabling it requires at least one nonblank `--query` or query-file entry. |
 | `--thematic-review`, `--no-thematic-review` | Enable or disable publication thematic review. Enabled by default. Disabling it is incompatible with a non-`none` review filter or `--review-before-metadata`. |
 | `--prune-accessions` | Explicitly apply grounded accession-level exclusions returned by thematic review. Destructive pruning is disabled by default. |
-| `--dev-trace` | Write a timestamped manifest, SQLite checkpoints, readable stage artifacts, final atlas, and summary. |
+| `--dev-trace` | Write a manifest, SQLite checkpoints, final atlas and lightweight reports using workflow contract 2.0. |
+| `--debug-snapshots` | Also write intermediate JSON views; default off. Resume uses SQLite. |
 | `--dev-out-dir PATH` | Trace root used with `--dev-trace`; default `.dev`. |
 | `--harmonization-details-out PATH` | Write per-accession harmonization status, targets, workflow, controls, execution identity, paths, and errors. |
 | `--stop-after STAGE` | Require a development trace and pause after `query-results`, `datalinks`, `publication-text`, `fulltext-accessions`, `accession-graph`, `metadata`, `review`, or `harmonization`. Each pause writes canonical SQLite state plus `pause_<stage>_summary.json`. |
@@ -275,6 +276,14 @@ thematic-atlas harmonize-datasets \
 | `--out OUTPUT` | Required deterministic, atomically replaced Atlas v1 JSON. |
 | `--harmonization-details-out PATH` | Optional details sidecar. |
 | `--review-decisions-file PATH` | Optional validated prune-only review-decision JSON. Only the matching MINiML source fingerprint is rerun. |
+
+New traces use [workflow checkpoint contract 2.0](docs/codebase.md#workflow-checkpoints-v2).
+GEO and ArrayExpress call MSC `Converter.convert()` with standard enrichment and
+related-study expansion. Valid partial results are retained; retry a study explicitly
+with `--retry-item metadata_conversion:geo:GSE123` (or `arrayexpress:E-MTAB-123`).
+`fulltext-accessions` aliases the completed `publication-text` boundary. Old traces
+require a separate migration and are rejected before writes. Worker paths are
+`<dev_out_dir>/<run_id>`, including roots explicitly named `runs`.
 
 `resume` continues a traced run and can first requeue selected checkpoint
 boundaries:
@@ -376,7 +385,7 @@ Atlas(
 )
 ```
 
-`metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_handlers=None` selects the built-in handlers, while an explicit empty mapping disables all handlers. `metadata_repositories` sets the collector default. `capability_registry` supplies the immutable GEO/ArrayExpress routing and review-identity contract. `resource_profile` selects the typed `standard`/`large` ceiling set and `resource_overrides` applies explicit numeric changes before the same profile object is propagated to default wrappers, the harmonizer, and ontology store. Traced creation stores the fully resolved profile in its manifest and Atlas run options. `runtime_provenance` accepts a JSON-compatible mapping for composing applications to persist script, dependency, and authorization identity through the same trace and Atlas boundaries. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. `run_lifecycle` is an internal extension/test seam for run identity, resume selection, checkpoint-contract reconciliation, archival, and resumed publication. The public `resolve_resume_run_directory(dev_out_dir, run_id)` helper gives external runners the same explicit-or-latest-incomplete trace selection used by `Atlas.resume`. The default Europe PMC and GEO wrappers similarly delegate pure record rules to injectable `PublicationRecordPolicy` and `GEORecordPolicy` collaborators while retaining all existing wrapper methods. These collaborators implement or support the boundaries in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
+`debug_snapshots=False` is an optional constructor argument; set it to `True` to write intermediate JSON views. `metadata` is retained on the instance. The factory/component arguments replace the default Europe PMC, metadata, review, collection, filtering, or harmonization collaborators. `metadata_handlers=None` selects the built-in handlers, while an explicit empty mapping disables all handlers. `metadata_repositories` sets the collector default. `capability_registry` supplies the immutable GEO/ArrayExpress routing and review-identity contract. `resource_profile` selects the typed `standard`/`large` ceiling set and `resource_overrides` applies explicit numeric changes before the same profile object is propagated to default wrappers, the harmonizer, and ontology store. Traced creation stores the fully resolved profile in its manifest and Atlas run options. `runtime_provenance` accepts a JSON-compatible mapping for composing applications to persist script, dependency, and authorization identity through the same trace and Atlas boundaries. `ontostore` is shared with the default harmonizer; `cache_ontologies=True` eagerly caches it on the first full atlas run. A custom `harmonizer` cannot be combined with Atlas-managed `ontostore`/cache options. `query_generator` and `credential_checker` replace their model-facing policies. `document_adapter` isolates mature stage mappings from Atlas v1, while `artifact_publisher` provides an injectable crash-durable generation boundary for JSON bundles. `run_lifecycle` is an internal extension/test seam for run identity, resume selection, checkpoint-contract reconciliation, archival, and resumed publication. The public `resolve_resume_run_directory(dev_out_dir, run_id)` helper gives external runners the same explicit-or-latest-incomplete trace selection used by `Atlas.resume`. The default Europe PMC and GEO wrappers similarly delegate pure record rules to injectable `PublicationRecordPolicy` and `GEORecordPolicy` collaborators while retaining all existing wrapper methods. These collaborators implement or support the boundaries in `ThematicAtlases.ports`; `AtlasDocumentService` owns the application-level assembly, projection, summary, and publication use case. See the [Atlas workflow](docs/codebase.md#atlas-workflow).
 
 The optional NCBI identity is forwarded to every Atlas-owned E-utilities
 caller. If `ncbi_api_key` is omitted, `NCBI_API_KEY` may supply it without

@@ -9,6 +9,8 @@ from pathlib import Path
 import secrets
 from typing import Any
 
+from ThematicAtlases.runtime.contracts import validate_trace
+from ThematicAtlases.runtime.views import CheckpointViews
 from ThematicAtlases.application import AtlasDocumentService
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer.review import REVIEW_CONTRACT_VERSION
@@ -30,27 +32,20 @@ def resolve_resume_run_directory(
     if run_id is not None:
         candidate = Path(run_id)
         run_dir = candidate if candidate.is_dir() else root / run_id
-        AtlasRunLifecycle.read_checkpoint(run_dir / "00_run_manifest.json")
+        validate_trace(run_dir)
         return run_dir
 
     candidates = []
     for run_dir in root.iterdir() if root.is_dir() else []:
         manifest_path = run_dir / "00_run_manifest.json"
-        final_path = run_dir / "06_final_atlas.json"
         if not run_dir.is_dir() or not manifest_path.exists():
             continue
-        if final_path.exists():
-            try:
-                checkpoint_store = DevTraceWriter.existing(
-                    run_dir
-                ).checkpoint_store
-            except (OSError, ValueError):
-                continue
-            if not checkpoint_store.has_incomplete():
-                continue
         try:
-            AtlasRunLifecycle.read_checkpoint(manifest_path)
-        except (OSError, ValueError, json.JSONDecodeError):
+            views = CheckpointViews.from_directory(run_dir)
+        except (OSError, ValueError):
+            continue
+        position = views.store.get_meta("pipeline_position", {})
+        if position.get("published") and not any(item['status'] in {'pending', 'retryable_error', 'terminal_error'} for stage in ('metadata_conversion','thematic_review','harmonization','publication_text','search_queries','datalinks','pubmed_gds_links','gds_summaries') for item in views.store.items(stage)):
             continue
         candidates.append(run_dir)
     if not candidates:
@@ -116,10 +111,8 @@ class AtlasRunLifecycle:
         if result.get("schema_version") == "1.0":
             document = AtlasDocument.from_mapping(result)
         else:
-            details_path = trace.directory / "04_harmonization_details.json"
-            details = (
-                self.read_checkpoint(details_path) if details_path.exists() else None
-            )
+            from ThematicAtlases.runtime.views import CheckpointViews
+            _, details = CheckpointViews(trace.checkpoint_store, manifest).harmonization()
             run_status = (
                 RunStatus.RUNNING
                 if artifact_role == "collection_snapshot"
@@ -133,32 +126,26 @@ class AtlasRunLifecycle:
                 theme=str(manifest.get("theme") or ""),
                 config={
                     "queries": list(
-                        trace.checkpoint_store.get_meta("resolved_queries")
+                        CheckpointViews(trace.checkpoint_store, manifest).resolved_queries()
                         or manifest.get("query")
                         or ()
                     ),
                     "metadata_repositories": list(
                         manifest.get("metadata_repositories") or ()
                     ),
-                    **{
-                        key: value
-                        for key, value in manifest.items()
-                        if key not in {"query", "metadata_repositories", "artifacts"}
-                    },
+                    **{key: manifest.get(key) for key in (
+                        "query_file", "review_filter", "review_strategy", "prune_accessions",
+                        "collect_metadata", "generate_queries", "review_before_metadata",
+                        "scrape_fulltext_accessions", "thematic_review", "harmonization_options",
+                        "resource_profile", "runtime_provenance")},
+                    "harmonization_options": dict(manifest.get("harmonization_options") or {}),
                 },
                 run_status=run_status,
                 harmonization_details=details,
             )
-        unsupported_report_path = trace.directory / "unsupported_accessions.json"
-        unsupported_report = (
-            self.read_checkpoint(unsupported_report_path)
-            if unsupported_report_path.exists()
-            else build_unsupported_accessions_report(
-                list(result.get("unsupported_accessions", [])),
-                atlas_id=document.atlas.atlas_id,
-                run_id=document.run.run_id,
-            )
-        )
+        unsupported_report = build_unsupported_accessions_report(
+            list(result.get("unsupported_accessions", [])), atlas_id=document.atlas.atlas_id,
+            run_id=document.run.run_id)
         unsupported_output_path = manifest.get("unsupported_accessions_out")
         published = document.to_mapping()
         if out is not None:
@@ -221,6 +208,8 @@ class AtlasRunLifecycle:
             "artifact_published",
             detail={"artifact_role": artifact_role},
         )
+        if artifact_role != "collection_snapshot":
+            trace.checkpoint_store.set_meta("pipeline_position", {"stage":"harmonization", "state":"complete", "published":True})
         return published
 
     def resume_run_directory(self, dev_out_dir: str, run_id: str | None) -> Path:

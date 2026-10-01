@@ -160,7 +160,7 @@ class AtlasCollector:
     def _set_pipeline_stage(checkpoint_store, stage: str, state: str) -> None:
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
-                "main_pipeline_stage",
+                "pipeline_position",
                 {"stage": stage, "state": state, "contract_version": "1.0"},
             )
 
@@ -219,6 +219,8 @@ class AtlasCollector:
         checkpoint_store=None,
         retry_tags=None,
     ) -> list[dict]:
+        if retry_tags is not None:
+            raise ValueError("Identifier retry tags are retired; retry metadata_conversion for the whole study")
         return MetadataStage(self).run(MetadataRequest(
             jsons=jsons,
             metadata_repositories=metadata_repositories,

@@ -85,6 +85,7 @@ class Atlas:
         ncbi_api_key: str | None = None,
         ncbi_tool: str = "ThematicAtlases",
         ncbi_email: str | None = None,
+        debug_snapshots: bool = False,
     ):
         initialize_atlas(
             self,
@@ -110,6 +111,7 @@ class Atlas:
             ncbi_api_key=ncbi_api_key,
             ncbi_tool=ncbi_tool,
             ncbi_email=ncbi_email,
+            debug_snapshots=debug_snapshots,
         )
 
     def create_atlas(

@@ -1,3 +1,4 @@
+from checkpoint_fixtures import conversion_payload
 import json
 import threading
 import time
@@ -186,6 +187,7 @@ def traced_publication(
             json.dumps(
                 {
                     "run_id": trace_dir.name,
+                    "workflow_checkpoint_contract": "2.0",
                     "theme": "fibrosis",
                     "metadata_repositories": ["geo"],
                     "review_before_metadata": True,
@@ -263,7 +265,7 @@ def available_geo_metadata(store: CheckpointStore, accession: str, *, partial=Fa
     payload = checkpoint_payload([package], checkpoint_version=4)
     if partial:
         payload["repair_summary"] = {"failed_count": 1}
-    store.put("geo_metadata", accession, 1, "available", payload=payload)
+    store.put('metadata_conversion', 'geo:' + str(accession), 1, "available", payload=conversion_payload(payload))
 
 
 class SnapshotMetadataCollector:
@@ -287,7 +289,7 @@ class SnapshotMetadataCollector:
         records = []
         for record in jsons:
             accession = record["datalink_id"]
-            checkpoint = checkpoint_store.get("geo_metadata", accession)
+            checkpoint = checkpoint_store.get('metadata_conversion', 'geo:' + str(accession))
             status = None if checkpoint is None else checkpoint["status"]
             metadata_status = (
                 "available"
@@ -327,22 +329,22 @@ class SnapshotMetadataCollector:
             callback()
         if accession in self.terminal:
             checkpoint_store.put(
-                "geo_metadata",
-                accession,
+                'metadata_conversion',
+                'geo:' + str(accession),
                 len(self.calls),
                 "terminal_error",
                 error="invalid metadata",
-            )
+             payload=conversion_payload())
             raise ValueError("invalid metadata")
         if accession in self.fail_once and accession not in self.failures:
             self.failures.add(accession)
             checkpoint_store.put(
-                "geo_metadata",
-                accession,
+                'metadata_conversion',
+                'geo:' + str(accession),
                 len(self.calls),
                 "retryable_error",
                 error="temporary metadata timeout",
-            )
+             payload=conversion_payload())
             raise TimeoutError("temporary metadata timeout")
         available_geo_metadata(checkpoint_store, accession)
         return self.available_accession_metadata(
@@ -910,7 +912,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
 
 
 def test_review_contract_version_requires_run_stable_criteria_catalogues() -> None:
-    assert REVIEW_CONTRACT_VERSION == 9
+    assert REVIEW_CONTRACT_VERSION == 10
 
 
 def test_retired_evidence_then_judgement_strategy_is_rejected(tmp_path) -> None:
@@ -1050,7 +1052,7 @@ def test_resume_reviews_current_datalink_checkpoint_snapshot(tmp_path) -> None:
     assert result["publication_texts"]["1"]["agentic_curator"]["judgement"] == "relevant"
     assert json.loads(
         (trace_dir / "incremental_review_progress.json").read_text(encoding="utf-8")
-    ) == result
+    ) == {"accession_count": 1, "publication_count": 1}
 
 
 def test_resume_forwards_worker_snapshot_constraints_to_orchestrator(tmp_path) -> None:
@@ -1395,7 +1397,7 @@ def test_resume_can_defer_publications_until_all_linked_metadata_is_resolved(
         datalink_id="GSE3",
         text="unavailable metadata",
     )
-    store.put("geo_metadata", "GSE3", 3, "no_data")
+    store.put('metadata_conversion', 'geo:' + str("GSE3"), 3, "no_data", payload=conversion_payload())
     traced_publication(
         trace_dir,
         epmc_id="4",
@@ -1420,7 +1422,7 @@ def test_resume_can_defer_publications_until_all_linked_metadata_is_resolved(
         datalink_id="GSE6",
         text="terminal metadata error",
     )
-    store.put("geo_metadata", "GSE6", 5, "terminal_error", error="invalid")
+    store.put('metadata_conversion', 'geo:' + str("GSE6"), 5, "terminal_error", error="invalid", payload=conversion_payload())
     traced_publication(
         trace_dir,
         epmc_id="6",
@@ -1571,7 +1573,7 @@ def test_snapshot_yields_without_work_when_main_has_left_datalinks(tmp_path) -> 
         text="main owns downstream",
     )
     store.set_meta(
-        "main_pipeline_phase",
+        "pipeline_position",
         {"phase": "downstream", "invocation_id": "main-1"},
     )
     collector = SnapshotMetadataCollector(trace_dir=trace_dir)
@@ -1604,7 +1606,7 @@ def test_snapshot_cancellation_is_not_reported_as_yield_to_main(tmp_path) -> Non
         datalink_id="GSE1",
         text="cancelled worker",
     )
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
     collector = SnapshotMetadataCollector(trace_dir=trace_dir)
 
     result = snapshot_reviewer(collector).resume(
@@ -1636,10 +1638,10 @@ def test_snapshot_stops_starting_items_when_main_enters_downstream(tmp_path) -> 
         datalink_id="GSE2",
         text="must remain deferred",
     )
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
 
     def transition_main():
-        store.set_meta("main_pipeline_phase", {"phase": "downstream"})
+        store.set_meta("pipeline_position", {"phase": "downstream"})
 
     collector = SnapshotMetadataCollector(
         trace_dir=trace_dir,
@@ -1657,8 +1659,8 @@ def test_snapshot_stops_starting_items_when_main_enters_downstream(tmp_path) -> 
     )
 
     assert collector.calls == ["GSE1"]
-    assert store.get("geo_metadata", "GSE1")["status"] == "available"
-    assert store.get("geo_metadata", "GSE2") is None
+    assert store.get('metadata_conversion', 'geo:' + str("GSE1"))["status"] == "available"
+    assert store.get('metadata_conversion', 'geo:' + str("GSE2")) is None
     assert result["publication_texts"] == {}
     assert result["metadata_summary"]["yielded_to_main"] is True
     assert result["metadata_summary"]["main_phase"] == "downstream"
@@ -1687,7 +1689,7 @@ def test_snapshot_publication_limit_is_deterministic_and_applied_before_metadata
         datalink_id="GSE2",
         text="second publication",
     )
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
     collector = SnapshotMetadataCollector(trace_dir=trace_dir)
     FakeReviewer.calls = []
 
@@ -1726,7 +1728,7 @@ def test_snapshot_stops_before_next_review_when_main_enters_downstream(
     )
     available_geo_metadata(store, "GSE1")
     available_geo_metadata(store, "GSE2")
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
     collector = SnapshotMetadataCollector(trace_dir=trace_dir)
 
     class TransitioningReviewer(FakeReviewer):
@@ -1734,7 +1736,7 @@ def test_snapshot_stops_before_next_review_when_main_enters_downstream(
 
         def review_relevancy(self, **kwargs):
             result = super().review_relevancy(**kwargs)
-            store.set_meta("main_pipeline_phase", {"phase": "downstream"})
+            store.set_meta("pipeline_position", {"phase": "downstream"})
             return result
 
     result = snapshot_reviewer(collector).resume(
@@ -1769,7 +1771,7 @@ def test_snapshot_metadata_deadline_defers_one_item_and_continues(tmp_path) -> N
         datalink_id="GSE2",
         text="fast metadata",
     )
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
 
     class SlowFirstCollector(SnapshotMetadataCollector):
         def collect_accession_metadata(self, jsons, **kwargs):
@@ -1794,10 +1796,10 @@ def test_snapshot_metadata_deadline_defers_one_item_and_continues(tmp_path) -> N
     assert time.monotonic() - started < 1.5
     assert collector.calls == ["GSE1", "GSE2"]
     assert result["metadata_summary"]["metadata_timeout_count"] == 1
-    assert store.get("geo_metadata", "GSE1") is None
-    assert store.get("geo_metadata", "GSE2")["status"] == "available"
+    assert store.get('metadata_conversion', 'geo:' + str("GSE1")) is None
+    assert store.get('metadata_conversion', 'geo:' + str("GSE2"))["status"] == "available"
     assert set(result["publication_texts"]) == {"2"}
-    assert store.get_meta("main_pipeline_phase")["phase"] == "datalinks"
+    assert store.get_meta("pipeline_position")["phase"] == "datalinks"
 
 
 def test_snapshot_review_deadline_releases_lock_and_continues(tmp_path) -> None:
@@ -1816,7 +1818,7 @@ def test_snapshot_review_deadline_releases_lock_and_continues(tmp_path) -> None:
     )
     available_geo_metadata(store, "GSE1")
     available_geo_metadata(store, "GSE2")
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
 
     class SlowFirstReviewer(FakeReviewer):
         calls = []
@@ -1872,7 +1874,7 @@ def test_snapshot_publication_text_deadline_defers_one_item_and_continues(
     )
     available_geo_metadata(store, "GSE1")
     available_geo_metadata(store, "GSE2")
-    store.set_meta("main_pipeline_phase", {"phase": "datalinks"})
+    store.set_meta("pipeline_position", {"phase": "datalinks"})
 
     class SlowFirstTextFilterer(AtlasFilterer):
         calls = []
@@ -1966,7 +1968,7 @@ def test_resume_metadata_failures_defer_linked_publications_and_continue(
     )
     collector.terminal.clear()
     CheckpointStore(trace_dir / "atlas_run.sqlite3").request_retries(
-        items={"geo_metadata": ["GSE3"]}
+        items={"metadata_conversion": ["geo:GSE3"]}
     )
     third = review.resume(
         trace_dir,
@@ -2047,8 +2049,9 @@ def test_snapshot_and_main_metadata_collection_share_accession_lock(tmp_path) ->
     release = threading.Event()
     calls = []
 
-    class SlowGeo(GEOWrapper):
-        def _gse_metadata_packages(self, gse_accession):
+    from test_geo_wrapper import FakeGEOWrapper
+    class SlowGeo(FakeGEOWrapper):
+        def metadata_packages_for_test(self, gse_accession):
             calls.append(gse_accession)
             started.set()
             assert release.wait(timeout=5)
@@ -2131,11 +2134,11 @@ def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch)
 
     first = review.resume(trace_dir, reviewer=FakeReviewer())
     store.put(
-        "geo_metadata",
-        "GSE1",
+        'metadata_conversion',
+        'geo:' + str("GSE1"),
         1,
         "available",
-        payload=checkpoint_payload(
+        payload=conversion_payload(checkpoint_payload(
             [{
                 "miniml_schema_version": "3.0",
                 "source": {"format": "test"},
@@ -2144,7 +2147,7 @@ def test_resume_rereviews_when_metadata_becomes_available(tmp_path, monkeypatch)
                 "series": {"iid": "GSE1", "accession": [{"value": "GSE1"}]},
             }],
             checkpoint_version=4,
-        ),
+        )),
     )
     second = review.resume(trace_dir, reviewer=FakeReviewer())
 

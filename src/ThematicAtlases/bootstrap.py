@@ -76,8 +76,10 @@ def initialize_atlas(
     ncbi_api_key: str | None = None,
     ncbi_tool: str = "ThematicAtlases",
     ncbi_email: str | None = None,
+    debug_snapshots: bool = False,
 ):
     atlas.metadata = metadata
+    atlas._debug_snapshots = bool(debug_snapshots)
     atlas._resource_profile = (
         resource_profile.with_overrides(resource_overrides)
         if isinstance(resource_profile, ResourceProfile) and resource_overrides
@@ -226,3 +228,11 @@ class AtlasRuntimeFactory:
         if configuration.get('publication_text_reviewer') is None:
             configuration['publication_text_reviewer'] = self.build_reviewer()
         return Atlas(metadata=metadata, **configuration)
+
+
+def runtime_factory_for_manifest(manifest):
+    """Restore the saved resource limits when constructing default continuations."""
+    profile = dict(manifest.get("resource_profile") or {})
+    name = profile.pop("name", "standard")
+    return AtlasRuntimeFactory(resource_profile=name, resource_overrides=profile,
+                               metadata_repositories=manifest.get("metadata_repositories"))

@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.collector.resume import TraceMetadataResumer
@@ -71,7 +72,7 @@ def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path, c
     trace_dir = tmp_path / "trace"
     trace_dir.mkdir()
     (trace_dir / "00_run_manifest.json").write_text(
-        json.dumps({"metadata_repositories": ["geo"]}), encoding="utf-8"
+        json.dumps({"metadata_repositories": ["geo"], "workflow_checkpoint_contract": "2.0"}), encoding="utf-8"
     )
     _checkpoint_publication(trace_dir, "1", "GSE1")
     resumer = TraceMetadataResumer(
@@ -87,59 +88,13 @@ def test_metadata_resumer_processes_one_snapshot_and_later_additions(tmp_path, c
     assert [record["datalink_id"] for record in first["accessions"]] == ["GSE1"]
     assert [record["datalink_id"] for record in second["accessions"]] == ["GSE1", "GSE2"]
     assert second["publication_texts"] == {}
-    assert json.loads((trace_dir / "resume_metadata_progress.json").read_text()) == second
-    assert "Metadata snapshot stats datalink_checkpoints=1 datalink_rows=1" in caplog.text
-    assert "Metadata checkpoint stats" in caplog.text
+    assert json.loads((trace_dir / "resume_metadata_progress.json").read_text()) == {"accession_count": 2, "publication_count": 0}
+    assert "Metadata snapshot stats accessions=1" in caplog.text
     assert "Metadata snapshot complete accessions=2" in caplog.text
 
 
-def test_metadata_audit_writes_report_and_template_without_collecting(tmp_path) -> None:
-    trace_dir = tmp_path / "trace"
-    trace_dir.mkdir()
-    (trace_dir / "00_run_manifest.json").write_text("{}", encoding="utf-8")
-    store = _checkpoint_store(trace_dir)
-    store.put(
-        "geo_metadata",
-        "GSE1",
-        1,
-        "available",
-        payload={
-            "checkpoint_version": 2,
-            "packages": [
-                {
-                    "series": {
-                        "accession": [{"value": "GSE1"}],
-                        "pubmed_publication": [
-                            {
-                                "pubmed_id": "123",
-                                "doi": None,
-                                "author_list": None,
-                                "title": None,
-                                "status": None,
-                                "status_term_source_ref": None,
-                                "status_term_accession_number": None,
-                            }
-                        ],
-                    }
-                }
-            ],
-        },
-    )
-
-    class UnexpectedCollector:
-        def __init__(self):
-            raise AssertionError("audit must not construct a network collector")
-
-    result = TraceMetadataResumer(
-        collector_factory=UnexpectedCollector,
-        epmc_wrapper_factory=lambda: None,
-    ).resume(trace_dir, audit_enrichment_only=True)
-
-    assert result["counts"]["pubmed"] == 1
-    assert json.loads(
-        (trace_dir / "resume_enrichment_candidates.json").read_text()
-    ) == result
-    assert json.loads(
-        (trace_dir / "resume_enrichment_retry_tags.json").read_text()
-    ) == {"tag_id": "", "pubmed": [], "sra": [], "ena": []}
-    assert store.items("pubmed_enrichment") == []
+@pytest.mark.parametrize("options", [{"audit_enrichment_only":True}, {"retry_tags":{}}])
+def test_retired_identifier_repair_rejects_with_study_retry_guidance(tmp_path, options):
+    with pytest.raises(ValueError, match="whole study.*metadata_conversion"):
+        TraceMetadataResumer().resume(tmp_path, **options)
+    assert list(tmp_path.iterdir()) == []

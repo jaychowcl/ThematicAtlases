@@ -37,6 +37,8 @@ class TraceStageWorker:
         collector_factory=None,
         publication_text_reviewer_factory=None,
     ) -> None:
+        self._uses_default_epmc = epmc_wrapper_factory is None
+        self._trace_factory = None
         if epmc_wrapper_factory is None:
             from ThematicAtlases.wrappers.epmc import EuropePMCWrapper
 
@@ -65,6 +67,10 @@ class TraceStageWorker:
         directory = Path(trace_dir)
         self._cancellation_check = cancelled
         trace = DevTraceWriter.existing(directory)
+        from ThematicAtlases.bootstrap import runtime_factory_for_manifest
+        self._trace_factory = runtime_factory_for_manifest(self._read_manifest(directory))
+        if self._uses_default_epmc:
+            self._epmc_wrapper_factory = self._trace_factory.epmc_wrapper_factory
         store = CheckpointStore(
             directory / "atlas_run.sqlite3",
             default_item_lock_timeout_seconds=2.0,
@@ -168,12 +174,11 @@ class TraceStageWorker:
                 yielded = not self._worker_allowed(store)
                 break
             try:
-                enriched = wrapper.collect_publication_texts(
-                    [publication], checkpoint_store=store
-                )
-                wrapper.accessions_from_fulltexts(
-                    enriched, checkpoint_store=store
-                )
+                import inspect
+                options = {"checkpoint_store": store}
+                if "extract_accessions" in inspect.signature(wrapper.collect_publication_texts).parameters:
+                    options["extract_accessions"] = self._read_manifest(store.path.parent).get("scrape_fulltext_accessions", True)
+                wrapper.collect_publication_texts([publication], **options)
                 if self._text_publication_complete(store, publication):
                     completed += 1
                 else:
@@ -251,7 +256,7 @@ class TraceStageWorker:
                 break
             checkpoint = store.get(
                 self._metadata_stage(accession),
-                str(accession.get("datalink_id") or ""),
+                self._metadata_key(accession),
             )
             if (
                 checkpoint
@@ -316,6 +321,9 @@ class TraceStageWorker:
         )
 
     def _metadata_accession_actionable(self, collector, accession, store) -> bool:
+        saved = store.get(self._metadata_stage(accession), self._metadata_key(accession))
+        if saved and saved.get("error_type") == "ManualRetry":
+            return self._checkpoint_actionable(saved)
         available = getattr(collector, "available_accession_metadata", None)
         if callable(available):
             try:
@@ -335,7 +343,7 @@ class TraceStageWorker:
             return not bool(statuses and statuses <= REVIEWABLE_METADATA_STATUSES)
         checkpoint = store.get(
             self._metadata_stage(accession),
-            str(accession.get("datalink_id") or ""),
+            self._metadata_key(accession),
         )
         return not bool(
             checkpoint
@@ -349,7 +357,7 @@ class TraceStageWorker:
                 break
             checkpoint = store.get(
                 self._metadata_stage(accession),
-                str(accession.get("datalink_id") or ""),
+                self._metadata_key(accession),
             )
             prioritized.append(
                 (
@@ -364,13 +372,15 @@ class TraceStageWorker:
 
     @staticmethod
     def _metadata_stage(accession) -> str:
-        repository = str(accession.get("accession_repository") or "").casefold()
+        return "geo_resolution" if str(accession.get("datalink_id", "")).upper().startswith(("GSM", "GDS")) else "metadata_conversion"
+
+    @staticmethod
+    def _metadata_key(accession) -> str:
         identity = str(accession.get("datalink_id") or "").upper()
-        return (
-            "arrayexpress_metadata"
-            if repository == "arrayexpress" or identity.startswith("E-")
-            else "geo_metadata"
-        )
+        if identity.startswith(("GSM", "GDS")):
+            return identity
+        repository = "arrayexpress" if identity.startswith("E-") else "geo"
+        return f"{repository}:{identity}"
 
     def _run_review(
         self, directory, publications, store, *, item_limit=None
@@ -477,56 +487,26 @@ class TraceStageWorker:
         )
 
     def _merged_accessions(self, publications, store) -> list[dict]:
-        wrapper = self._epmc_wrapper_factory()
-        datalink_rows = []
-        for item in store.items("datalinks"):
-            if self._cancelled():
-                return []
-            if item["status"] == "available":
-                datalink_rows.extend((item.get("payload") or {}).get("rows", []))
-        datalink_accessions = wrapper.accessions_from_datalinks(datalink_rows)
-        if self._cancelled():
-            return []
-        fulltext_accessions = []
-        for item in store.items("fulltext_accession_discovery"):
-            if self._cancelled():
-                return []
-            if item["status"] in {"available", "no_data", "terminal_error"}:
-                fulltext_accessions.extend(
-                    (item.get("payload") or {}).get("records", [])
-                )
-        graph_accessions = wrapper.accessions_from_link_graph(
-            publications,
-            checkpoint_store=store,
-            cached_only=True,
-            continue_predicate=lambda: not self._cancelled(),
-        )
-        if self._cancelled():
-            return []
-        merged = wrapper.merge_accessions(
-            datalink_accessions,
-            fulltext_accessions,
-            graph_accessions,
-        )
+        from ThematicAtlases.runtime.views import CheckpointViews
         manifest = self._read_manifest(store.path.parent)
+        merged = CheckpointViews(store, manifest).discovery(
+            wrapper=self._epmc_wrapper_factory(), publications=publications)
         return self._collector().filter_accessions(
-            merged,
-            metadata_repositories=manifest.get("metadata_repositories"),
-        )
+            merged, metadata_repositories=manifest.get("metadata_repositories"))
 
     def _collector(self):
         if self._collector_factory is not None:
             return self._collector_factory()
         from ThematicAtlases.collector.collector import AtlasCollector
 
-        return AtlasCollector()
+        return self._trace_factory.build_collector() if self._trace_factory else AtlasCollector()
 
     def _publication_text_reviewer(self):
         if self._publication_text_reviewer_factory is not None:
             return self._publication_text_reviewer_factory()
         from ThematicAtlases.filterer.review import PublicationTextReviewer
 
-        return PublicationTextReviewer(cancelled=self._cancellation_check)
+        return self._trace_factory.build_reviewer(cancelled=self._cancellation_check) if self._trace_factory else PublicationTextReviewer(cancelled=self._cancellation_check)
 
     @staticmethod
     def _read_manifest(directory: Path) -> dict:
@@ -566,15 +546,15 @@ class TraceStageWorker:
             bool(
                 (checkpoint := store.get(stage, key))
                 and checkpoint["status"] in TERMINAL_CHECKPOINT_STATUSES
+                and (checkpoint.get("payload") or {}).get("extraction_complete", False)
             )
-            for stage in ("publication_text", "fulltext_accession_discovery")
+            for stage in ("publication_text",)
         )
 
     @classmethod
     def _review_discovery_terminal(cls, store, publication) -> bool:
-        return cls._text_publication_complete(
-            store, publication
-        ) and cls._graph_publication_complete(store, publication)
+        scrape = cls._read_manifest(store.path.parent).get("scrape_fulltext_accessions", True)
+        return (not scrape or cls._text_publication_complete(store, publication)) and cls._graph_publication_complete(store, publication)
 
     def _text_frontier(self, publications, store):
         candidates = []
@@ -586,7 +566,7 @@ class TraceStageWorker:
         return self._prioritized_frontier(
             candidates,
             store=store,
-            stages=("publication_text", "fulltext_accession_discovery"),
+            stages=("publication_text",),
             key=lambda publication: self.publication_checkpoint_key(publication),
         )
 
@@ -625,7 +605,7 @@ class TraceStageWorker:
         key = cls.publication_checkpoint_key(publication)
         return any(
             cls._checkpoint_actionable(store.get(stage, key))
-            for stage in ("publication_text", "fulltext_accession_discovery")
+            for stage in ("publication_text",)
         )
 
     @classmethod
@@ -681,12 +661,12 @@ class TraceStageWorker:
 
     @staticmethod
     def _explicitly_paused(store) -> bool:
-        return store.get_meta("main_pipeline_stage", {}).get("state") == "paused"
+        return store.get_meta("pipeline_position", {}).get("state") == "paused"
 
     def _worker_allowed(self, store) -> bool:
         if self._explicitly_paused(store):
             return True
-        return store.get_meta("main_pipeline_phase", {}).get("phase") == "datalinks"
+        return store.get_meta("pipeline_position", {}).get("phase") == "datalinks"
 
     def _cancelled(self) -> bool:
         return bool(

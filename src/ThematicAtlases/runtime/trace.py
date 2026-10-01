@@ -9,9 +9,17 @@ from uuid import uuid4
 
 from ThematicAtlases.checkpoint import CheckpointStore
 from ThematicAtlases.run_store import AtlasRunStore, IncompatibleRunStoreError
+from ThematicAtlases.runtime.contracts import WORKFLOW_CHECKPOINT_CONTRACT, validate_trace
 
 
 _PATH_COMPONENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+DEBUG_SNAPSHOTS = {"01_collected_accessions.json", "02_reviewed_datasets.json",
+                       "03_pre_harmonization_accession_metadata.json", "04_harmonization_details.json",
+                       "05_post_harmonization_accession_metadata.json", "resume_harmonized_datasets.json",
+                       "resume_metadata_enriched_datasets.json", "resume_publication_collection.json",
+                       "resume_review_progress.json"}
 
 
 def _safe_path_component(value: str, name: str) -> str:
@@ -27,11 +35,16 @@ class DevTraceWriter:
     def __init__(self, root: str, run_id: str, manifest: dict, write_manifest: bool = True):
         run_id = _safe_path_component(run_id, "run_id")
         self.directory = Path(root) / run_id
+        if self.directory.exists() and (self.directory / "00_run_manifest.json").exists():
+            validate_trace(self.directory)
+        self.debug_snapshots = bool(manifest.get("debug_snapshots", False))
+        if not write_manifest:
+            self.debug_snapshots = bool(validate_trace(self.directory).get("debug_snapshots", False))
         self.directory.mkdir(parents=True, exist_ok=True)
         self._checkpoint_store = None
         self._run_store = None
         if write_manifest:
-            full_manifest = {**manifest, "run_id": run_id}
+            full_manifest = {**manifest, "run_id": run_id, "workflow_checkpoint_contract": WORKFLOW_CHECKPOINT_CONTRACT}
             self.write("00_run_manifest.json", full_manifest)
             self._run_store = AtlasRunStore(
                 self.directory / "atlas_run.sqlite3"
@@ -49,6 +62,7 @@ class DevTraceWriter:
             self._run_store.record_event(
                 run_id, "run_created", detail={"command": manifest.get("command")}
             )
+            self._checkpoint_store = CheckpointStore(self.directory / "atlas_run.sqlite3")
 
     @property
     def manager(self):
@@ -92,6 +106,12 @@ class DevTraceWriter:
 
     def write(self, name: str, value) -> None:
         name = _safe_path_component(name, "artifact name")
+        if name in DEBUG_SNAPSHOTS and not self.debug_snapshots:
+            return
+        if "progress" in name and isinstance(value, dict) and not self.debug_snapshots and ("accessions" in value or "publication_texts" in value):
+            value = {**{k: v for k, v in value.items() if k not in {"accessions", "publication_texts"}},
+                     "accession_count": len(value.get("accessions", [])),
+                     "publication_count": len(value.get("publication_texts", {}))}
         destination = self.directory / name
         temporary = destination.with_name(
             f".{destination.name}.{os.getpid()}.{uuid4().hex}.tmp"
@@ -113,6 +133,8 @@ class DevTraceWriter:
     ) -> int:
         name = _safe_path_component(name, "artifact name")
         path = self.directory / name
+        if not path.exists() and not self.debug_snapshots and name in DEBUG_SNAPSHOTS:
+            return 0
         content = path.read_bytes()
         return self.run_store.register_artifact(
             self.directory.name,

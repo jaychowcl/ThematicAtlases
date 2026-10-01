@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ThematicAtlases.runtime.views import CheckpointViews
 
 from ThematicAtlases.integrations.magetab import SourceEvidenceCompatibilityError
 
@@ -170,7 +171,7 @@ class TracePublicationReviewResumer:
         trace = DevTraceWriter.existing(directory)
 
         def main_phase_name() -> str:
-            phase = store.get_meta("main_pipeline_phase", {})
+            phase = store.get_meta("pipeline_position", {})
             return str(phase.get("phase") or "missing")
 
         def cancellation_requested() -> bool:
@@ -239,9 +240,7 @@ class TracePublicationReviewResumer:
         accessions = (
             list(snapshot_accessions)
             if snapshot_accessions is not None
-            else self._epmc_wrapper_factory().accessions_from_datalinks(
-                datalinks=datalink_rows
-            )
+            else CheckpointViews(store, manifest).discovery(wrapper=self._epmc_wrapper_factory())
         )
         accessions = self._collector_factory().filter_accessions(
             accessions=accessions,

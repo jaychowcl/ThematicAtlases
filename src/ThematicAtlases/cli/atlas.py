@@ -59,6 +59,7 @@ def _resource_override(value: str) -> tuple[str, int | float]:
 
 
 def _add_resource_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--debug-snapshots", action="store_true", help="Write optional intermediate JSON views (SQLite remains authoritative)")
     parser.add_argument(
         "--resource-profile",
         choices=("standard", "large"),
@@ -386,7 +387,7 @@ def main(argv: list[str] | None = None, *, atlas_factory=None, worker_factory=No
     _configure_logging(verbosity=verbosity, log_file=log_file)
 
     if args.command == "worker-snapshot":
-        trace_dir = Path(args.dev_out_dir) / "runs" / args.run_id
+        trace_dir = Path(args.dev_out_dir) / args.run_id
         try:
             with _cooperative_cancellation() as cancellation:
                 result = worker_type().resume(
@@ -416,6 +417,8 @@ def main(argv: list[str] | None = None, *, atlas_factory=None, worker_factory=No
         "resource_profile": args.resource_profile,
         "resource_overrides": dict(args.resource_override),
     }
+    if getattr(args, "debug_snapshots", False):
+        atlas_kwargs["debug_snapshots"] = True
     constructor_parameters = inspect.signature(atlas_type).parameters.values()
     if not any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD

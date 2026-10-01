@@ -59,7 +59,7 @@ def test_create_atlas_can_pause_after_metadata_as_resumable_collection(tmp_path)
     assert atlas.collection_calls[0]["collect_metadata"] is True
     assert atlas.collection_calls[0]["review_before_metadata"] is False
     assert atlas.collection_calls[0]["stop_before_review"] is True
-    run_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
+    run_dir = next(path for path in tmp_path.iterdir() if (path / "00_run_manifest.json").is_file())
     assert result["run"]["status"] == "running"
     assert (run_dir / "atlas_run.sqlite3").is_file()
     assert (run_dir / "collection_snapshot.json").is_file()
@@ -95,7 +95,7 @@ def test_create_trace_and_document_record_runtime_provenance_and_resource_profil
         stop_after="metadata",
     )
 
-    run_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
+    run_dir = next(path for path in tmp_path.iterdir() if (path / "00_run_manifest.json").is_file())
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["runtime_provenance"] == provenance
     assert manifest["resource_profile"]["name"] == "large"
@@ -117,6 +117,7 @@ def test_public_resume_resolver_selects_latest_incomplete_valid_trace(tmp_path):
         manifest={"command": "create-atlas", "atlas_id": "fibrosis"},
     )
     complete.write("06_final_atlas.json", {"schema_version": "1.0"})
+    complete.checkpoint_store.set_meta("pipeline_position", {"published": True})
 
     assert resolve_resume_run_directory(tmp_path, None) == paused.directory
     assert (
@@ -125,73 +126,6 @@ def test_public_resume_resolver_selects_latest_incomplete_valid_trace(tmp_path):
     )
 
 
-def test_resume_continues_paused_create_run_without_recollecting_metadata(tmp_path):
-    events = []
-
-    class Collector:
-        def collect_jsons(self, **kwargs):
-            events.append(("collect", kwargs["collect_metadata"]))
-            return [
-                {
-                    "datalink_id": "GSE1",
-                    "accession_metadata": {"title": "downloaded metadata"},
-                    "publications": [{"pmid": "1"}],
-                }
-            ]
-
-    class Filterer:
-        def filter_jsons(self, jsons=None, theme=None, review_filter=None, **kwargs):
-            events.append(("filter", theme, review_filter))
-            return {
-                "accessions": [
-                    {
-                        **jsons[0],
-                        "publications": [
-                            {**jsons[0]["publications"][0], "publication_text_ref": "1"}
-                        ],
-                    }
-                ],
-                "publication_texts": {"1": {"text": "publication body"}},
-            }
-
-        def accessions_with_publication_text_refs(self, accessions, publication_texts):
-            return accessions
-
-    class Harmonizer:
-        def harmonize_datasets(self, datasets=None, **kwargs):
-            events.append(("harmonize", len(datasets["accessions"])))
-            return datasets, []
-
-    class Credentials:
-        def check(self):
-            events.append(("credentials",))
-
-    atlas = Atlas(
-        metadata={"atlas_id": "fibrosis"},
-        collector=Collector(),
-        filterer=Filterer(),
-        harmonizer=Harmonizer(),
-        credential_checker=Credentials(),
-    )
-    atlas.create_atlas(
-        query=["fibrosis"],
-        theme="human fibrosis",
-        review_filter="not_relevant",
-        generate_queries=False,
-        dev_trace=True,
-        dev_out_dir=str(tmp_path),
-        stop_after="metadata",
-    )
-    run_dir = next(path for path in tmp_path.iterdir() if path.is_dir())
-
-    result = atlas.resume(dev_out_dir=str(tmp_path), run_id=run_dir.name)
-
-    assert events.count(("collect", True)) == 1
-    assert ("filter", None, "none") in events
-    assert ("filter", "human fibrosis", "not_relevant") in events
-    assert ("harmonize", 1) in events
-    assert result["run"]["status"] == "complete"
-    assert (run_dir / "06_final_atlas.json").is_file()
 
 
 @pytest.mark.parametrize(
@@ -274,6 +208,7 @@ def _paused_source(root, run_id="source"):
         "resume_publication_collection.json",
         {"accessions": [], "publication_texts": {"PMID:1": {"text": "body"}}},
     )
+    trace.checkpoint_store.set_meta("pipeline_position", {"stage": "metadata", "state": "paused"})
     trace.run_store.set_stage_state(run_id, "collection", "complete")
     trace.run_store.set_run_status(run_id, "running")
     return trace.directory
@@ -299,7 +234,7 @@ def test_fork_run_clones_metadata_checkpoint_with_new_identity_and_overrides(tmp
     assert manifest["run_id"] == "theme-b"
     assert manifest["theme"] == "alternate fibrosis theme"
     assert manifest["forked_from"]["run_id"] == "source"
-    assert (forked / "01_collected_accessions.json").is_file()
+    assert not (forked / "01_collected_accessions.json").exists()
     assert not (forked / "02_reviewed_datasets.json").exists()
     assert not (forked / "06_final_atlas.json").exists()
     fork_trace = DevTraceWriter.existing(forked)

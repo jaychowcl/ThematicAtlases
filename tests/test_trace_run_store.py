@@ -82,8 +82,8 @@ def test_existing_trace_requires_an_initialized_v2_run_store(tmp_path):
     directory = tmp_path / "legacy"
     directory.mkdir()
 
+    (directory / "00_run_manifest.json").write_text('{"workflow_checkpoint_contract":"2.0"}')
     trace = DevTraceWriter.existing(directory)
-
     with pytest.raises(IncompatibleRunStoreError, match="atlas_run.sqlite3"):
         _ = trace.run_store
 
@@ -108,7 +108,7 @@ def test_trace_rejects_unsafe_artifact_name_components(tmp_path, name):
 def test_concurrent_trace_writes_use_independent_temporary_files(
     tmp_path, monkeypatch
 ):
-    trace = DevTraceWriter(str(tmp_path), "run-1", {"command": "test"})
+    trace = DevTraceWriter(str(tmp_path), "run-1", {"debug_snapshots": True, "command": "test"})
     barrier = threading.Barrier(2)
     original_dump = trace_module.json.dump
 

@@ -502,7 +502,7 @@ def test_collect_accessions_can_disable_fulltext_scraping(monkeypatch) -> None:
     ) == expected
 
 
-def test_fulltext_accession_discovery_is_checkpointed_and_reused(tmp_path) -> None:
+def test_fulltext_extraction_is_pure_and_recomputed_from_text(tmp_path) -> None:
     store = CheckpointStore(tmp_path / "resume.sqlite")
     wrapper = EuropePMCWrapper()
     publication = {
@@ -523,11 +523,8 @@ def test_fulltext_accession_discovery_is_checkpointed_and_reused(tmp_path) -> No
     )
 
     assert [record["datalink_id"] for record in first] == ["GSE123", "PRJNA456"]
-    assert second == first
-    assert (
-        store.get("fulltext_accession_discovery", "MED:1")["status"]
-        == "available"
-    )
+    assert [record["datalink_id"] for record in second] == ["GSE999"]
+    assert store.items("fulltext_accession_discovery") == []
     assert store.has_retryable_boundary("discovery") is False
 
 

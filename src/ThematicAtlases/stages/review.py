@@ -66,6 +66,8 @@ class PublicationReviewStage:
     ) -> dict:
         stage_owner = self.owner
         from ThematicAtlases.filterer.review import AGENTIC_CURATOR, REVIEW_CONTRACT_VERSION
+        from ThematicAtlases.runtime.evidence import reference_text
+        text_ref = reference_text(checkpoint_store, publication_ref, publication_text) if checkpoint_store is not None else None
         checkpoint_key = stage_owner._review_checkpoint_key(strategy, publication_ref)
         checkpoint = (
             checkpoint_store.get("thematic_review", checkpoint_key)
@@ -79,9 +81,8 @@ class PublicationReviewStage:
         } and (
             payload.get("input_hash") == input_hash
         ):
-            publication_text = dict(
-                payload.get("publication_text", publication_text)
-            )
+            if payload.get("text_ref") == text_ref and payload.get("review") is not None:
+                publication_text = {**publication_text, AGENTIC_CURATOR: payload["review"]}
 
         existing_review = publication_text.get(AGENTIC_CURATOR)
         coverage_context = stage_owner._metadata_context(context)
@@ -158,7 +159,8 @@ class PublicationReviewStage:
                     if is_retryable_error(error)
                     else "terminal_error",
                     payload={
-                        "publication_text": publication_text,
+                        "text_ref": text_ref,
+                        "review": publication_text[AGENTIC_CURATOR],
                         "input_hash": input_hash,
                         "identity_hash": identity_hash,
                         "review_contract_version": REVIEW_CONTRACT_VERSION,
@@ -203,7 +205,8 @@ class PublicationReviewStage:
                 index,
                 "available",
                 payload={
-                    "publication_text": publication_text,
+                    "text_ref": text_ref,
+                    "review": publication_text[AGENTIC_CURATOR],
                     "input_hash": input_hash,
                     "identity_hash": identity_hash,
                     "review_contract_version": REVIEW_CONTRACT_VERSION,

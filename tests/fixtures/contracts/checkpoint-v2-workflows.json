@@ -1,0 +1,356 @@
+{
+  "documents": {
+    "study": {
+      "datasets": [
+        {
+          "dataset_id": "GSE1",
+          "source_repository": "geo",
+          "source_ordinal": 0,
+          "status": "harmonized",
+          "metadata": {
+            "miniml_schema_version": "3.0",
+            "source": {
+              "format": "GEO MINiML"
+            },
+            "database": [],
+            "organization": [],
+            "contributor": [],
+            "platform": [],
+            "sample": [],
+            "series": {
+              "iid": "GSE1",
+              "accession": [
+                {
+                  "value": "GSE1"
+                }
+              ]
+            }
+          },
+          "publication_ids": [
+            "1"
+          ],
+          "review": null,
+          "harmonization": {
+            "targets": [],
+            "status": {
+              "execution": "succeeded",
+              "completeness": "complete",
+              "evidence_confidence": "high",
+              "validation": "valid",
+              "publication": "publishable",
+              "terminal_reason": "harmonization_complete",
+              "errors": [],
+              "contract_version": "2.0"
+            }
+          },
+          "diagnostics": []
+        }
+      ],
+      "publications": [
+        {
+          "publication_id": "1",
+          "title": "Fibrosis",
+          "abstract": "GSE1",
+          "review": {
+            "judgement": "relevant",
+            "criteria": [
+              {
+                "criterion": "thematic_relevance",
+                "passed": true,
+                "confidence": "high",
+                "evidence": "Study"
+              }
+            ],
+            "evidence": [
+              {
+                "text": "Fibrosis"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "empty": {
+      "datasets": [],
+      "publications": []
+    },
+    "partial": {
+      "datasets": [
+        {
+          "dataset_id": "GSE1",
+          "source_repository": "geo",
+          "source_ordinal": 0,
+          "status": "harmonized",
+          "metadata": {
+            "miniml_schema_version": "3.0",
+            "source": {
+              "format": "GEO MINiML"
+            },
+            "database": [],
+            "organization": [],
+            "contributor": [],
+            "platform": [],
+            "sample": [],
+            "series": {
+              "iid": "GSE1",
+              "accession": [
+                {
+                  "value": "GSE1"
+                }
+              ]
+            }
+          },
+          "publication_ids": [
+            "1"
+          ],
+          "review": null,
+          "harmonization": {
+            "targets": [],
+            "status": {
+              "execution": "succeeded",
+              "completeness": "complete",
+              "evidence_confidence": "high",
+              "validation": "valid",
+              "publication": "publishable",
+              "terminal_reason": "harmonization_complete",
+              "errors": [],
+              "contract_version": "2.0"
+            }
+          },
+          "diagnostics": [
+            {
+              "code": "metadata_conversion_partial",
+              "message": "metadata conversion is partial; retaining valid metadata",
+              "severity": "warning",
+              "path": null
+            }
+          ]
+        }
+      ],
+      "publications": [
+        {
+          "publication_id": "1",
+          "title": "Fibrosis",
+          "abstract": "GSE1",
+          "review": {
+            "judgement": "relevant",
+            "criteria": [
+              {
+                "criterion": "thematic_relevance",
+                "passed": true,
+                "confidence": "high",
+                "evidence": "Study"
+              }
+            ],
+            "evidence": [
+              {
+                "text": "Fibrosis"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "scenarios": {
+    "default": {
+      "document": "study",
+      "status": "complete",
+      "calls": {
+        "epmc": [
+          "search",
+          "datalinks",
+          "text"
+        ],
+        "conversion": 1,
+        "review": 1,
+        "harmonization": 1
+      },
+      "items": {
+        "query_generation": [
+          "available"
+        ],
+        "search_pages": [
+          "available"
+        ],
+        "search_queries": [
+          "available"
+        ],
+        "publication_text": [
+          "available"
+        ],
+        "metadata_conversion": [
+          "available"
+        ],
+        "thematic_review": [
+          "available"
+        ],
+        "harmonization": [
+          "available"
+        ],
+        "datalinks": [
+          "no_data"
+        ],
+        "pubmed_gds_links": [
+          "no_data"
+        ]
+      }
+    },
+    "review_first": {
+      "document": "study",
+      "status": "complete",
+      "calls": {
+        "epmc": [
+          "search",
+          "datalinks",
+          "text"
+        ],
+        "conversion": 1,
+        "review": 1,
+        "harmonization": 1
+      },
+      "items": {
+        "query_generation": [
+          "available"
+        ],
+        "search_pages": [
+          "available"
+        ],
+        "search_queries": [
+          "available"
+        ],
+        "publication_text": [
+          "available"
+        ],
+        "metadata_conversion": [
+          "available"
+        ],
+        "thematic_review": [
+          "available"
+        ],
+        "harmonization": [
+          "available"
+        ],
+        "datalinks": [
+          "no_data"
+        ],
+        "pubmed_gds_links": [
+          "no_data"
+        ]
+      }
+    },
+    "partial": {
+      "document": "partial",
+      "status": "partial",
+      "calls": {
+        "epmc": [
+          "search",
+          "datalinks",
+          "text"
+        ],
+        "conversion": 1,
+        "review": 1,
+        "harmonization": 1
+      },
+      "items": {
+        "query_generation": [
+          "available"
+        ],
+        "search_pages": [
+          "available"
+        ],
+        "search_queries": [
+          "available"
+        ],
+        "publication_text": [
+          "available"
+        ],
+        "metadata_conversion": [
+          "available"
+        ],
+        "thematic_review": [
+          "available"
+        ],
+        "harmonization": [
+          "available"
+        ],
+        "datalinks": [
+          "no_data"
+        ],
+        "pubmed_gds_links": [
+          "no_data"
+        ]
+      }
+    },
+    "interrupted_publication": {
+      "document": "study",
+      "status": "complete",
+      "calls": {
+        "epmc": [
+          "search",
+          "datalinks",
+          "text"
+        ],
+        "conversion": 1,
+        "review": 1,
+        "harmonization": 1
+      },
+      "items": {
+        "query_generation": [
+          "available"
+        ],
+        "search_pages": [
+          "available"
+        ],
+        "search_queries": [
+          "available"
+        ],
+        "publication_text": [
+          "available"
+        ],
+        "metadata_conversion": [
+          "available"
+        ],
+        "thematic_review": [
+          "available"
+        ],
+        "harmonization": [
+          "available"
+        ],
+        "datalinks": [
+          "no_data"
+        ],
+        "pubmed_gds_links": [
+          "no_data"
+        ]
+      }
+    },
+    "empty": {
+      "document": "empty",
+      "status": "complete",
+      "calls": {
+        "epmc": [
+          "search"
+        ],
+        "conversion": 0,
+        "review": 0,
+        "harmonization": 0
+      },
+      "items": {
+        "query_generation": [
+          "available"
+        ],
+        "search_pages": [],
+        "search_queries": [
+          "no_data"
+        ],
+        "publication_text": [],
+        "metadata_conversion": [],
+        "thematic_review": [],
+        "harmonization": [],
+        "datalinks": [],
+        "pubmed_gds_links": []
+      }
+    }
+  }
+}

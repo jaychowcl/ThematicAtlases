@@ -91,6 +91,7 @@ class CreateAtlasWorkflow:
                 root=dev_out_dir,
                 run_id=run_id,
                 manifest={
+                    "debug_snapshots": context._debug_snapshots,
                     "command": "create-atlas",
                     "created_at": run_id,
                     "atlas_id": str(
@@ -194,7 +195,7 @@ class CreateAtlasWorkflow:
         logger.info("Atlas create_atlas progress stage=harmonize-datasets")
         if trace is not None:
             trace.checkpoint_store.set_meta(
-                "main_pipeline_stage",
+                "pipeline_position",
                 {"stage": "harmonization", "state": "running", "contract_version": "1.0"},
             )
             trace.write(
@@ -219,7 +220,7 @@ class CreateAtlasWorkflow:
                 trace.metadata(result.get("accessions", [])),
             )
             trace.checkpoint_store.set_meta(
-                "main_pipeline_stage",
+                "pipeline_position",
                 {"stage": "harmonization", "state": "complete", "contract_version": "1.0"},
             )
         else:
@@ -315,6 +316,7 @@ class CreateAtlasWorkflow:
                 "partial" if trace.checkpoint_store.has_incomplete() else "complete",
             )
             trace.run_store.set_run_status(run_id, document.run.status.value)
+            trace.checkpoint_store.set_meta("pipeline_position", {"stage":"harmonization", "state":"complete", "published":True})
             trace.run_store.record_event(
                 run_id,
                 "run_published",

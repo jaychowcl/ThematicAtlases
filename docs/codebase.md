@@ -11,6 +11,114 @@ This is the canonical architecture, interface, and workflow handoff for the
 implemented package. It is evidence-backed by the production modules, package
 metadata, supported interfaces, and tests in this repository.
 
+<a id="workflow-checkpoints-v2"></a>
+## Workflow checkpoint contract 2.0
+
+This is the current recovery contract for **new runs**. It is independent of
+Atlas document schema 1.0, MSC MINiML schema 3.0, and the existing SQLite table
+schema. Historical notes about provider-specific metadata substages and JSON
+snapshot recovery below are superseded by this section.
+
+### Design and boundaries
+
+SQLite stores completed external work. Pure filtering, pruning, merging and
+summaries are recomputed. `runtime/views.py::CheckpointViews` supplies deterministic
+read-only discovery, metadata, review and harmonization projections;
+`SnapshotStore` reads a consistent SQLite snapshot. Neither reconstruction method
+calls a provider or a model. A read-only SQLite open may create SQLite-managed
+WAL/SHM bookkeeping files; it never changes checkpoint data.
+
+`runtime/contracts.py::validate_trace` requires the manifest marker
+`workflow_checkpoint_contract: "2.0"` before any writable trace open. Legacy
+traces receive a migration-required error; they are neither upgraded nor modified.
+The old graph-only migration command is disabled because it cannot produce this
+new contract. Dependency acceptance promotion and trace migration are separate work.
+
+### Completed-work sequence
+
+1. Resolve manual/generated queries once: `query_generation -> resolved_query_key`.
+2. Save each search page and compact cursor progress: `search_pages + search_queries`.
+3. Save publication dataset links: `datalinks[publication]`.
+4. Retrieve text and optionally extract accessions together: `publication_text[publication]`.
+5. Save PubMed links and GDS summaries independently: `pubmed_gds_links + gds_summaries`.
+6. Resolve remote GSM/GDS identities: `geo_resolution[accession]`; normalize GSE locally.
+7. Convert one study through MSC: `metadata_conversion[repository:accession]`.
+8. Save thematic criteria and each publication decision: `thematic_review[publication]`.
+9. Save each whole dataset harmonization: `harmonization[work_key]`.
+10. Recompute derived views and publish final Atlas output: `assemble(saved_outcomes)`.
+
+Review-before-metadata runs perform step 8 before step 7 and convert only the
+retained datasets. Empty discovery still checkpoints a successful empty search.
+`publication-text` is the canonical pause; `fulltext-accessions` is an alias for
+the same completed text/extraction boundary. Extraction can be disabled without
+preventing review. `publication_text` stores the body, extracted records and
+`extraction_complete`/`extraction_enabled`; reviews store a versioned `text_ref`,
+content hash, full review-input hash and decision, rather than another body.
+
+### MSC interface and failures
+
+Both GEO and ArrayExpress use `integrations/conversion.py::MetadataConversionAdapter`:
+`Converter.convert(accession, out_type="json", enrichment="standard",
+options={"expand_studies": True, ...saved_resource_limits})`. No output file is
+requested. Every returned canonical package becomes a record with its original
+publication associations, including related studies. Metadata-handler injection
+remains supported; conversion tests/providers inject `converter=` into wrappers.
+The previous ArrayExpress source/parser injection now explains this replacement.
+
+Each conversion item records canonical packages, MSC version/source identity,
+settings, provenance, diagnostics, and execution/completeness/validation statuses.
+TA consumes MSC's structured safe error and retry timestamp; it does not guess
+retryability from diagnostic prose. Actual provider attempts/retries/waits come
+from the unified converter's metrics. Parsing, scientific enrichment and validation
+remain MSC-owned. Raw source, pre-canonical, validation and identifier-enrichment
+substage recovery is removed from TA production traces; benchmark-only raw evidence
+utilities remain separate.
+
+Complete and valid-partial packages are reusable. Partial metadata reaches review
+and harmonization and makes the run partial. It is retried only when explicitly
+selected. Failed explicit retries retain the prior usable package. Transport
+failures without a usable package remain retryable; invalid/terminal conversion
+outcomes remain failures. Only a successful valid complete empty result is `no_data`.
+Item locks, attempt history, cooldowns and input/runtime identities still apply.
+
+### Resume, workers, forks and diagnostics
+
+Resume replays shared stages over completed SQLite outcomes; intermediate JSON
+existence never selects recovery work. Workers and independent metadata/review
+continuations reconstruct discovery from all three sources. Metadata forks clone
+SQLite from a metadata pause and resume downstream without JSON snapshots.
+Trace-reading query/review benchmarks use the same reconstruction service for
+contract 2.0. Review reuse checks input hashes, including changed text/metadata.
+Whole harmonization reuse checks source, publication context, options and execution
+identity. Read-only views select the latest matching outcome, preserve failed and
+not-run statuses, and omit review decisions whose metadata/text input hash changed.
+Partial conversion outputs carry the `metadata_conversion_partial` diagnostic.
+
+`run_metadata.pipeline_position` is the single current workflow-position record.
+Stage/item states and its current position supply progress/pause reports. Small
+reports, explicitly requested reports and final outputs remain available.
+Intermediate snapshots default off; `Atlas(..., debug_snapshots=True)` or CLI
+`--debug-snapshots` opts in. A worker resolves exactly `<dev_out_dir>/<run_id>`;
+passing a root named `runs` is equally valid.
+
+### Commands and tests
+
+```bash
+thematic-atlas create-atlas --theme fibrosis --query fibrosis --no-generate-queries --dev-trace --dev-out-dir .dev --stop-after metadata
+thematic-atlas resume --dev-out-dir .dev --run-id RUN --retry-item metadata_conversion:geo:GSE123
+thematic-atlas worker-snapshot --dev-out-dir .dev --run-id RUN --stage text
+python -m pytest tests/test_checkpoint_v2_e2e.py tests/test_metadata_conversion.py tests/test_combined_publication_evidence.py tests/test_checkpoint_contract_v2.py tests/test_checkpoint_views.py
+```
+
+Identifier retry-tag and enrichment-audit arguments fail with study-level retry
+guidance. Offline acceptance covers both stage orders, successful empty discovery,
+partial conversions, interrupted publication, worker roots, pause aliases, text
+references, invalidation, locks, fork/continuation reconstruction and byte-preserving
+legacy rejection. `tests/fixtures/contracts/checkpoint-v2-workflows.json` pins final
+datasets/publications, run statuses, work-item states and provider-call counts for
+default/review-first/partial/empty/interrupted-publication scenarios. Controlled providers are used; this is not live provider/model
+validation.
+
 <a id="architecture"></a>
 ## Architecture
 
@@ -1031,89 +1139,40 @@ and [`CheckpointStore.put`](../src/ThematicAtlases/checkpoint.py).
 <a id="workflow-resume-and-retry"></a>
 ### Workflow 4: Resume and selective retry
 
-Resume validates a traced run, optionally requeues selected failure boundaries,
-then continues at the newest reusable checkpoint or a newly supplied pause
-target. Four one-shot workers may advance disjoint frontiers while the main
-process remains in Datalinks or while the trace is explicitly paused.
-
 ```text
-select trace -> validate fingerprint -> retry request?
-       |                 |                    |
-   none/error      mismatch/error      invalid selection/error
-                                             |
-                                      archive selected rows
-                                             |
-                              final? reuse : continue missing stages
-                                             |
-                                  retryable failure remains resumable
+trace admission -> explicit retries -> reconstructed discovery
+                -> cached conversions/reviews -> harmonization -> publication
 ```
 
 #### Numbered stages
 
-1. CLI retry flags become stage/item/degraded-stage selections.
-2. `Atlas.resume` selects an explicit or newest incomplete trace and requires a
-   compatible authoritative `atlas_run.sqlite3` before it validates the
-   manifest/item-cache fingerprint; missing, ambiguous, legacy, or incompatible
-   state raises without silent migration.
-3. `CheckpointStore.request_retries` validates requested boundaries and
-   archives selected rows; invalid stages/items leave live rows unchanged.
-4. Resume reconstructs completed search, datalink, text, metadata, review, and
-   harmonization boundaries and invokes only missing/requeued work. An optional
-   review-decision file is validated before state mutation; its run ID must
-   match the trace and its source fingerprint changes only the matching
-   harmonization work key. Unaffected datasets reuse their checkpoints. The traced
-   unsupported inventory is reused for summaries and optional publication but
-   never re-enters review, metadata, or harmonization.
-5. A reusable internal result is converted to Atlas v1 and returned/published
-   immediately. Collection-only publication registers `collection_snapshot`;
-   complete publication registers `final_atlas`. Retryable item failures remain
-   resumable; terminal outcomes are reused unless explicitly selected.
-6. `fork_run` may branch a trace paused after metadata. It creates a new ledger
-   identity and copies only upstream checkpoints; downstream overrides are
-   fingerprinted and source provenance is retained. Manual directory copying is
-   incompatible because the embedded SQLite run ID would not match the new path.
-7. `migrate_discovery_run` handles the distinct pre-graph case only while the
-   stopped source remains in Datalinks and lacks main collection artifacts. It
-   verifies the source, backs up SQLite into a temporary destination, rewrites
-   run/output identity, records source hashes and stage counts, adds discovery
-   contract `1.0`, and publishes atomically. Resume reuses existing Datalinks
-   and publication-text rows, then persists graph links per PMID and summaries
-   per GDS UID; completed batches survive later stops.
-8. `TraceStageWorker.resume(trace_dir, stage=..., item_limit=..., cancelled=...)`
-   builds each stage's due-retry/missing/stale actionable frontier before
-   applying the limit. Terminal-Datalinks publications include authoritative
-   `no_data`. `text`
-   writes publication-text and full-text-accession checkpoints; `graph` writes
-   PMID link and GDS summary checkpoints using ordered batch locks; `metadata`
-   picks up every currently supported accession; `review` admits only terminal
-   discovery frontiers with available, partial, or authoritative-unavailable
-   metadata. A later pass detects newly discovered accessions. The worker
-   reports complete/no-work, yielded/deferred/interrupted, or safe outer failure
-   to its composing CLI; progress JSON is observational and normal resume reads
-   only SQLite checkpoints. First-signal cancellation finishes the atomic item,
-   records an interruption event/summary, releases locks, and exits `2`.
-   Cancellation during pre-claim frontier or accession-snapshot construction
-   stops between records without claiming a provider or model action.
+1. Validate workflow contract 2.0 before writable open: `validate_trace(path)`.
+2. Validate and archive explicit retry selections: `store.request_retries(...)`.
+3. Rebuild completed discovery and re-enter shared stages: `CheckpointViews + collect`.
+4. Reuse complete/partial conversions and valid review decisions: `input_hash == saved_hash`.
+5. Run only remaining whole harmonizations: `harmonize(work_key)`.
+6. Rebuild filtering, pruning, summaries and publish: `assemble(outcomes)`.
+
+The same saved outcomes feed workers, independent continuations, metadata forks
+and trace-reading benchmarks. The two text pause names are aliases. No intermediate
+JSON is needed. See [contract 2.0](#workflow-checkpoints-v2) for branches, item status,
+explicit partial retries, resource limits and legacy rejection.
 
 #### Pseudocode
 
 ```text
-thematic-atlas resume(args)                     # interface
-  -> Atlas.resume(...)                          # orchestrator
-     -> AtlasRunStore lifecycle/artifact calls  # authoritative persistence
-     -> CheckpointStore.request_retries         # persistence call, optional
-     -> CheckpointStore.get/items               # persistence calls
-     -> collection/review/harmonization         # internal calls as needed
-     -> AtlasDocumentAdapter + bundle publisher # output boundary
-  <- resumed Atlas v1 or validation error
+validate_trace(run)
+request_retries(selection)
+datasets = collect(shared_stages, saved_outcomes)
+result = harmonize(datasets, saved_outcomes)
+publish(result)
 ```
 
 #### Evidence
 
-Definitions/calls:
-[`cli_atlas.main`](../src/ThematicAtlases/cli_atlas.py),
-[`Atlas.resume`](../src/ThematicAtlases/atlas.py), and
-[`CheckpointStore.request_retries`](../src/ThematicAtlases/checkpoint.py).
+[`ResumeAtlasWorkflow`](../src/ThematicAtlases/workflows/resume.py),
+[`CheckpointViews`](../src/ThematicAtlases/runtime/views.py), and
+[`offline acceptance tests`](../tests/test_checkpoint_v2_e2e.py).
 
 <a id="workflow-query-amendment-and-archive"></a>
 ### Workflow 5: Query amendment and whole-run archive
@@ -2424,99 +2483,27 @@ automatically raises the conservative default rate.
 <a id="arrayexpress-wrapper"></a>
 ### ArrayExpress Wrapper
 
-`ThematicAtlases.wrappers.ae.ArrayExpressWrapper` is a supported MSC adapter.
-For each normalized E-MTAB, E-GEOD, or E-MEXP accession it calls
-`ae2json().convert(source=accession, out=None, sdrf_sources=None)`, so BioStudies
-IDF/SDRF content remains in memory. It returns the common MINiML-compatible
-package as either a typed `MINiMLPackage` or mapping; the wrapper immediately
-decodes it strictly and encodes canonical JSON-native MINiML 3.0 before
-building an Atlas record. MAGE-TAB protocols and assay paths therefore use the
-core `series.protocols` and `series.assay_paths` fields rather than a parallel
-`mage_tab.model` object. Records identify the adapter with
-`metadata_source="ae2json"`.
-
-`arrayexpress_metadata` checkpoints store provenance-independent packages and
-use item locks plus available/no-data/retryable/terminal states. Payloads carry
-checkpoint version 2, MINiML checkpoint-payload version 1, and MINiML schema
-version 2.0. Unversioned/legacy available payloads are recomputed in an online
-run and reported pending by the offline availability overlay. Valid completed
-checkpoints are reused without constructing a converter or issuing network
-calls; current publications are rebuilt from the latest record snapshot.
-The Atlas-selected `ResourceProfile` is forwarded unchanged into MSC's
-`AEWebFetcher`, which separately enforces public-DNS egress, HTTPS redirects,
-bounded API/TSV reads, per-file limits, and aggregate remote-download limits.
+`ArrayExpressWrapper.collect_accession_metadata` and its offline availability
+projection share `MetadataConversionAdapter` with GEO. The adapter calls MSC
+`Converter.convert()` once per study, preserves all returned canonical packages,
+and checkpoints `metadata_conversion[arrayexpress:ACCESSION]`. Default enrichment
+is `standard`, related-study expansion is enabled, and the configured resource
+limits are passed to MSC. Inject `converter=` to replace the conversion boundary.
+See [contract 2.0](#workflow-checkpoints-v2) for statuses, retries and compatibility.
 
 <a id="geo-wrapper"></a>
 ### GEO Wrapper
 
-`ThematicAtlases.wrappers.geo.GEOWrapper` resolves GEO accessions to GEO Series accessions through NCBI E-utilities and appends parsed GEO MINiML JSON through `meta_standards_converter`. When metadata collection is enabled, `AtlasCollector.collect_jsons()` routes GEO records to it through `collect_accession_metadata()`.
+`GEOWrapper` retains NCBI ESearch/ESummary resolution of GSM/GDS to GSE and normalizes
+GSE identifiers locally. It delegates metadata to the same MSC unified adapter as
+ArrayExpress, preserving publications and original Datalinks across all returned
+packages. `metadata_source` is `msc.convert`. `converter=` is the conversion
+injection point. `enrich_metadata=False` explicitly selects enrichment `off`;
+the default uses MSC standard enrichment and related-study expansion.
 
-Current public methods:
-
-- `collect_accession_metadata(jsons: list[dict]) -> list[dict]`: normalizes GEO records to GSE-level accession records, preserves `original_datalinks` and `publications`, drops GPL or unresolved records, and appends parsed GEO MINiML JSON metadata under each final record's `accession_metadata`.
-- `get_gse(accession: str) -> str | None`: returns a normalized `GSE...` accession or `None`.
-
-Resolution behavior:
-
-- `GSE...` returns itself without network access.
-- `GPL...` returns `None`, representing an entry that downstream callers should remove.
-- `GDS...` and `GSM...` use NCBI ESearch and ESummary against `db=gds`.
-- Unknown, empty, malformed, not found, missing-GSE, or no exact summary match returns `None`.
-- If an exact GDS/GSM summary has multiple semicolon-separated GSE values, the first non-empty value is returned.
-- GEO metadata comes from `geo2json().convert(gse=..., related_series=True, remove_empty=True, enrich=enrich_metadata, out=None)`. `enrich_metadata` defaults to `True`; setting it to `False` preserves parsed MINiML while suppressing PubMed/SRA/ENA identifier enrichment, including in checkpointed collection where the payload records `enrichment_mode="none"`. Typed or mapping results are strictly canonicalized as MINiML 3.0 before they are appended to an output record, traced, or checkpointed.
-- Related GEO super/subseries packages returned by `geo2json` become separate records, inherit the source record's `publications` and `original_datalinks`, and receive their own `accession_metadata` package.
-
-GEO metadata records add:
-
-```text
-metadata_repository
-metadata_source
-metadata_status
-accession_metadata
-source_datalink_id
-```
-
-`metadata_repository` is `geo`, `metadata_source` is `geo2json`, and `metadata_status` is `available` when metadata collection succeeds. If `geo2json` raises for a GSE, the normalized GSE record is retained with `metadata_status="error"` and `accession_metadata=null`. When duplicate records collapse to the same GSE, the first available `accession_metadata` package is kept. `source_datalink_id` is only present on related-series records where the package accession differs from the source GSE.
-
-The ESearch request uses:
-
-```text
-https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi
-```
-
-with `db=gds`, `term={accession}[ACCN]`, `retmode=json`, and `retmax=20`. The ESummary request uses:
-
-```text
-https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi
-```
-
-with `db=gds`, comma-separated UIDs in `id`, and `retmode=json`. When ESearch returns related records, the wrapper only accepts the ESummary record whose `accession` exactly matches the requested GEO accession.
-
-`GEOWrapper` accepts optional `api_key`, `tool`, and `email` constructor values and includes them in every E-utilities request when present. An omitted key may come from `NCBI_API_KEY`; its value is not logged and does not raise throughput. `enrich_metadata=True` preserves the ordinary full-enrichment default. Request settings use the selected profile's connect/read timeout pair, `request_delay=0.5`, and `max_retries=3`.
-
-GEO emits INFO-level progress logs while resolving accessions and collecting metadata for each GSE. GEO emits INFO-level stats for resolved records, dropped records, metadata packages, related records, error/unavailable records, deduplicated output rows, publication links, and original datalink links. GEO DEBUG logs include ESearch/ESummary request details, retry status/attempt/delay, `geo2json` calls, and accession routing decisions.
-
-Traced runs checkpoint source-accession-to-GSE resolution and each GSE metadata
-conversion separately. Available, unavailable, and terminal parse outcomes are
-reused; transient fetch/conversion failures are retried on resume.
-
-For newly parsed GSE packages, PubMed summaries, NCBI SRA XML, and ENA FASTQ
-reports are separately stored as `pubmed_enrichment/<PMID>`,
-`sra_xml/<SRA accession>`, and `ena_fastq/<SRA accession>`. Each stage uses the
-standard four checkpoint outcomes and a cross-process item lock. Parsed MINiML
-packages are persisted in a pending version-4 `geo_metadata` payload before
-enrichment begins, so interruption resumes enrichment without another MINiML
-download or parse. Identifier failures leave partial GSE metadata available;
-later successful retries are merged into every affected cached package.
-
-Older, unversioned, or schema-mismatched metadata payloads are not replayed as
-MINiML 3.0: online collection recomputes them and offline availability marks
-them pending. The
-audit reports all-null PubMed summaries, SRA accessions without runs, and any
-SRA-linked sample with at least one run lacking FASTQ data. Only identifiers in
-an explicit retry-tag file modify those legacy packages; other inferred gaps
-remain untouched. Atlas records and `accession_metadata` package shapes do not
-change.
+The only GEO metadata recovery boundaries are remote `geo_resolution` and whole
+`metadata_conversion[geo:GSE...]`. No raw-source, parsing, validation or identifier
+repair checkpoint is resumed. See [contract 2.0](#workflow-checkpoints-v2).
 
 <a id="cli-atlas"></a>
 ## CLI Atlas

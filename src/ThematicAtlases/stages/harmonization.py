@@ -8,11 +8,13 @@ if TYPE_CHECKING:
 from concurrent.futures import as_completed, ThreadPoolExecutor
 import hashlib
 import json
+import time
 from pathlib import Path
 from agentic_curator.contracts import miniml_source_fingerprint
 from agentic_curator.review_decisions import ReviewDecisionFile
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from ThematicAtlases.runtime_contracts import failed_status, not_run_status
+from ThematicAtlases.runtime.views import harmonization_input_hash
 import logging
 logger = logging.getLogger("ThematicAtlases.harmonizer.harmonizer")
 
@@ -236,13 +238,20 @@ class HarmonizationStage:
 
                 if checkpoint_store is None or cached:
                     return
+                reconstruction = {
+                    "recorded_at_ns": time.time_ns(),
+                    "input_hash": harmonization_input_hash(item["metadata"], item["publication_context"]),
+                    "execution_identity": item["execution_identity"],
+                    "options": item["harmonization_options"],
+                    "details": [details[index] for index in item["indices"]],
+                }
                 if error is None:
                     checkpoint_store.put(
                         "harmonization",
                         item["work_key"],
                         item["position"],
                         "available",
-                        payload=harmonization,
+                        payload={**harmonization, "reconstruction": reconstruction},
                     )
                 else:
                     retryable = is_retryable_error(error)
@@ -261,6 +270,7 @@ class HarmonizationStage:
                         "retryable_error"
                         if retryable
                         else "terminal_error",
+                        payload={"reconstruction": reconstruction},
                         error=json.dumps(persisted_error, sort_keys=True),
                         error_type=type(error).__name__,
                         failure_category=failure_category(error),
@@ -276,6 +286,18 @@ class HarmonizationStage:
                 if checkpoint and checkpoint["status"] == "available":
                     apply_outcome(item, checkpoint["payload"], None, cached=True)
                 elif checkpoint and checkpoint["status"] == "terminal_error":
+                    saved_details = ((checkpoint.get("payload") or {}).get("reconstruction") or {}).get("details")
+                    if saved_details:
+                        for index in item["indices"]:
+                            accession = accessions[index].get("datalink_id", "")
+                            detail = next((d for d in saved_details if d["datalink_id"] == accession), saved_details[0])
+                            details[index] = {**detail, "datalink_id": accession}
+                            accessions[index].update(
+                                ontology_harmonization_run_status=detail["run_status"],
+                                ontology_harmonization_status=detail["status"],
+                                ontology_harmonization_error=detail["error"],
+                            )
+                        continue
                     apply_outcome(
                         item,
                         None,

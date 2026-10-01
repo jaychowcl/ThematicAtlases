@@ -125,12 +125,17 @@ def _load_query_snapshot(trace_directory: Path) -> dict:
 
     from ThematicAtlases.runtime.snapshots import read_checkpoint_snapshot
     snapshot = read_checkpoint_snapshot(trace_directory, stages=('search_queries', 'search_pages'))
-    if 'resolved_queries' not in snapshot.metadata:
-        raise ValueError("trace database is missing resolved_queries metadata")
-    try:
-        resolved_queries = json.loads(snapshot.metadata["resolved_queries"])
-    except (TypeError, json.JSONDecodeError) as error:
-        raise ValueError("resolved_queries metadata is not valid JSON") from error
+    manifest_path = trace_directory / "00_run_manifest.json"
+    if manifest_path.is_file() and json.loads(manifest_path.read_text()).get("workflow_checkpoint_contract") == "2.0":
+        from ThematicAtlases.runtime.views import CheckpointViews
+        resolved_queries = CheckpointViews.from_directory(trace_directory).resolved_queries()
+    else:
+        if 'resolved_queries' not in snapshot.metadata:
+            raise ValueError("trace database is missing resolved_queries metadata")
+        try:
+            resolved_queries = json.loads(snapshot.metadata["resolved_queries"])
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError("resolved_queries metadata is not valid JSON") from error
     if (
         not isinstance(resolved_queries, list)
         or not resolved_queries

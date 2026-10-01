@@ -41,6 +41,8 @@ class DiscoveryStage:
         scrape_fulltext_accessions: bool = True,
         stop_after: str | None = None,
     ) -> list[dict]:
+        from ThematicAtlases.pipeline import validate_stop_after
+        stop_after = validate_stop_after(stop_after)
         stage_owner = self.owner
         if stop_after is not None and stop_after not in DISCOVERY_STOP_STAGES:
             raise ValueError(
@@ -54,9 +56,12 @@ class DiscoveryStage:
                 f"stop_after={stop_after!r} requires "
                 "scrape_fulltext_accessions=True"
             )
+        if checkpoint_store is not None and stop_after is None and checkpoint_store.get_meta("pipeline_position", {}).get("discovery_complete") and not checkpoint_store.has_actionable_boundary("discovery"):
+            from ThematicAtlases.runtime.views import CheckpointViews
+            return CheckpointViews(checkpoint_store).discovery(wrapper=stage_owner)
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
-                "main_pipeline_phase",
+                "pipeline_position",
                 {"phase": "datalinks"},
             )
             stage_owner._set_pipeline_stage(checkpoint_store, "query-results", "running")
@@ -90,9 +95,12 @@ class DiscoveryStage:
                 "datalinks",
                 {"accessions": accessions, "publication_texts": {}},
             )
+        if checkpoint_store is not None and stop_after is None and checkpoint_store.get_meta("pipeline_position", {}).get("discovery_complete") and not checkpoint_store.has_actionable_boundary("discovery"):
+            from ThematicAtlases.runtime.views import CheckpointViews
+            return CheckpointViews(checkpoint_store).discovery(wrapper=stage_owner)
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
-                "main_pipeline_phase",
+                "pipeline_position",
                 {"phase": "downstream"},
             )
         enriched_publications = publications
@@ -104,28 +112,23 @@ class DiscoveryStage:
                 text_options["checkpoint_store"] = checkpoint_store
             enriched_publications = stage_owner.collect_publication_texts(**text_options)
             stage_owner._set_pipeline_stage(checkpoint_store, "publication-text", "complete")
-            if stop_after == "publication-text":
-                raise AtlasStagePause(
-                    "publication-text",
-                    {"accessions": accessions, "publication_texts": {}},
-                )
             accessions = stage_owner._accessions_with_enriched_publications(
                 accessions,
                 enriched_publications,
             )
             stage_owner._set_pipeline_stage(
-                checkpoint_store, "fulltext-accessions", "running"
+                checkpoint_store, "publication-text", "running"
             )
             scraped = stage_owner.accessions_from_fulltexts(
                 enriched_publications,
                 checkpoint_store=checkpoint_store,
             )
             stage_owner._set_pipeline_stage(
-                checkpoint_store, "fulltext-accessions", "complete"
+                checkpoint_store, "publication-text", "complete"
             )
-            if stop_after == "fulltext-accessions":
+            if stop_after == "publication-text":
                 raise AtlasStagePause(
-                    "fulltext-accessions",
+                    "publication-text",
                     {
                         "accessions": stage_owner.merge_accessions(accessions, scraped),
                         "publication_texts": {},
@@ -138,6 +141,8 @@ class DiscoveryStage:
         )
         stage_owner._set_pipeline_stage(checkpoint_store, "accession-graph", "complete")
         merged = stage_owner.merge_accessions(accessions, scraped, graph)
+        if checkpoint_store is not None:
+            checkpoint_store.set_meta("pipeline_position", {"discovery_complete": True})
         if stop_after == "accession-graph":
             raise AtlasStagePause(
                 "accession-graph",

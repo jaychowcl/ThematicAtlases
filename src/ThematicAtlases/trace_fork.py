@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -60,25 +61,24 @@ def fork_metadata_trace(
         raise FileExistsError(f"fork destination already exists: {destination}")
     manifest_path = source / "00_run_manifest.json"
     database_path = source / "atlas_run.sqlite3"
-    collected_path = source / "01_collected_accessions.json"
     if not manifest_path.is_file() or not database_path.is_file():
         raise ValueError("source is not a resumable Atlas v1 trace")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    from ThematicAtlases.runtime.views import CheckpointViews
+    views = CheckpointViews.from_directory(source)
+    manifest = views.manifest
     if (
         manifest.get("command") != "create-atlas"
-        or manifest.get("stop_after") != "metadata"
-        or not collected_path.is_file()
+        or views.store.get_meta("pipeline_position", {}).get("stage") != "metadata"
+        or views.store.get_meta("pipeline_position", {}).get("state") != "paused"
     ):
         raise ValueError("source trace is not paused after metadata collection")
-    source_trace = DevTraceWriter.existing(source)
-    source_run = source_trace.run_store.get_run(source.name)
+    with closing(sqlite3.connect(f"{database_path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute("SELECT run_id, config_sha256 FROM run WHERE run_id=?", (run_id,)).fetchone()
+        source_run = dict(row) if row else None
     if source_run is None:
         raise ValueError("source trace ledger does not match its run directory")
-
-    downstream_items = sum(
-        len(source_trace.checkpoint_store.items(stage))
-        for stage in ("thematic_review", "harmonization")
-    )
+    downstream_items = sum(len(views.store.items(stage)) for stage in ("thematic_review", "harmonization"))
     if downstream_items:
         raise ValueError("source trace already contains downstream work")
 
@@ -135,8 +135,8 @@ def _validate_run_id(run_id: str) -> None:
 
 def _backup_database(source: Path, destination: Path) -> None:
     source_uri = f"file:{source.resolve()}?mode=ro"
-    with sqlite3.connect(source_uri, uri=True) as source_connection:
-        with sqlite3.connect(destination) as destination_connection:
+    with closing(sqlite3.connect(source_uri, uri=True)) as source_connection:
+        with closing(sqlite3.connect(destination)) as destination_connection:
             source_connection.backup(destination_connection)
 
 

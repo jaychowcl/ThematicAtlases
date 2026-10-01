@@ -1,4 +1,5 @@
 from __future__ import annotations
+from checkpoint_fixtures import conversion_payload
 
 import json
 
@@ -78,7 +79,7 @@ class RecordingEPMC(EuropePMCWrapper):
         ("datalinks", ["query-results", "datalinks"]),
         (
             "publication-text",
-            ["query-results", "datalinks", "publication-text"],
+            ["query-results", "datalinks", "publication-text", "fulltext-accessions"],
         ),
         (
             "fulltext-accessions",
@@ -111,7 +112,7 @@ def test_epmc_stops_at_each_discovery_boundary(stage, expected_calls):
             stop_after=stage,
         )
 
-    assert raised.value.stage == stage
+    assert raised.value.stage == ("publication-text" if stage == "fulltext-accessions" else stage)
     assert [
         record["datalink_id"] for record in raised.value.result["accessions"]
     ] == ([] if stage == "query-results" else ["GSE1"])
@@ -221,7 +222,7 @@ def _worker_trace(tmp_path):
         payload={"rows": []},
     )
     trace.checkpoint_store.set_meta(
-        "main_pipeline_phase", {"phase": "datalinks"}
+        "pipeline_position", {"phase": "datalinks"}
     )
     return trace
 
@@ -249,18 +250,18 @@ def test_text_worker_fetches_and_scrapes_one_fixed_terminal_frontier(tmp_path):
                 f"MED:{publication['epmc_id']}",
                 int(publication["pmid"]),
                 "available",
-                payload={"contract_version": 1, "publication": publication},
+                payload={"contract_version": 3, "publication": publication, "records": [], "extraction_complete": True},
             )
             return [publication]
 
         def accessions_from_fulltexts(self, publications, checkpoint_store=None):
             calls.append(("scrape", publications[0]["pmid"]))
             checkpoint_store.put(
-                "fulltext_accession_discovery",
+                "publication_text",
                 f"MED:{publications[0]['epmc_id']}",
                 int(publications[0]["pmid"]),
                 "no_data",
-                payload={"contract_version": 1, "records": []},
+                payload={"contract_version": 3, "records": [], "extraction_complete": True},
             )
             return []
 
@@ -274,9 +275,7 @@ def test_text_worker_fetches_and_scrapes_one_fixed_terminal_frontier(tmp_path):
     assert result["yielded_to_main"] is False
     assert calls == [
         ("text", "1"),
-        ("scrape", "1"),
         ("text", "2"),
-        ("scrape", "2"),
     ]
     progress = json.loads(
         (trace.directory / "incremental_text_progress.json").read_text()
@@ -308,7 +307,7 @@ def test_text_worker_reports_actual_request_policy_metrics(tmp_path):
         def accessions_from_fulltexts(self, publications, checkpoint_store=None):
             publication = publications[0]
             checkpoint_store.put(
-                "fulltext_accession_discovery",
+                "publication_text",
                 f"MED:{publication['epmc_id']}",
                 int(publication["pmid"]),
                 "no_data",
@@ -328,13 +327,13 @@ def test_text_worker_reports_actual_request_policy_metrics(tmp_path):
 
 def test_text_worker_applies_limit_after_completed_prefix(tmp_path):
     trace = _worker_trace(tmp_path)
-    for stage in ("publication_text", "fulltext_accession_discovery"):
+    for stage in ("publication_text",):
         trace.checkpoint_store.put(
             stage,
             "MED:1",
             1,
             "no_data",
-            payload={"records": []},
+            payload={"records": [], "extraction_complete": True},
         )
     calls = []
 
@@ -346,7 +345,7 @@ def test_text_worker_applies_limit_after_completed_prefix(tmp_path):
 
         def accessions_from_fulltexts(self, publications, checkpoint_store=None):
             checkpoint_store.put(
-                "fulltext_accession_discovery", "MED:2", 2, "no_data"
+                "publication_text", "MED:2", 2, "no_data"
             )
             return []
 
@@ -377,6 +376,7 @@ def test_text_worker_cancellation_finishes_current_item_and_records_summary(tmp_
                 f"MED:{publication['epmc_id']}",
                 int(publication["pmid"]),
                 "no_data",
+                payload={"records": [], "extraction_complete": True},
             )
             cancelled = True
             return [publication]
@@ -384,10 +384,11 @@ def test_text_worker_cancellation_finishes_current_item_and_records_summary(tmp_
         def accessions_from_fulltexts(self, publications, checkpoint_store=None):
             publication = publications[0]
             checkpoint_store.put(
-                "fulltext_accession_discovery",
+                "publication_text",
                 f"MED:{publication['epmc_id']}",
                 int(publication["pmid"]),
                 "no_data",
+                payload={"records": [], "extraction_complete": True},
             )
             return []
 
@@ -546,7 +547,7 @@ def test_metadata_worker_merges_all_discovery_sources_and_limits_accessions(
         },
     )
     trace.checkpoint_store.put(
-        "fulltext_accession_discovery",
+        "publication_text",
         "MED:1",
         1,
         "available",
@@ -697,7 +698,7 @@ def test_metadata_worker_reports_collector_provider_metrics(tmp_path):
 def test_worker_yields_without_claiming_when_main_is_downstream(tmp_path):
     trace = _worker_trace(tmp_path)
     trace.checkpoint_store.set_meta(
-        "main_pipeline_phase", {"phase": "downstream"}
+        "pipeline_position", {"phase": "downstream"}
     )
 
     result = TraceStageWorker().resume(trace.directory, stage="graph")
@@ -717,8 +718,8 @@ def test_worker_reports_per_stage_singleton_contention_as_busy(tmp_path):
 def test_review_worker_uses_only_terminal_discovery_frontiers(tmp_path):
     trace = _worker_trace(tmp_path)
     store = trace.checkpoint_store
-    for stage in ("publication_text", "fulltext_accession_discovery"):
-        store.put(stage, "MED:1", 1, "no_data", payload={"records": []})
+    for stage in ("publication_text",):
+        store.put(stage, "MED:1", 1, "no_data", payload={"records": [], "extraction_complete": True})
     store.put(
         "pubmed_gds_links",
         "1",
@@ -761,7 +762,7 @@ def test_review_worker_cancellation_during_accession_snapshot_skips_model(tmp_pa
     cancelled = False
     store = trace.checkpoint_store
     for publication_key, pmid in (("MED:1", "1"), ("MED:2", "2")):
-        for stage in ("publication_text", "fulltext_accession_discovery"):
+        for stage in ("publication_text",):
             store.put(stage, publication_key, 1, "no_data", payload={})
         store.put(
             "pubmed_gds_links",
@@ -834,11 +835,11 @@ def test_review_worker_limits_real_facade_and_writes_review_checkpoint(tmp_path)
             payload={"publication": publication},
         )
         store.put(
-            "fulltext_accession_discovery",
+            "publication_text",
             f"MED:{ordinal}",
             ordinal,
             "no_data",
-            payload={"records": []},
+            payload={"records": [], "extraction_complete": True},
         )
         store.put(
             "pubmed_gds_links",
@@ -986,11 +987,11 @@ def test_resume_accepts_a_new_stop_target_and_records_pause_summary(tmp_path):
         },
     )
     trace.checkpoint_store.put(
-        "geo_metadata",
-        "GSE1",
+        'metadata_conversion',
+        'geo:' + str("GSE1"),
         1,
         "available",
-        payload={"metadata_status": "available"},
+        payload=conversion_payload({"metadata_status": "available"}),
     )
 
     result = atlas.resume(
@@ -1019,7 +1020,7 @@ def test_resume_stop_target_already_passed_is_a_noop_without_rollback(tmp_path):
         manifest={"command": "create-atlas", "theme": "fibrosis"},
     )
     trace.checkpoint_store.set_meta(
-        "main_pipeline_stage",
+        "pipeline_position",
         {"stage": "metadata", "state": "paused", "contract_version": "1.0"},
     )
     trace.write(
@@ -1049,7 +1050,7 @@ def test_resume_stop_target_already_passed_is_a_noop_without_rollback(tmp_path):
     assert summary["already_complete"] is True
     assert summary["current_stage"] == "metadata"
     assert result["run"]["run_id"] == "run-1"
-    assert trace.checkpoint_store.get_meta("main_pipeline_stage")["stage"] == "metadata"
+    assert trace.checkpoint_store.get_meta("pipeline_position")["stage"] == "metadata"
 
 
 def test_resume_earlier_target_reuses_a_final_snapshot_as_noop(tmp_path):
@@ -1060,8 +1061,8 @@ def test_resume_earlier_target_reuses_a_final_snapshot_as_noop(tmp_path):
         manifest={"command": "create-atlas", "theme": "fibrosis"},
     )
     trace.checkpoint_store.set_meta(
-        "main_pipeline_stage",
-        {"stage": "harmonization", "state": "complete", "contract_version": "1.0"},
+        "pipeline_position",
+        {"stage": "harmonization", "state": "complete", "published": True, "contract_version": "1.0"},
     )
     final = {
         "schema_version": "1.0",
@@ -1083,6 +1084,6 @@ def test_resume_earlier_target_reuses_a_final_snapshot_as_noop(tmp_path):
     )
 
     assert result == final
-    assert trace.checkpoint_store.get_meta("main_pipeline_stage")["stage"] == (
+    assert trace.checkpoint_store.get_meta("pipeline_position")["stage"] == (
         "harmonization"
     )
