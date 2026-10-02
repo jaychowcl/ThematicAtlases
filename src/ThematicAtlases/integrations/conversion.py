@@ -7,6 +7,8 @@ from importlib.metadata import version
 import json
 from pathlib import Path
 import time
+from uuid import uuid4
+from ThematicAtlases.runtime.metadata_recovery import current_retry_scope, retry_at
 
 from meta_standards_converter.converters import Converter
 from meta_standards_converter.runtime_contracts import ResourceProfile, get_resource_profile
@@ -52,13 +54,19 @@ class MetadataConversionAdapter:
                 payload = (saved or {}).get("payload") or {}
                 compatible = payload.get("input_hash") == self.input_hash
                 usable = compatible and bool(checkpoint_packages(payload))
+                scope = current_retry_scope(store)
+                automatic = bool(scope and compatible and scope.allows(key, saved))
                 reusable = compatible and (saved["status"] in {"available", "no_data", "terminal_error"}
                     or (usable and saved.get("error_type") != "ManualRetry"))
-                cooling = compatible and payload.get("next_retry_at", 0) > time.time()
-                if cached_only or reusable or cooling:
+                cooling = compatible and retry_at(saved) > time.time()
+                already_attempted = bool(scope and (key in scope.attempted or (saved and scope.stale(key, saved))))
+                if cached_only or (reusable and not automatic) or cooling or already_attempted:
                     result.extend(self.records(record, saved if compatible else None))
                     continue
                 previous = payload if compatible and checkpoint_packages(payload) else None
+                if scope:
+                    scope.attempted.add(key)
+                trigger = 'provider_recovery' if automatic and saved.get('error_type') != 'ManualRetry' else 'manual' if saved and saved.get('error_type') == 'ManualRetry' else 'collection'
                 try:
                     profile = asdict(self.profile)
                     profile_name = profile.pop("name")
@@ -80,6 +88,7 @@ class MetadataConversionAdapter:
                     else:
                         error = outcome.error.to_dict() if outcome.error else {"error_type": "InvalidConversionOutcome", "retry_category": "terminal"}
                         payload = dict(previous or checkpoint_payload([], checkpoint_version=1))
+                        payload.pop('next_retry_at', None)
                         payload.update(input_hash=self.input_hash, settings=self.settings, last_failure=outcome.to_dict())
                         if outcome.retry_at is not None:
                             payload["next_retry_at"] = outcome.retry_at
@@ -88,10 +97,12 @@ class MetadataConversionAdapter:
                     error = safe_error_mapping(exc, provider="meta_standards_converter", stage=STAGE,
                                                item_id=key, retryable=is_retryable_error(exc))
                     payload = dict(previous or checkpoint_payload([], checkpoint_version=1))
+                    payload.pop('next_retry_at', None)
                     payload.update(input_hash=self.input_hash, settings=self.settings, last_failure={"error": error})
                     if getattr(exc, "retry_at", None) is not None:
                         payload["next_retry_at"] = float(exc.retry_at)
                     status = "retryable_error" if is_retryable_error(exc) else "terminal_error"
+                payload.update(attempt_id=uuid4().hex, retry_trigger=trigger)
                 saved = {"status": status, "payload": payload, "error": error}
                 if store is not None:
                     store.put(STAGE, key, ordinal, status, payload=payload,

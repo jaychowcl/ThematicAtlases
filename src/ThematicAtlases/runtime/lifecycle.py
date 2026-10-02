@@ -11,6 +11,7 @@ from typing import Any
 
 from ThematicAtlases.runtime.contracts import validate_trace
 from ThematicAtlases.runtime.views import CheckpointViews
+from ThematicAtlases.runtime.metadata_recovery import retryable_provider_issues
 from ThematicAtlases.application import AtlasDocumentService
 from ThematicAtlases.domain import AtlasDocument, RunStatus
 from ThematicAtlases.filterer.review import REVIEW_CONTRACT_VERSION
@@ -45,7 +46,7 @@ def resolve_resume_run_directory(
         except (OSError, ValueError):
             continue
         position = views.store.get_meta("pipeline_position", {})
-        if position.get("published") and not any(item['status'] in {'pending', 'retryable_error', 'terminal_error'} for stage in ('metadata_conversion','thematic_review','harmonization','publication_text','search_queries','datalinks','pubmed_gds_links','gds_summaries') for item in views.store.items(stage)):
+        if position.get("published") and not any(item['status'] in {'pending', 'retryable_error', 'terminal_error'} or (stage == 'metadata_conversion' and retryable_provider_issues(item)) for stage in ('metadata_conversion','thematic_review','harmonization','publication_text','search_queries','datalinks','pubmed_gds_links','gds_summaries') for item in views.store.items(stage)):
             continue
         candidates.append(run_dir)
     if not candidates:

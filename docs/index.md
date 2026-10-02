@@ -14,6 +14,7 @@ Use `--query <keyword>` when the id is unknown.
 - id: workflow-checkpoints-v2
   title: [Completed-work checkpoint contract 2.0](codebase.md#workflow-checkpoints-v2)
   anchor: workflow-checkpoints-v2
+  recovery: Structured MSC provider_issue reasons, automatic partial-study resume, cooldowns, latest-attempt selection, retry reports and legacy manual recovery.
   purpose: Current whole-conversion recovery, combined text/extraction, read-only SQLite reconstruction, partial retries, trace admission and worker roots.
   keywords: Converter.convert, metadata_conversion, debug_snapshots, publication_text, text_ref, pipeline_position, partial metadata, migration required, forks, benchmarks, golden fixtures, stale review inputs
 

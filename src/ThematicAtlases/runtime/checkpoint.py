@@ -12,6 +12,7 @@ from contextlib import contextmanager, ExitStack
 
 import fcntl
 import requests
+from .metadata_recovery import retryable_provider_issues, retry_at
 from meta_standards_converter.helpers.request_helper import (
     HostRequestCooldownDeferred,
 )
@@ -595,13 +596,16 @@ class CheckpointStore:
 
     def has_actionable(self, stage: str | None = None) -> bool:
         """Return whether resume can automatically attempt pending or transient work."""
-        return self._has_statuses({"pending", "retryable_error"}, stage)
+        return self._has_statuses({"pending", "retryable_error"}, stage) or (
+            stage in {None, 'metadata_conversion'} and any(retryable_provider_issues(i) and retry_at(i) <= time.time()
+            for i in self.items('metadata_conversion')))
 
     def has_incomplete(self, stage: str | None = None) -> bool:
         """Return whether any automatic or explicitly retried work remains."""
         return self._has_statuses(
             {"pending", "retryable_error", "terminal_error"}, stage
-        )
+        ) or (stage in {None, 'metadata_conversion'} and any(retryable_provider_issues(i)
+            for i in self.items('metadata_conversion')))
 
     def has_retryable_boundary(self, boundary: str) -> bool:
         stages = [
@@ -637,12 +641,15 @@ class CheckpointStore:
             rows = connection.execute(
                 """
                 SELECT * FROM checkpoint_items
-                WHERE status IN ('pending', 'retryable_error', 'terminal_error')
+                WHERE status IN ('pending', 'retryable_error', 'terminal_error') OR stage = 'metadata_conversion'
                 ORDER BY stage, ordinal, item_key
                 """
             ).fetchall()
         for row in rows:
             item = self._item(row)
+            issues = retryable_provider_issues(item) if item['stage'] == 'metadata_conversion' else []
+            if item['status'] not in {'pending', 'retryable_error', 'terminal_error'} and not issues:
+                continue
             stage_report = report["stages"].setdefault(
                 item["stage"], {"counts": {}, "automatic": [], "manual": []}
             )
@@ -656,7 +663,11 @@ class CheckpointStore:
                 )
             }
             retained_conversion = item["stage"] == "metadata_conversion" and bool((item.get("payload") or {}).get("packages")) and item.get("error_type") != "ManualRetry"
-            if status in automatic_statuses and not retained_conversion:
+            if issues:
+                detail['provider_issues'] = issues
+                detail['next_retry_at'] = retry_at(item) or None
+                detail['deferred'] = retry_at(item) > time.time()
+            if issues or (status in automatic_statuses and not retained_conversion):
                 stage_report["automatic"].append(detail)
                 report["automatic_retry_count"] += 1
             else:
