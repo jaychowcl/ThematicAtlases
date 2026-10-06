@@ -45,7 +45,7 @@ def atlas():
 def test_collection_workflow_is_independently_callable():
     from ThematicAtlases.workflows.collect import CollectDatasetsWorkflow
     result = CollectDatasetsWorkflow(atlas()).run(query=['lung'], run_id='collection')
-    assert result['schema_version'] == '1.0'
+    assert result['schema_version'] == '1.1'
     assert result['atlas']['atlas_id'] == 'test'
     assert result['run']['config']['queries'] == ['lung']
     assert result['run']['run_id'] == 'collection'
@@ -61,7 +61,7 @@ def test_create_workflow_keeps_subclass_collection_extension():
     instance = Specialized(metadata={'atlas_id':'test'}, harmonizer=Harmonizer())
     result = CreateAtlasWorkflow(instance).run(query=['lung'], theme='lung', generate_queries=False)
     assert calls == [['lung']]
-    assert result['schema_version'] == '1.0'
+    assert result['schema_version'] == '1.1'
 
 
 def test_create_workflow_validates_before_side_effects():

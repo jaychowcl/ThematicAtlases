@@ -20,7 +20,7 @@ from ThematicAtlases.miniml_boundary import (
 
 def package_mapping(iid: str = "GSE1") -> dict:
     return {
-        "miniml_schema_version": "3.0",
+        "miniml_schema_version": "3.1",
         "source": {"format": "test"},
         "database": [],
         "organization": [],
@@ -34,7 +34,7 @@ def package_mapping(iid: str = "GSE1") -> dict:
 def test_canonicalization_accepts_mapping_and_typed_package() -> None:
     mapping = package_mapping()
     typed = MINiMLCodec().decode(mapping, strict=True).package
-    canonical = {**mapping, "miniml_schema_version": "3.0"}
+    canonical = {**mapping, "miniml_schema_version": "3.1"}
 
     assert canonicalize_miniml_package(mapping) == canonical
     assert canonicalize_miniml_package(typed) == canonical
@@ -77,7 +77,7 @@ def test_atlas_metadata_rejects_legacy_miniml(value) -> None:
 
 def test_atlas_metadata_validates_package_collections_but_preserves_other_metadata() -> None:
     package = package_mapping()
-    canonical = {**package, "miniml_schema_version": "3.0"}
+    canonical = {**package, "miniml_schema_version": "3.1"}
 
     assert canonicalize_atlas_metadata({"packages": [package]}) == {
         "packages": [canonical]
@@ -92,15 +92,15 @@ def test_checkpoint_payload_requires_explicit_miniml_version_markers() -> None:
     payload = checkpoint_payload([package], checkpoint_version=3)
 
     assert payload["miniml_checkpoint_payload_version"] == MINIML_CHECKPOINT_PAYLOAD_VERSION
-    assert payload["miniml_schema_version"] == "3.0"
+    assert payload["miniml_schema_version"] == "3.1"
     assert checkpoint_packages(payload) == [
-        {**package, "miniml_schema_version": "3.0"}
+        {**package, "miniml_schema_version": "3.1"}
     ]
     assert checkpoint_packages({"checkpoint_version": 3, "packages": [package]}) is None
 
 
 def test_checkpoint_round_trip_preserves_retained_harmonization_fragments() -> None:
-    package = {**package_mapping(), "miniml_schema_version": "3.0"}
+    package = {**package_mapping(), "miniml_schema_version": "3.1"}
     patch = MINiMLHarmonizationPatch(
         base_sha256=miniml_source_fingerprint(package),
         adds=(),

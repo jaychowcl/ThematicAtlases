@@ -4,6 +4,8 @@ import logging
 import hashlib
 import inspect
 import re
+import warnings
+from agentic_curator.publication_policy import publication_policy
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -25,10 +27,16 @@ REVIEW_FILTERS = {
     "not_relevant_and_unsure",
 }
 REVIEW_STRATEGIES = {"direct"}
-REVIEW_CONTRACT_VERSION = 10
+REVIEW_CONTRACT_VERSION = 11
 _CRITERION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 logger = logging.getLogger(__name__)
+
+
+def validate_max_review_criteria(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("max_review_criteria must be a positive integer")
+    return value
 
 
 class PublicationTextReviewer:
@@ -122,6 +130,7 @@ class PublicationTextReviewer:
         reviewer=None,
         strategy: str = "direct",
         prune_accessions: bool = False,
+        max_review_criteria: int = 12,
     ) -> tuple[list[dict], dict]:
         if theme is None:
             return accessions, publication_texts
@@ -132,6 +141,8 @@ class PublicationTextReviewer:
             theme=theme,
             reviewer=reviewer,
             strategy=strategy,
+            max_review_criteria=max_review_criteria,
+            review_filter=review_filter,
         )
         return self.filtered_result(
             accessions=accessions,
@@ -196,10 +207,18 @@ class PublicationTextReviewer:
         progress_callback=None,
         checkpoint_store=None,
         strategy: str = "direct",
+        max_review_criteria: int = 12,
+        review_filter: str = "none",
     ) -> dict:
-        self.validate_options(theme=theme, review_filter="none", strategy=strategy)
-        reviewer = reviewer or self._reviewer()
+        self.validate_options(theme=theme, review_filter=review_filter, strategy=strategy)
+        validate_max_review_criteria(max_review_criteria)
+        reviewer = reviewer if reviewer is not None else self._reviewer(max_review_criteria=max_review_criteria)
+        declared_cap = getattr(reviewer, "max_criteria", 12)
+        if declared_cap != max_review_criteria:
+            raise ValueError("injected reviewer max_criteria conflicts with max_review_criteria")
         reviewer_identity = self._reviewer_identity(reviewer)
+        reviewer_identity["max_review_criteria"] = max_review_criteria
+        reviewer_identity["publication_policy_version"] = 1
         reviewed_publication_texts = {}
         reviewed_count = 0
         reused_count = 0
@@ -267,6 +286,7 @@ class PublicationTextReviewer:
                     strategy=strategy,
                     reviewer_identity=reviewer_identity,
                     criteria=criteria,
+                    review_filter=review_filter,
                 )
             reviewed_publication_texts[publication_ref] = outcome["publication_text"]
             reviewed_count += outcome["reviewed"]
@@ -299,6 +319,7 @@ class PublicationTextReviewer:
         strategy: str,
         reviewer_identity: dict,
         criteria: list[dict[str, str]] | None,
+        review_filter: str = "none",
     ) -> dict:
         return PublicationReviewStage(self).run(PublicationReviewRequest(
             publication_ref=publication_ref,
@@ -313,6 +334,7 @@ class PublicationTextReviewer:
             strategy=strategy,
             reviewer_identity=reviewer_identity,
             criteria=criteria,
+            review_filter=review_filter,
         )).to_mapping()
 
     def _review_criteria(
@@ -348,11 +370,11 @@ class PublicationTextReviewer:
             isinstance(cached, dict)
             and cached.get("review_contract_version") == REVIEW_CONTRACT_VERSION
         ):
-            return self._validated_criteria_catalogue(cached.get("criteria"))
+            return self._validated_criteria_catalogue(cached.get("criteria"), max_criteria=reviewer_identity.get("max_review_criteria", 12))
         derived = derive(theme)
         if not isinstance(derived, dict) or set(derived) != {"criteria"}:
             raise ValueError("derive_criteria must return only a criteria list")
-        criteria = self._validated_criteria_catalogue(derived["criteria"])
+        criteria = self._validated_criteria_catalogue(derived["criteria"], max_criteria=reviewer_identity.get("max_review_criteria", 12))
         if checkpoint_store is not None:
             checkpoint_store.set_meta(
                 checkpoint_key,
@@ -367,9 +389,10 @@ class PublicationTextReviewer:
         return criteria
 
     @staticmethod
-    def _validated_criteria_catalogue(value) -> list[dict[str, str]]:
-        if not isinstance(value, list) or not 1 <= len(value) <= 12:
-            raise ValueError("criteria must contain one to twelve definitions")
+    def _validated_criteria_catalogue(value, *, max_criteria=12) -> list[dict[str, str]]:
+        validate_max_review_criteria(max_criteria)
+        if not isinstance(value, list) or not 1 <= len(value) <= max_criteria:
+            raise ValueError(f"criteria must contain one to {max_criteria} definitions")
         criteria: list[dict[str, str]] = []
         seen: set[str] = set()
         for index, item in enumerate(value):
@@ -463,7 +486,18 @@ class PublicationTextReviewer:
         review_filter: str,
         prune_accessions: bool = False,
     ) -> tuple[list[dict], dict]:
-        removed_judgements = self.removed_review_judgements(review_filter=review_filter)
+        self.removed_review_judgements(review_filter=review_filter)
+        for publication_text in publication_texts.values():
+            review = publication_text.get(AGENTIC_CURATOR)
+            if not isinstance(review, dict):
+                review = {}
+                publication_text[AGENTIC_CURATOR] = review
+            failed = review.get("review_status") == "failed"
+            review["publication_policy"] = publication_policy(
+                None if failed else review.get("judgement"),
+                None if failed else review.get("confidence"),
+                filtering_enabled=review_filter != "none",
+            )
         filtered_accessions = []
         used_refs = set()
         pruned_associations = 0
@@ -489,7 +523,7 @@ class PublicationTextReviewer:
                     publication_text=publication_text
                 )
 
-                if judgement in removed_judgements:
+                if publication_text[AGENTIC_CURATOR]["publication_policy"]["action"] == "exclude":
                     continue
 
                 if prune_accessions and record_accession in self.removed_accessions(
@@ -534,6 +568,7 @@ class PublicationTextReviewer:
             accession
             for item in removals
             if isinstance(item, dict)
+            and item.get("confidence") == "high"
             and (accession := self.normalized_accession(item.get("accession", "")))
         }
 
@@ -578,6 +613,9 @@ class PublicationTextReviewer:
                     "evidence_contract_version"
                 ),
                 "raw_review": review,
+                "model_assessment": review.get("model_assessment", review),
+                "accession_actions": review.get("accession_actions", []),
+                "publication_policy": publication_policy(review.get("judgement"), review.get("confidence")),
             }
             if review_input_hash is not None:
                 result.update(
@@ -606,6 +644,7 @@ class PublicationTextReviewer:
             "judgement": str(judgement_object.get("judgement", "")),
             "reasoning": str(judgement_object.get("reasoning", "")),
             "confidence": str(judgement_object.get("confidence", "")),
+            "publication_policy": publication_policy(judgement_object.get("judgement"), judgement_object.get("confidence")),
             "raw_evidences": raw_evidences,
             "raw_judgement": raw_judgement,
             "accessions_to_remove": judgement_object.get(
@@ -637,9 +676,9 @@ class PublicationTextReviewer:
                 raise ValueError(
                     "review_execution_identity is missing: " + ", ".join(missing)
                 )
-            return json.loads(
-                json.dumps(identity, sort_keys=True, separators=(",", ":"))
-            )
+            normalized = json.loads(json.dumps(identity, sort_keys=True, separators=(",", ":")))
+            normalized.update(max_review_criteria=getattr(reviewer, "max_criteria", 12), publication_policy_version=1)
+            return normalized
 
         reviewer_type = type(reviewer)
         review_method = getattr(reviewer_type, "review_relevancy", None)
@@ -655,6 +694,8 @@ class PublicationTextReviewer:
             "contract_version": REVIEW_CONTRACT_VERSION,
         }
         return {
+            "max_review_criteria": getattr(reviewer, "max_criteria", 12),
+            "publication_policy_version": 1,
             "reviewer": f"{reviewer_type.__module__}.{reviewer_type.__qualname__}",
             "provider": str(
                 getattr(llm, "platform_name", None)
@@ -710,7 +751,8 @@ class PublicationTextReviewer:
             return {"not relevant"}
 
         if review_filter == "not_relevant_and_unsure":
-            return {"not relevant", "unsure"}
+            warnings.warn("not_relevant_and_unsure is deprecated; conservative filtering retains uncertain publications", DeprecationWarning, stacklevel=2)
+            return {"not relevant"}
 
         return set()
 
@@ -727,13 +769,14 @@ class PublicationTextReviewer:
             str(agentic_curator.get("judgement", "")).lower().replace("_", " ").split()
         )
 
-    def _reviewer(self):
+    def _reviewer(self, *, max_review_criteria=12):
+        validate_max_review_criteria(max_review_criteria)
         if self._reviewer_factory is not None:
             return self._reviewer_factory()
 
         from agentic_curator import ThematicReviewer
 
-        return ThematicReviewer(cancelled=self._cancelled)
+        return ThematicReviewer(cancelled=self._cancelled, max_criteria=max_review_criteria)
 
     def _resume_orchestrator(self):
         if self._resume_orchestrator_instance is not None:

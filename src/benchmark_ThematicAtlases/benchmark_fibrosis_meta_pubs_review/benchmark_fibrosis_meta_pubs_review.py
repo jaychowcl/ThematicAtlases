@@ -1668,7 +1668,7 @@ def _production_review(publication_texts: dict, contexts: dict, theme: str) -> d
         publication_texts=publication_texts,
         contexts=contexts,
         theme=theme,
-        reviewer=ThematicReviewer(egress_classification="public"),
+        reviewer=ThematicReviewer(),
         strategy="direct",
     )
 

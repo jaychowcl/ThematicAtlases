@@ -37,7 +37,7 @@ class ResumeAtlasWorkflow:
         context._reconcile_checkpoint_contracts(store)
         output = out if out is not None else manifest.get('atlas_out')
         options = {name: manifest[name] for name in (
-            'query', 'theme', 'review_filter', 'review_strategy', 'prune_accessions',
+            'query', 'theme', 'review_filter', 'review_strategy', 'max_review_criteria', 'prune_accessions',
             'metadata_repositories', 'max_publications', 'max_publications_per_query',
             'collect_metadata', 'generate_queries', 'max_generated_queries',
             'review_before_metadata', 'scrape_fulltext_accessions') if name in manifest}

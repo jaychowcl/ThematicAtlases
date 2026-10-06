@@ -186,7 +186,7 @@ and [project layout](#project-purpose-and-layout).
   `CheckpointStore` owns internal item results, fingerprints, retry history,
   and atomic amendments.
 - **Package boundary:** `ThematicAtlases` owns atlas workflow policy.
-  Agentic Curator 6.x owns typed MSC MINiML 3.0 harmonization patches and
+  Agentic Curator 6.x owns typed MSC MINiML 3.1 harmonization patches and
   Meta Standards Converter 8.x owns strict v3-only package decoding; this repository transports canonical 3.0 packages
   without weakening either boundary.
   `benchmark_ThematicAtlases` reads query and reviewed-output recall traces
@@ -550,7 +550,7 @@ the Python API, or the canonical parent-adapter workflow documented in the
   Dataset `metadata` remains open for non-MINiML application mappings. A value
   declaring `miniml_schema_version` or the legacy `mage_tab` marker, or a
   `{"packages": [...]}` collection, is instead a strict MSC-owned boundary:
-  Only MINiML 3.0 packages accepted by
+  Only MINiML 3.0/3.1 packages accepted by
   `MINiMLCodec.decode(..., strict=True)` are retained as canonical JSON-native
   3.0. MINiML 1.x, 2.0, and malformed nested
   packages are rejected rather than silently reinterpreted. ThematicAtlases
@@ -743,7 +743,7 @@ otherwise.
 | [`ThematicAtlases.filterer.AtlasFilterer`](../src/ThematicAtlases/filterer/filterer.py) | `(epmc_wrapper_factory=None, publication_text_reviewer=None)`. `filter_jsons(jsons=None, file=None, theme=None, review_filter="none", review_strategy="direct", reviewer=None, prune_accessions=False, ...) -> dict`; public helpers map identities/text references, split/assemble atlas parts, collect text, and review/filter. Bad JSON, invalid review controls, and uncaught text-fetch errors raise; review failures are retained as failed judgement payloads. |
 | [`ThematicAtlases.filterer.PublicationTextReviewer`](../src/ThematicAtlases/filterer/review.py) | `(reviewer_factory=None, resume_orchestrator_factory=None, cancelled=None)`. `resume(trace_dir, *, theme=None, reviewer=None, strategy="direct", allow_theme_override=False, require_resolved_metadata=False, collect_metadata=False, defer_metadata_errors=False, require_main_datalinks_phase=False, publication_limit=None, review_action_limit=None, cancelled=None, snapshot_accessions=None, publication_keys=None, item_lock_timeout_seconds=None, metadata_item_timeout_seconds=None, publication_text_item_timeout_seconds=None, review_item_timeout_seconds=None) -> dict`; `review_and_filter`, `review_publication_texts`, context/normalization/filter helpers. `publication_limit` retains snapshot semantics; `review_action_limit` counts actual actions after prerequisites, compatible checkpoint reuse, and future cooldowns. Cancellation is cooperative and distinct from a main-phase yield. Retryable model/shared-criteria cooldowns retain `next_retry_at`; cumulative model request metrics enter the progress summary. |
 | [`ThematicAtlases.harmonizer.AtlasHarmonizer`](../src/ThematicAtlases/harmonizer/harmonizer.py) | `(ontology_harmonizer=None, ontology_harmonizer_factory=None, ontostore=None, credential_checker=None, max_workers=1, capability_registry=None, resource_profile="standard", resource_overrides=None)`. `harmonize_datasets(datasets, details_out=None, harmonization_options=None, checkpoint_store=None) -> tuple[dict, list[dict]]`; `publication_context` and `harmonize_jsons` are public. Unsupported/repository-mismatched items receive status-v2 not-run envelopes; caught item failures preserve input metadata with safe failed envelopes; usable upstream results must carry status contract 2.0. |
-| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 3.0 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
+| [`ThematicAtlases.wrappers.ArrayExpressWrapper`](../src/ThematicAtlases/wrappers/ae.py) | `(converter_factory=None, resource_profile="standard", resource_overrides=None)` and `metadata_handler_status="supported"`; `collect_accession_metadata(jsons, checkpoint_store=None)` converts BioStudies MAGE-TAB through the resource-profiled MSC fetcher and emits strict canonical MINiML 3.1 metadata. Typed and mapping converter results share the same transport boundary, and only versioned compatible checkpoints are replayed. |
 | [`ThematicAtlases.wrappers.EuropePMCWrapper`](../src/ThematicAtlases/wrappers/epmc.py) | `(page_limit=5, page_size=1000, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, publication_policy=None, link_graph_provider=None, ncbi_api_key=None, ncbi_tool="ThematicAtlases", ncbi_email=None)`. Europe PMC, preprint, and graph calls use the common host gate. The NCBI identity reaches every default ELink/ESummary call, while request values remain absent from logs. Publication text/full-text extraction uses per-item locks and the five discovery stop boundaries remain durable. |
 | [`ThematicAtlases.wrappers.GEOWrapper`](../src/ThematicAtlases/wrappers/geo.py) | `(api_key=None, tool="ThematicAtlases", email=None, timeout=None, request_delay=0.5, max_retries=3, request_policy=None, resource_profile="standard", resource_overrides=None, record_policy=None, enrich_metadata=True)`. Calls NCBI E-utilities through the shared host gate with the configured identity; omitted `api_key` reads `NCBI_API_KEY` without changing 0.5-second pacing. Compatible canonical metadata checkpoints are read-only reuse. |
 
@@ -1100,7 +1100,7 @@ dataset -> eligible? -- no --> not_run/original
 5. Unique eligible work is decoded through MSC 5's `MINiMLCodec`, calls the
    delegated patch-first `harmonize_miniml_annotations`, applies the
    source-bound `MINiMLHarmonizationPatch` 3.0 to a copy, and decodes the
-   MINiML 3.0 result again. Legacy injected
+   MINiML 3.1 result again. Legacy injected
    test/adaptor harmonizers may still expose the mutating wrapper.
 6. Results and details, including execution identity provenance and target-local
    semantic `lookup_aliases`, are
@@ -1595,7 +1595,7 @@ and trace output are not part of the tracked source tree.
 
 - `pyproject.toml` uses `setuptools.build_meta`.
 - Project metadata names the package `ThematicAtlases`.
-- Package version metadata is `4.3.0`; the Atlas document wire schema remains 1.0 while embedded metadata is canonically MSC MINiML 3.0 with optional retained patch 3.1 provenance. Harmonization checkpoints include Agentic Curator 4.3 source-evidence generation and the coordinated retained-patch execution identity.
+- Package version metadata is `6.0.0`; new output uses Atlas document schema 1.1 and canonical MSC MINiML 3.1 metadata with optional retained patch 3.2 provenance. Readers retain the previous contracts. Harmonization checkpoints bind AC source, prompts, policies and serialization identity.
 - Python requirement is `>=3.10`.
 - License metadata is `GPL-3.0-or-later`.
 - Runtime dependencies contain independently installable
@@ -1995,13 +1995,13 @@ Repository filtering behavior:
   order selects the canonical record and later aliases contribute only unique
   publications and original-datalink provenance.
 - GEO resolution and metadata downloads use per-item cross-process locks. New
-  metadata checkpoints store provenance-independent, canonical MINiML 3.0
+  metadata checkpoints store provenance-independent, canonical MINiML 3.1
   packages with explicit transport and checkpoint versions; reuse rebuilds
   records from the latest accession snapshot so later publication links are not
   lost. Legacy record-shaped or unversioned package payloads are invalidated
   and recomputed, or shown as pending during offline availability checks.
 - ArrayExpress metadata collection is enabled by default. Its MSC adapter
-  applies the same strict MINiML 3.0 boundary before a package can enter a
+  applies the same strict MINiML 3.0/3.1 reader and 3.1 writer boundary before a package can enter a
   record, trace, or checkpoint.
 
 <a id="filterer"></a>
@@ -2039,7 +2039,7 @@ skipped, failed, full-text, fallback, and missing counts.
 - When `theme` is provided, `PublicationTextReviewer.review_publication_texts(...)` reviews each `publication_texts` entry with `agentic_curator.ThematicReviewer.review_relevancy(...)`. The reviewer receives `publication_texts[ref]["text"]`, not `accessions[].publications[].abstractText` directly, plus the title and every distinct associated GSE accession. When metadata exists, context contains one compact `build_miniml_metadata_context(...)` entry per associated accession; full MINiML, protocol, platform, and author sections are not sent. Original `accession_metadata` remains unchanged in atlas and trace artifacts.
 - Collected accession JSONs keep Europe PMC abstracts at `accessions[].publications[].abstractText`. During filtering, publication text enrichment promotes either full text or abstract fallback into `publication_texts[ref]["text"]`.
 - Publication text source values distinguish the fallback path: fullTextXML success stores `text_source="fullTextXML"`; full text unavailable or failed with a non-empty abstract stores `text_source="abstractText"`; full text and abstract both missing or empty stores `text=""` and `text_source="none"`.
-- `review_strategy="direct"` is the sole supported strategy. Agentic Curator revision 4 with evidence contract 2 first derives one shared catalogue of 1–12 generic criteria from the non-empty theme, then each publication call receives that fixed catalogue and returns evidence/decisions without regenerating it. The catalogue is cached under a theme/strategy/reviewer-identity key and reused across resume invocations. Every publication still requires exactly one complete assessment per supplied accession; a destructive exclusion is accepted only when a failed criterion cites a caller-verified exact quote by source kind and source ID tied to that accession. The model neither receives nor returns source digests, offsets, JSON pointers, or evidence contract fields. The retired evidence-then-judgement value fails before a model call.
+- `review_strategy="direct"` is the sole supported strategy. Agentic Curator revision 5 with evidence contract 2 first derives one shared catalogue of 1–`max_review_criteria` generic criteria (default maximum 12) from the non-empty theme, then each publication call receives that fixed catalogue and returns evidence/decisions without regenerating it. The catalogue is cached under a theme/strategy/reviewer-identity key and reused across resume invocations. Every publication still requires exactly one complete assessment per supplied accession; a destructive exclusion is accepted only when a failed criterion cites a caller-verified exact quote by source kind and source ID tied to that accession. The model neither receives nor returns source digests, offsets, JSON pointers, or evidence contract fields. The retired evidence-then-judgement value fails before a model call.
 - Direct output is stored under `publication_texts[ref]["agentic_curator"]` with `theme`, `strategy`, `review_revision`, `evidence_contract_version`, `criteria`, `judgement`, `reasoning`, `confidence`, `accession_assessments`, derived `accessions_to_remove`, `raw_review`, `review_input_hash`, `review_contract_version`, and `reviewer_identity`. The reviewer identity binds provider, model, generation configuration, and prompt SHA-256. The model owns `qualifies`/`exclude`/`uncertain` and publication relevance decisions; agentic-curator derives removals only from grounded exclusions. With explicit `prune_accessions=True`, each removal drops that publication–accession association; the accession remains when another publication retains it and is dropped only when no associations remain. The default is `False`. `review_filter` independently applies publication-level judgements. The canonical Atlas v1 projection remains unchanged and exposes its existing publication-level `thematic_relevance` criterion rather than the per-accession catalog.
 - The complete available publication remains the primary context. When accession metadata was collected first, each GSE additionally receives its own compact, at-most-500-character MINiML context. Full MINiML, author, protocol, and platform content is not sent, and absent metadata is represented by no compact context rather than inferred accession knowledge.
 - Existing `agentic_curator` reviews are reused only when their effective input matches. Review identity includes contract version, strategy, theme, the fixed criteria catalogue, publication text, title, associated accessions, compact metadata context, metadata coverage, reviewer class/provider/model, generation configuration, and prompt digest. Contract version 9 rejects pre-stable-catalogue or unfingerprinted review checkpoints; a change to any review or execution input triggers a new review.
@@ -2068,7 +2068,7 @@ skipped, failed, full-text, fallback, and missing counts.
 `ThematicAtlases.harmonizer.AtlasHarmonizer` accepts an optional shared
 `ontostore`, iterates atlas accessions, builds ordered publication context from
 non-empty publication titles and abstracts, canonicalizes dictionary or list
-`accession_metadata` with MSC 5.2, requests an Agentic-built MSC patch 3.1,
+`accession_metadata` with MSC 8, requests an Agentic-built MSC patch 3.2,
 applies it copy-on-write, and revalidates the resulting typed packages. MSC
 partitions document operations and attaches immutable package-local fragments
 under `extensions.msc_harmonization`; the extension survives Atlas documents,
@@ -2640,6 +2640,9 @@ snapshots. The focused GEO/enrichment regression suite passes 60 tests.
 <a id="msc6-direct-integration"></a>
 ## MSC 6 direct integration
 
+Historical cutover record: serialization versions below describe that release.
+See [current curation contracts](#curation-policy-v11) for new output and compatibility.
+
 GEO ingestion injects `GEOSource`, a network-free `GEOParser`, and checkpoint-aware enrichment clients. `CheckpointedINSDCFetcher` implements public SRA XML and ENA file-report retrieval; no private `_ncbi_nrx` override remains. `ArrayExpressWrapper(source_resolver=None, parser=None, ...)` resolves MAGE-TAB directly through `AEWebFetcher` and `AEParser`. Both paths checkpoint source evidence before parsing and preserve validation diagnostics. Metrics accumulate deltas from cumulative public snapshots. The checkpoint ingestion path retains its original publication inheritance rules.
 
 The coordinated release preserves MINiML 3.0, retained patches 3.1, Atlas documents 1.0 and serialized checkpoint/status contracts. Historical runs retain their original revision provenance. A new implementation does not authorize automatic production resume: validate a disposable transition using the supported workflow mechanism, or start a new run. Never mix old and new workers against shared state. Processed H5AD checkpoints use version-specific destinations without changing the fingerprint algorithm.
@@ -2692,6 +2695,9 @@ Publication applies no export profile. The Atlas v1 metadata field remains canon
 
 <a id="miniml-v3-only-cutover"></a>
 ## MINiML v3-only cutover
+
+Historical cutover record; the [current curation contracts](#curation-policy-v11)
+add MINiML 3.1 output while retaining 3.0 readers.
 
 MSC 8.0.0, Agentic Curator 6.0.0, ThematicAtlases 6.0.0, and the GSK adapter
 6.0.0 require canonical MSC MINiML `3.0` at application boundaries. MSC no
@@ -2831,3 +2837,55 @@ provider can import shared helpers without an eager provider-import cycle.
 Tests in `test_package_boundaries.py` check old/new import identity and injected
 CLI dispatch; the workflow signature fixture checks public arguments/defaults
 and exported annotation types independently of their implementation module names.
+
+<a id="curation-policy-v11"></a>
+## Curation policy and Atlas 1.1
+
+Purposeful decision, 2026-10-06: publication assessment and filtering are separate.
+AC supplies raw judgement/confidence, model assessments and accession action records.
+TA validates a run-wide catalogue of 1 to `max_review_criteria` entries (default 12),
+checks injected reviewer limits for conflict, and binds the effective cap, prompt
+identity, review contract 11 and policy version 1 into checkpoint identity.
+`Atlas.collect_datasets`, `Atlas.create_atlas` and their CLI commands expose
+`max_review_criteria` / `--max-review-criteria`. Positive integer limits are maxima,
+not requested counts. Manifest/configuration, resumes, workers and downstream
+forks retain the cap. Read-only reconstruction rejects a changed catalogue limit.
+
+Filtering policy: relevant always stays; not_relevant/high is excluded only when
+filtering is enabled; lower-confidence negative and every unsure review stay and
+require review. Failed or historical reviews lacking usable confidence stay flagged.
+`review_filter="none"` disables publication filtering. The deprecated
+`not_relevant_and_unsure` alias emits a deprecation notice and applies the same
+conservative rule as `not_relevant`. Accession pruning is independent and requires
+high-confidence exclusions. Original assessments remain available in checkpoint
+review payloads; publication_policy records action, exclusion eligibility, review
+requirement, reason and version. Filtering recomputes the applied action for its
+current filter without changing model judgement/confidence.
+
+New Atlas JSON is schema 1.1. Readers accept 1.0 and 1.1; the frozen 1.0 fixture
+remains alongside its 1.1 expected output. PublicationReview carries raw confidence
+and typed PublicationPolicy. Weak/unknown-confidence negative thematic_relevance
+has passed=null. Dataset MINiML writes use MSC 3.1 and depth-qualified ancestor
+names; checkpoint payload version 2 prevents silently reusing the previous wire
+contract. MSC remains owner of legacy patch hashes and rendering/parsing.
+
+No model egress inventory/classification API remains. Query, reviewer and harmonizer
+inputs are public by caller contract; publication text and metadata also enter model
+context. HTTP/download protections, safe error handling, credentials, pacing,
+cancellation and provenance remain in force.
+
+Tests: `test_curation_policy_contract.py` exercises the complete policy matrix,
+legacy failures, typed transport, configured caps and reconstruction invalidation;
+checkpoint workflow goldens exercise uninterrupted/resumed serialization and
+independent accession pruning. Offline checks do not establish model accuracy.
+
+Generated-query checkpoint contract 2 binds `query_execution_identity()` (prompt,
+schema, implementation, model and budget) along with the theme, count limit and
+manual/file queries. Injected generators should declare that identity; otherwise
+TA uses their method source and model settings. No model call is made to compute it.
+
+Review checkpoints store the effective publication filter action alongside the
+original judgement/confidence. Changing only filtering recomputes and persists
+the policy while reusing the validated assessment; it does not request a new
+model response. Atlas-to-internal projections preserve confidence, policy and
+reasoning so harmonization round trips do not erase review uncertainty.

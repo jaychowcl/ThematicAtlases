@@ -20,6 +20,7 @@ DOWNSTREAM_OVERRIDE_FIELDS = frozenset(
         "theme",
         "review_filter",
         "review_strategy",
+        "max_review_criteria",
         "prune_accessions",
         "harmonization_options",
         "atlas_out",
@@ -194,6 +195,7 @@ def _amend_fingerprint(path: Path, *, new_run_id: str, overrides: dict) -> None:
         "theme",
         "review_filter",
         "review_strategy",
+        "max_review_criteria",
         "prune_accessions",
     ):
         if key in overrides:

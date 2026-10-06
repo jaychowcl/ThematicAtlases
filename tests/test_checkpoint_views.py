@@ -75,7 +75,7 @@ def test_review_reconstruction_drops_decision_when_metadata_input_changes(tmp_pa
     records = views.metadata()
     assert 'agentic_curator' in views.review(accessions=records)['publication_texts']['1']
     records[0]['accession_metadata']['series']['title'] = 'Changed metadata'
-    assert 'agentic_curator' not in views.review(accessions=records)['publication_texts']['1']
+    assert views.review(accessions=records)['publication_texts']['1']['agentic_curator']['publication_policy']['review_required']
 
 
 @pytest.mark.parametrize('workflows', [('first', 'second'), ('second', 'first')])

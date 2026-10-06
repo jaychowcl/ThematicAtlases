@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. Only MSC MINiML 3.0 is accepted; older package versions must be regenerated or converted before loading.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. New output uses Atlas document schema 1.1; readers accept 1.0 and 1.1. downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.1 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.1"`; ThematicAtlases validates each package and transports its canonical JSON representation. MSC MINiML 3.0 and 3.1 are accepted and new output is normalized to 3.1; older package versions must be regenerated or converted before loading.
 
 The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package separately measures raw query-result recall, post-discovery/review recall, and labeled thematic-review classification.
 
@@ -165,6 +165,8 @@ are not silently upgraded by `resume`.
 
 <a id="cli-guide"></a>
 ### CLI guide
+
+`--max-review-criteria N` sets the positive maximum catalogue size (default 12).
 
 The installed interface is `thematic-atlas COMMAND [OPTIONS]`. It is a thin adapter over `Atlas`; successful commands do not print result JSON, so use `--out` for data and logging options for operational messages. Its wiring is documented in the [CLI codebase entry](docs/codebase.md#cli-atlas).
 
@@ -349,6 +351,8 @@ thematic-atlas fork-run \
 
 <a id="python-api-guide"></a>
 ### Python API guide
+
+`collect_datasets` and `create_atlas` accept `max_review_criteria=12`; it is a maximum, not a requested count.
 
 Import the orchestrator directly; the package root does not re-export it:
 

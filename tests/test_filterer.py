@@ -343,20 +343,10 @@ def test_filter_jsons_review_filters_publications() -> None:
         reviewer=JudgementReviewer(),
     )
 
-    assert result["accessions"] == [
-        {
-            "datalink_id": "GSE1",
-            "publications": [
-                {
-                    "source": "MED",
-                    "epmc_id": "1",
-                    "pmid": "1",
-                    "publication_text_ref": "1",
-                }
-            ],
-        }
-    ]
-    assert set(result["publication_texts"]) == {"1"}
+    assert [r["datalink_id"] for r in result["accessions"]] == ["GSE1"]
+    assert [p["publication_text_ref"] for p in result["accessions"][0]["publications"]] == ["1", "3"]
+    assert set(result["publication_texts"]) == {"1", "3"}
+    assert result["publication_texts"]["3"]["agentic_curator"]["publication_policy"]["review_required"]
 
 
 def test_filter_jsons_review_filter_requires_theme() -> None:

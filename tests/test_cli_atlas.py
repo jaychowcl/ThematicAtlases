@@ -683,6 +683,7 @@ def test_collect_datasets_passes_options_to_atlas(
                 review_before_metadata=False,
                 scrape_fulltext_accessions=True,
                     unsupported_accessions_out=None,
+            max_review_criteria=12,
             ):
             self.__class__.calls.append(
                 {
@@ -692,6 +693,7 @@ def test_collect_datasets_passes_options_to_atlas(
                     "theme": theme,
                     "review_filter": review_filter,
                         "review_strategy": review_strategy,
+                        "max_review_criteria": max_review_criteria,
                         "prune_accessions": prune_accessions,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
@@ -742,6 +744,7 @@ def test_collect_datasets_passes_options_to_atlas(
             "theme": "theme",
             "review_filter": "not_relevant",
             "review_strategy": "direct",
+                "max_review_criteria": 12,
             "prune_accessions": False,
             "metadata_repositories": ["geo", "arrayexpress"],
             "max_publications": 25,
@@ -800,6 +803,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                 scrape_fulltext_accessions=True,
                 unsupported_accessions_out=None,
                 thematic_review=True,
+            max_review_criteria=12,
             ):
             self.__class__.calls.append(
                 {
@@ -809,6 +813,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
                     "theme": theme,
                     "review_filter": review_filter,
                         "review_strategy": review_strategy,
+                        "max_review_criteria": max_review_criteria,
                         "prune_accessions": prune_accessions,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
@@ -869,6 +874,7 @@ def test_create_atlas_passes_theme_and_review_filter_to_atlas(
             "theme": "fibrosis theme",
             "review_filter": "not_relevant",
             "review_strategy": "direct",
+                "max_review_criteria": 12,
             "prune_accessions": False,
             "metadata_repositories": ["arrayexpress"],
             "max_publications": 25,

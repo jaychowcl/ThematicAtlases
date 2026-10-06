@@ -36,6 +36,7 @@ class AtlasFilterer:
         prune_accessions: bool = False,
         _review_progress_callback=None,
         _checkpoint_store=None,
+        max_review_criteria: int = 12,
     ) -> dict:
         self._publication_text_reviewer.validate_options(
             theme=theme,
@@ -69,6 +70,7 @@ class AtlasFilterer:
                 reviewer=reviewer,
                 progress_callback=_review_progress_callback,
                 checkpoint_store=_checkpoint_store,
+                max_review_criteria=max_review_criteria,
             )
         accessions_with_refs = sum(
             1
@@ -236,6 +238,7 @@ class AtlasFilterer:
         progress_callback=None,
         checkpoint_store=None,
         prune_accessions: bool = False,
+        max_review_criteria: int = 12,
     ) -> tuple[list[dict], dict]:
         logger.info("Atlas filter_jsons progress stage=review-publication-texts")
         review_options = dict(
@@ -245,6 +248,8 @@ class AtlasFilterer:
             ),
             theme=theme,
             strategy=review_strategy,
+            review_filter=review_filter,
+            max_review_criteria=max_review_criteria,
             reviewer=reviewer,
             progress_callback=progress_callback,
         )

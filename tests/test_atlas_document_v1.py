@@ -74,7 +74,7 @@ def test_document_round_trips_deterministically(tmp_path):
 
     assert output.read_text(encoding="utf-8").endswith("\n")
     assert AtlasDocument.load(output) == document
-    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "1.0"
+    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "1.1"
     assert document.to_mapping() == AtlasDocument.from_mapping(
         document.to_mapping()
     ).to_mapping()
@@ -213,4 +213,4 @@ def test_owner_golden_fixture_is_a_valid_stable_wire_contract():
         "GSE100",
         "GSE200",
     ]
-    assert document.to_mapping() == json.loads(fixture.read_text(encoding="utf-8"))
+    assert document.to_mapping() == json.loads(fixture.with_name("atlas-document-v1_1.json").read_text(encoding="utf-8"))

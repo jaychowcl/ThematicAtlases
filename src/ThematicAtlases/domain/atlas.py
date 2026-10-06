@@ -22,7 +22,8 @@ from meta_standards_converter.runtime_contracts import (
 from ThematicAtlases.miniml_boundary import canonicalize_atlas_metadata
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1"}
 
 
 class _ValueEnum(str, Enum):
@@ -81,10 +82,43 @@ class ReviewCriterion:
 
 
 @dataclass(frozen=True)
+class PublicationPolicy:
+    version: int
+    action: str
+    exclusion_eligible: bool
+    review_required: bool
+    reason: str
+
+    def __post_init__(self):
+        if type(self.version) is not int or self.version != 1 or self.action not in {"retain", "exclude"}:
+            raise ValueError("invalid publication policy version or action")
+        if type(self.exclusion_eligible) is not bool or type(self.review_required) is not bool:
+            raise ValueError("publication policy flags must be boolean")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("publication policy reason must be nonempty")
+        if self.action == "exclude" and not self.exclusion_eligible:
+            raise ValueError("ineligible publication cannot be excluded")
+
+
+@dataclass(frozen=True)
 class PublicationReview:
     judgement: Judgement
     criteria: tuple[ReviewCriterion, ...] = ()
     evidence: tuple[Mapping[str, Any], ...] = ()
+    confidence: str | None = None
+    policy: PublicationPolicy | None = None
+
+    def __post_init__(self):
+        if self.confidence not in {None, "low", "medium", "high"}:
+            raise ValueError("invalid publication confidence")
+        from agentic_curator.publication_policy import publication_policy
+        expected = publication_policy(str(self.judgement), self.confidence,
+            filtering_enabled=self.policy is not None and self.policy.action == "exclude")
+        if self.policy is None:
+            object.__setattr__(self, "policy", PublicationPolicy(**expected))
+        elif (self.policy.exclusion_eligible != expected["exclusion_eligible"] or
+              self.policy.review_required != expected["review_required"]):
+            raise ValueError("publication policy contradicts judgement and confidence")
 
 
 @dataclass(frozen=True)
@@ -241,7 +275,18 @@ def _review(value: Any, name: str = "PublicationReview") -> PublicationReview | 
     if value is None:
         return None
     data = _mapping(value, name)
-    _only(data, {"judgement", "criteria", "evidence"}, name)
+    _only(data, {"judgement", "confidence", "policy", "criteria", "evidence"}, name)
+    confidence = data.get("confidence")
+    if confidence not in {None, "low", "medium", "high"}:
+        raise ValueError("invalid publication confidence")
+    from agentic_curator.publication_policy import publication_policy
+    raw_policy = data.get("policy")
+    if raw_policy is None:
+        raw_policy = publication_policy(data["judgement"], confidence)
+    policy = PublicationPolicy(**raw_policy)
+    expected = publication_policy(data["judgement"], confidence, filtering_enabled=policy.action == "exclude")
+    if policy.exclusion_eligible != expected["exclusion_eligible"] or policy.review_required != expected["review_required"]:
+        raise ValueError("publication policy contradicts judgement and confidence")
     criteria = []
     for index, raw in enumerate(_list(data.get("criteria"), f"{name}.criteria")):
         item_name = f"{name}.criteria[{index}]"
@@ -263,6 +308,8 @@ def _review(value: Any, name: str = "PublicationReview") -> PublicationReview | 
         _mapping(raw, f"{name}.evidence[{index}]")
     return PublicationReview(
         judgement=Judgement(data["judgement"]),
+        confidence=confidence,
+        policy=policy,
         criteria=tuple(criteria),
         evidence=tuple(evidence),
     )
@@ -323,7 +370,7 @@ class AtlasDocument:
     schema_version: str = SCHEMA_VERSION
 
     def validate(self) -> None:
-        if self.schema_version != SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(
                 f"unsupported Atlas schema version: {self.schema_version!r}"
             )
@@ -420,7 +467,7 @@ class AtlasDocument:
     def to_mapping(self) -> dict[str, Any]:
         self.validate()
         return {
-            "schema_version": self.schema_version,
+            "schema_version": SCHEMA_VERSION,
             "atlas": _plain(self.atlas),
             "run": _plain(self.run),
             "datasets": _plain(self.datasets),
@@ -437,7 +484,7 @@ class AtlasDocument:
             "AtlasDocument",
         )
         version = data.get("schema_version")
-        if version != SCHEMA_VERSION:
+        if version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"unsupported Atlas schema version: {version!r}")
 
         atlas_data = _mapping(data.get("atlas"), "AtlasIdentity")
@@ -632,6 +679,7 @@ __all__ = [
     "OntologyMatch",
     "Publication",
     "PublicationReview",
+    "PublicationPolicy",
     "ReviewCriterion",
     "RunStatus",
 ]

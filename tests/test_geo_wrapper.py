@@ -27,7 +27,7 @@ def invalid_reference_package(accession: str = "GSE1") -> dict:
 
 def v2_package(accession: str = "GSE1") -> dict:
     return {
-        "miniml_schema_version": "3.0",
+        "miniml_schema_version": "3.1",
         "source": {"format": "GEO MINiML"},
         "database": [],
         "organization": [],

@@ -182,7 +182,7 @@ def test_reconstructed_filtering_and_pruning_match_uninterrupted_execution(tmp_p
     converter.outcomes=iter([outcome('GSE1'),outcome('GSE2')])
     original_review=reviewer.review_relevancy
     reviewer.review_relevancy=lambda **kw:{**original_review(**kw),
-        'accessions_to_remove':[{'accession':'GSE2','reason':'out of scope'}]}
+        'accessions_to_remove':[{'accession':'GSE2','reason':'out of scope','confidence':'high'}]}
     original=atlas.create_atlas(query=['fibrosis'],theme='fibrosis',generate_queries=False,
         review_filter='not_relevant',prune_accessions=True,review_before_metadata=review_first,
         dev_trace=True,dev_out_dir=str(tmp_path))

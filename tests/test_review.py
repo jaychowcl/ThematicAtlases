@@ -448,6 +448,7 @@ def test_review_publication_texts_parses_agentic_curator_schema() -> None:
     assert set(reviewer_identity) >= {
         "provider", "model", "generation", "prompt_sha256"
     }
+    assert stored_review.pop("publication_policy")["review_required"]
     assert stored_review == {
         "theme": "fibrosis",
         "strategy": "direct",
@@ -883,7 +884,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
             "agentic_curator": {
                 "judgement": "relevant",
                 "accessions_to_remove": [
-                    {"accession": " GSE2 ", "reason": "Mouse-only dataset."}
+                    {"accession": " GSE2 ", "reason": "Mouse-only dataset.", "confidence": "high"}
                 ],
             }
         },
@@ -912,7 +913,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
 
 
 def test_review_contract_version_requires_run_stable_criteria_catalogues() -> None:
-    assert REVIEW_CONTRACT_VERSION == 10
+    assert REVIEW_CONTRACT_VERSION == 11
 
 
 def test_retired_evidence_then_judgement_strategy_is_rejected(tmp_path) -> None:
@@ -991,6 +992,8 @@ def test_review_checkpoint_identity_includes_provider_model_and_prompt() -> None
     assert IdentityReviewer.calls == 2
     identity = second["1"]["agentic_curator"]["reviewer_identity"]
     assert identity == {
+        "max_review_criteria": 12,
+        "publication_policy_version": 1,
         "provider": "test-provider",
         "model": "model-b",
         "generation": {"temperature": 0},
@@ -2300,6 +2303,7 @@ def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> No
         },
     )
 
+    assert result.pop("publication_policy")["review_required"]
     assert result == {
         "theme": "fibrosis",
         "strategy": "direct",
@@ -2313,7 +2317,7 @@ def test_agentic_curator_review_preserves_raw_text_when_json_parse_fails() -> No
     }
 
 
-def test_filtered_result_drops_not_relevant_and_unsure_publications() -> None:
+def test_filtered_result_retains_historical_reviews_without_confidence() -> None:
     accessions, publication_texts = reviewed_atlas_parts()
 
     filtered_accessions, filtered_publication_texts = (
@@ -2324,10 +2328,6 @@ def test_filtered_result_drops_not_relevant_and_unsure_publications() -> None:
         )
     )
 
-    assert filtered_accessions == [
-        {
-            "datalink_id": "GSE1",
-            "publications": [{"publication_text_ref": "1", "pmid": "1"}],
-        }
-    ]
-    assert set(filtered_publication_texts) == {"1"}
+    assert filtered_accessions == accessions
+    assert set(filtered_publication_texts) == set(publication_texts)
+    assert all(t["agentic_curator"]["publication_policy"]["review_required"] for t in filtered_publication_texts.values())

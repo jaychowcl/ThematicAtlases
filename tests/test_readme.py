@@ -59,7 +59,7 @@ def test_readme_and_handoff_record_current_contracts_and_test_evidence() -> None
     index = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
     for document in (readme, codebase):
-        assert "Atlas document schema 1.0" in document
+        assert "Atlas document schema 1.1" in document
         assert "H5AD metadata schema 1.0" in document
         assert "2026-08-10" in document
         assert "545 passed, 4 skipped" in document
@@ -154,14 +154,15 @@ def test_python_workflow_signatures_and_guide_match_public_interfaces() -> None:
         "generate_queries", "max_generated_queries", "dev_trace", "dev_out_dir",
         "run_id", "review_before_metadata", "stop_before_review",
         "scrape_fulltext_accessions", "unsupported_accessions_out",
-        "prune_accessions", "_trace_writer",
+        "prune_accessions", "_trace_writer", "max_review_criteria",
     ]
-    assert list(inspect.signature(Atlas.create_atlas).parameters)[-5:] == [
+    assert list(inspect.signature(Atlas.create_atlas).parameters)[-6:] == [
         "scrape_fulltext_accessions",
         "unsupported_accessions_out",
         "thematic_review",
         "prune_accessions",
         "stop_after",
+        "max_review_criteria",
     ]
     assert list(inspect.signature(Atlas.harmonize_datasets).parameters) == [
         "self", "datasets", "harmonization_details_out", "harmonization_options",

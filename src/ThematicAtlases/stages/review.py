@@ -6,6 +6,7 @@ from .results import ReviewResult
 if TYPE_CHECKING:
     from ThematicAtlases.filterer.review import PublicationTextReviewer
 import inspect
+from agentic_curator.publication_policy import publication_policy
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
 from ThematicAtlases.runtime_contracts import safe_error_json, safe_error_mapping
 import logging
@@ -26,6 +27,7 @@ class PublicationReviewRequest:
     strategy: str
     reviewer_identity: dict
     criteria: list[dict[str, str]] | None
+    review_filter: str = "none"
 
 
 class PublicationReviewStage:
@@ -46,6 +48,7 @@ class PublicationReviewStage:
             strategy=request.strategy,
             reviewer_identity=request.reviewer_identity,
             criteria=request.criteria,
+            review_filter=request.review_filter,
         ))
 
     def _execute(
@@ -63,6 +66,7 @@ class PublicationReviewStage:
         strategy: str,
         reviewer_identity: dict,
         criteria: list[dict[str, str]] | None,
+        review_filter: str = "none",
     ) -> dict:
         stage_owner = self.owner
         from ThematicAtlases.filterer.review import AGENTIC_CURATOR, REVIEW_CONTRACT_VERSION
@@ -84,6 +88,14 @@ class PublicationReviewStage:
             if payload.get("text_ref") == text_ref and payload.get("review") is not None:
                 publication_text = {**publication_text, AGENTIC_CURATOR: payload["review"]}
 
+        def effective_policy(review):
+            failed = review.get("review_status") == "failed"
+            return publication_policy(
+                None if failed else review.get("judgement"),
+                None if failed else review.get("confidence"),
+                filtering_enabled=review_filter != "none",
+            )
+
         existing_review = publication_text.get(AGENTIC_CURATOR)
         coverage_context = stage_owner._metadata_context(context)
         if (
@@ -92,6 +104,14 @@ class PublicationReviewStage:
             and existing_review.get("strategy") == strategy
             and existing_review.get("review_input_hash") == input_hash
         ):
+            policy = effective_policy(existing_review)
+            if existing_review.get("publication_policy") != policy:
+                existing_review["publication_policy"] = policy
+                if checkpoint_store is not None and checkpoint and checkpoint["status"] == "available":
+                    checkpoint_store.put(
+                        "thematic_review", checkpoint_key, checkpoint["ordinal"], "available",
+                        payload={**payload, "review": existing_review},
+                    )
             return {
                 "publication_text": publication_text,
                 "reviewed": 0,
@@ -141,6 +161,7 @@ class PublicationReviewStage:
                 "theme": theme,
                 "strategy": strategy,
                 "review_status": "failed",
+                "publication_policy": publication_policy(None, None),
                 "error_type": type(error).__name__,
                 "error": safe_error,
                 "review_input_hash": input_hash,
@@ -198,6 +219,7 @@ class PublicationReviewStage:
             metadata_context=coverage_context,
             reviewer_identity=reviewer_identity,
         )
+        publication_text[AGENTIC_CURATOR]["publication_policy"] = effective_policy(publication_text[AGENTIC_CURATOR])
         if checkpoint_store is not None:
             checkpoint_store.put(
                 "thematic_review",

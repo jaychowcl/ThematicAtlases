@@ -134,7 +134,7 @@ class AtlasRunLifecycle:
                         manifest.get("metadata_repositories") or ()
                     ),
                     **{key: manifest.get(key) for key in (
-                        "query_file", "review_filter", "review_strategy", "prune_accessions",
+                        "query_file", "review_filter", "review_strategy", "max_review_criteria", "prune_accessions",
                         "collect_metadata", "generate_queries", "review_before_metadata",
                         "scrape_fulltext_accessions", "thematic_review", "harmonization_options",
                         "resource_profile", "runtime_provenance")},

@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.1",
+  "atlas": {
+    "atlas_id": "atlas-lung-fibrosis",
+    "title": "Lung fibrosis atlas",
+    "theme": "lung fibrosis"
+  },
+  "run": {
+    "run_id": "01JATLASV1FIXTURE",
+    "created_at": "2026-07-31T13:39:54Z",
+    "config": {
+      "queries": [
+        "lung fibrosis"
+      ],
+      "metadata_repositories": [
+        "geo"
+      ],
+      "options": {}
+    },
+    "status": "partial"
+  },
+  "datasets": [
+    {
+      "dataset_id": "GSE100",
+      "source_repository": "geo",
+      "source_ordinal": 0,
+      "status": "harmonized",
+      "metadata": {
+        "miniml_schema_version": "3.1",
+        "source": {
+          "format": "GEO MINiML"
+        },
+        "database": [],
+        "organization": [],
+        "contributor": [],
+        "platform": [],
+        "sample": [
+          {
+            "iid": "GSM100",
+            "channel": [
+              {
+                "characteristics": [
+                  {
+                    "name": "organism",
+                    "value": "Homo sapiens"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "series": {
+          "iid": "GSE100",
+          "accession": [
+            {
+              "value": "GSE100"
+            }
+          ]
+        }
+      },
+      "publication_ids": [
+        "PMID:100"
+      ],
+      "review": {
+        "judgement": "relevant",
+        "confidence": null,
+        "policy": {
+          "version": 1,
+          "action": "retain",
+          "exclusion_eligible": false,
+          "review_required": true,
+          "reason": "unreviewed"
+        },
+        "criteria": [],
+        "evidence": []
+      },
+      "harmonization": {
+        "targets": [],
+        "status": {
+          "execution": "succeeded",
+          "completeness": "complete",
+          "evidence_confidence": "high",
+          "validation": "valid",
+          "publication": "publishable",
+          "terminal_reason": "harmonization_complete",
+          "errors": [],
+          "contract_version": "2.0"
+        }
+      },
+      "diagnostics": []
+    },
+    {
+      "dataset_id": "GSE200",
+      "source_repository": "geo",
+      "source_ordinal": 1,
+      "status": "failed",
+      "metadata": {},
+      "publication_ids": [],
+      "review": null,
+      "harmonization": null,
+      "diagnostics": [
+        {
+          "code": "collection_failed",
+          "message": "fixture collection failure",
+          "severity": "error",
+          "path": null
+        }
+      ]
+    }
+  ],
+  "publications": [
+    {
+      "publication_id": "PMID:100",
+      "title": "Fixture study",
+      "abstract": "A fixture publication.",
+      "review": null
+    }
+  ],
+  "summary": {
+    "dataset_count": 2,
+    "publication_count": 1,
+    "completed_dataset_count": 1,
+    "failed_dataset_count": 1
+  }
+}

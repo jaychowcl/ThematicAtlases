@@ -468,7 +468,7 @@ class TracePublicationReviewResumer:
         )
         resolved_reviewer = reviewer
         if publication_texts and resolved_reviewer is None:
-            resolved_reviewer = self._publication_text_reviewer._reviewer()
+            resolved_reviewer = self._publication_text_reviewer._reviewer(max_review_criteria=manifest.get("max_review_criteria", 12))
         model_metrics_before = self._reviewer_provider_metrics(resolved_reviewer)
         for publication_ref in sorted(publication_texts):
             if (
@@ -517,6 +517,8 @@ class TracePublicationReviewResumer:
                             theme=resolved_theme,
                             strategy=strategy,
                             reviewer=resolved_reviewer,
+                            max_review_criteria=manifest.get("max_review_criteria", 12),
+                            review_filter=manifest.get("review_filter", "none"),
                             checkpoint_store=store,
                         )
                     )

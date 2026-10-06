@@ -150,6 +150,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=METADATA_REPOSITORY_CHOICES,
         default=None,
     )
+    collect.add_argument("--max-review-criteria", type=_positive_int, default=12)
     collect.add_argument("--theme", default=None)
     collect.add_argument("--theme-file", default=None)
     collect.add_argument("--query-generator", action="store_true", default=False)
@@ -198,6 +199,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=METADATA_REPOSITORY_CHOICES,
         default=None,
     )
+    create.add_argument("--max-review-criteria", type=_positive_int, default=12)
     create.add_argument("--theme", default=None)
     create.add_argument("--theme-file", default=None)
     create.add_argument(
@@ -439,6 +441,7 @@ def main(argv: list[str] | None = None, *, atlas_factory=None, worker_factory=No
             theme=theme,
             review_filter=_review_filter(args.review_filter),
             review_strategy=args.review_strategy,
+            max_review_criteria=args.max_review_criteria,
             prune_accessions=args.prune_accessions,
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,
@@ -462,6 +465,7 @@ def main(argv: list[str] | None = None, *, atlas_factory=None, worker_factory=No
             theme=theme,
             review_filter=_review_filter(args.review_filter),
             review_strategy=args.review_strategy,
+            max_review_criteria=args.max_review_criteria,
             prune_accessions=args.prune_accessions,
             metadata_repositories=args.metadata_repository,
             max_publications=args.max_publications,

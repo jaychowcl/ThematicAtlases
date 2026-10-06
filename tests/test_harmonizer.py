@@ -68,7 +68,7 @@ class RecordingOntologyHarmonizer:
 
 def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     document = {
-        "miniml_schema_version": "3.0",
+        "miniml_schema_version": "3.1",
         "source": {"format": "test"},
         "database": [], "organization": [], "contributor": [], "platform": [],
         "series": {"iid": "GSE1"},
@@ -126,7 +126,7 @@ def test_harmonize_datasets_prefers_patch_first_typed_miniml_boundary() -> None:
     metadata = result["accessions"][0]["accession_metadata"]
     source = metadata["sample"][0]["channel"][0]["source"]
     assert source["hz_organism_part"] == "lung"
-    assert details[0]["harmonization_patch"]["schema_version"] == "3.1"
+    assert details[0]["harmonization_patch"]["schema_version"] == "3.2"
     retained = metadata["extensions"]["msc_harmonization"]["patches"]
     assert retained[0]["operations"][0]["source_evidence"]["match_kind"] == (
         "interpreted"
@@ -146,13 +146,13 @@ def test_review_decisions_selectively_change_matching_work_key_and_are_forwarded
     tmp_path,
 ) -> None:
     first = {
-        "miniml_schema_version": "3.0",
+        "miniml_schema_version": "3.1",
         "source": {"format": "test"},
         "series": {"iid": "GSE1"},
         "sample": [],
     }
     second = {
-        "miniml_schema_version": "3.0",
+        "miniml_schema_version": "3.1",
         "source": {"format": "test"},
         "series": {"iid": "GSE2"},
         "sample": [],
@@ -228,7 +228,7 @@ def test_review_decisions_selectively_change_matching_work_key_and_are_forwarded
 
 def test_explicit_legacy_harmonizer_output_is_strictly_validated() -> None:
     document = {
-        "miniml_schema_version": "3.0",
+        "miniml_schema_version": "3.1",
         "source": {"format": "test"},
         "database": [], "organization": [], "contributor": [], "platform": [],
         "series": {"iid": "GSE1"}, "sample": [],
