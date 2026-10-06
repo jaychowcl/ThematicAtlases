@@ -2889,3 +2889,8 @@ original judgement/confidence. Changing only filtering recomputes and persists
 the policy while reusing the validated assessment; it does not request a new
 model response. Atlas-to-internal projections preserve confidence, policy and
 reasoning so harmonization round trips do not erase review uncertainty.
+
+Review reuse includes the publication-policy implementation digest, alongside
+its version. AC also fingerprints the reviewer correction builder. A policy or
+correction implementation change invalidates reuse even without a prompt edit;
+TA binds its policy digest for injected reviewers as well as the default AC reviewer.

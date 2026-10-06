@@ -465,4 +465,4 @@ Use `--query <keyword>` when the id is unknown.
   title: [Curation policy and Atlas 1.1](codebase.md#curation-policy-v11)
   anchor: curation-policy-v11
   purpose: Conservative filtering, typed policy transport, criterion limits and checkpoint invalidation.
-  keywords: max_review_criteria, publication_policy, confidence, deprecation, Atlas 1.1, MINiML 3.1, public input
+  keywords: max_review_criteria, publication_policy_sha256, publication_policy, confidence, deprecation, Atlas 1.1, MINiML 3.1, public input

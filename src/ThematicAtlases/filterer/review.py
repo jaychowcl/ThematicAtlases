@@ -5,7 +5,7 @@ import hashlib
 import inspect
 import re
 import warnings
-from agentic_curator.publication_policy import publication_policy
+from agentic_curator.publication_policy import PUBLICATION_POLICY_VERSION, publication_policy
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -218,7 +218,7 @@ class PublicationTextReviewer:
             raise ValueError("injected reviewer max_criteria conflicts with max_review_criteria")
         reviewer_identity = self._reviewer_identity(reviewer)
         reviewer_identity["max_review_criteria"] = max_review_criteria
-        reviewer_identity["publication_policy_version"] = 1
+        reviewer_identity["publication_policy_version"] = PUBLICATION_POLICY_VERSION
         reviewed_publication_texts = {}
         reviewed_count = 0
         reused_count = 0
@@ -665,6 +665,10 @@ class PublicationTextReviewer:
 
     @staticmethod
     def _reviewer_identity(reviewer) -> dict:
+        policy_identity = {
+            "publication_policy_version": PUBLICATION_POLICY_VERSION,
+            "publication_policy_sha256": hashlib.sha256(inspect.getsource(publication_policy).encode("utf-8")).hexdigest(),
+        }
         declared = getattr(reviewer, "review_execution_identity", None)
         if callable(declared):
             identity = declared()
@@ -677,7 +681,7 @@ class PublicationTextReviewer:
                     "review_execution_identity is missing: " + ", ".join(missing)
                 )
             normalized = json.loads(json.dumps(identity, sort_keys=True, separators=(",", ":")))
-            normalized.update(max_review_criteria=getattr(reviewer, "max_criteria", 12), publication_policy_version=1)
+            normalized.update(max_review_criteria=getattr(reviewer, "max_criteria", 12), **policy_identity)
             return normalized
 
         reviewer_type = type(reviewer)
@@ -695,7 +699,7 @@ class PublicationTextReviewer:
         }
         return {
             "max_review_criteria": getattr(reviewer, "max_criteria", 12),
-            "publication_policy_version": 1,
+            **policy_identity,
             "reviewer": f"{reviewer_type.__module__}.{reviewer_type.__qualname__}",
             "provider": str(
                 getattr(llm, "platform_name", None)

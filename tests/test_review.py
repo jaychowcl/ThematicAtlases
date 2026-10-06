@@ -991,7 +991,9 @@ def test_review_checkpoint_identity_includes_provider_model_and_prompt() -> None
 
     assert IdentityReviewer.calls == 2
     identity = second["1"]["agentic_curator"]["reviewer_identity"]
+    assert len(identity["publication_policy_sha256"]) == 64
     assert identity == {
+        "publication_policy_sha256": review._reviewer_identity(IdentityReviewer("model-b"))["publication_policy_sha256"],
         "max_review_criteria": 12,
         "publication_policy_version": 1,
         "provider": "test-provider",

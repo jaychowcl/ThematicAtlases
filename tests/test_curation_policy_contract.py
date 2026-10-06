@@ -113,3 +113,20 @@ def test_checkpoint_records_filter_action_and_reuses_assessment_when_filter_chan
         assert saved['judgement'] == 'not_relevant' and saved['confidence'] == 'high'
         assert result['p']['agentic_curator']['publication_policy'] == saved['publication_policy']
     assert reviewer.calls == 1
+
+
+@pytest.mark.parametrize('declared', [False, True])
+def test_policy_implementation_changes_invalidate_injected_reviewer_identity(monkeypatch, declared):
+    from ThematicAtlases.filterer import review as module
+    class Reviewer:
+        def review_relevancy(self, **kwargs): return {}
+    reviewer = Reviewer()
+    if declared:
+        reviewer.review_execution_identity = lambda: {'provider': 'test', 'model': 'test', 'generation': {}, 'prompt_sha256': 'a'*64}
+    before = PublicationTextReviewer._reviewer_identity(reviewer)
+    original = module.publication_policy
+    def changed_policy(*args, **kwargs):
+        return original(*args, **kwargs)
+    monkeypatch.setattr(module, 'publication_policy', changed_policy)
+    after = PublicationTextReviewer._reviewer_identity(reviewer)
+    assert before['publication_policy_sha256'] != after['publication_policy_sha256']
