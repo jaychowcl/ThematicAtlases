@@ -57,6 +57,24 @@ content hash, full review-input hash and decision, rather than another body.
 
 ### MSC interface and failures
 
+Ordinary `Atlas.resume()` retries partial metadata only when the latest MSC
+attempt contains unresolved, structured retryable `provider_issue` diagnostics.
+Invalid remote responses, transport failures and HTTP failures remain distinct
+reasons; scientific disagreements and warning text never select retries.
+`runtime/metadata_recovery.py` shares eligibility between checkpoint reports,
+implicit published-run discovery and resume. Selection snapshots the current
+attempt, honors cooldowns and uses existing item locks. Each study is attempted
+at most once per resume call; a newer concurrent attempt takes precedence.
+Partial packages remain usable during failures. A completed retry clears the
+reasons, while a failed retry records its own reasons without borrowing stale
+ones. Source/settings hashes remain mandatory for checkpoint reuse. Legacy
+untagged partials still require explicit whole-conversion retry selection.
+Safe reason/provider/operation summaries appear in final dataset diagnostics;
+the full structured facts and retry trigger remain in SQLite attempt history.
+No checkpoint table or Atlas document schema migration is required.
+Coverage includes `tests/test_provider_recovery.py` and the existing checkpoint
+end-to-end tests.
+
 Both GEO and ArrayExpress use `integrations/conversion.py::MetadataConversionAdapter`:
 `Converter.convert(accession, out_type="json", enrichment="standard",
 options={"expand_studies": True, ...saved_resource_limits})`. No output file is
@@ -75,8 +93,9 @@ substage recovery is removed from TA production traces; benchmark-only raw evide
 utilities remain separate.
 
 Complete and valid-partial packages are reusable. Partial metadata reaches review
-and harmonization and makes the run partial. It is retried only when explicitly
-selected. Failed explicit retries retain the prior usable package. Transport
+and harmonization and makes the run partial. Unresolved structured provider
+failures are automatically selected on resume; other partials require explicit
+selection. Failed retries retain the prior usable package. Transport
 failures without a usable package remain retryable; invalid/terminal conversion
 outcomes remain failures. Only a successful valid complete empty result is `no_data`.
 Item locks, attempt history, cooldowns and input/runtime identities still apply.

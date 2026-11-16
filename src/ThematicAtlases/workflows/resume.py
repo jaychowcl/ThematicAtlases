@@ -4,6 +4,7 @@ from ThematicAtlases.pipeline import AtlasStagePause, validate_stop_after
 from ThematicAtlases.trace import DevTraceWriter
 from ThematicAtlases.runtime.contracts import validate_trace
 from ThematicAtlases.runtime.views import CheckpointViews
+from ThematicAtlases.runtime.metadata_recovery import metadata_retry_scope, retryable_provider_issues
 
 
 class ResumeAtlasWorkflow:
@@ -26,14 +27,16 @@ class ResumeAtlasWorkflow:
         store = trace.checkpoint_store
         store.request_retries(stages=retry_stages or (), items=retry_items,
                               degraded_stages=retry_degraded_stages or ())
-        if not any((retry_stages, retry_items, retry_degraded_stages, review_decisions)):
+        provider_retries = [i['key'] for i in store.items('metadata_conversion') if retryable_provider_issues(i)]
+        if not any((retry_stages, retry_items, retry_degraded_stages, review_decisions, provider_retries)):
             paused = context._already_completed_pause(trace, stop_after)
             if paused is not None:
                 return paused
         trace.run_store.set_run_status(directory.name, 'running')
         trace.run_store.record_event(directory.name, 'resume_started', detail={
             'retry_stages': list(retry_stages or ()), 'retry_items': retry_items or {},
-            'retry_degraded_stages': list(retry_degraded_stages or ()), 'stop_after': stop_after})
+            'retry_degraded_stages': list(retry_degraded_stages or ()), 'stop_after': stop_after,
+            'provider_retries': provider_retries})
         context._reconcile_checkpoint_contracts(store)
         output = out if out is not None else manifest.get('atlas_out')
         options = {name: manifest[name] for name in (
@@ -50,7 +53,8 @@ class ResumeAtlasWorkflow:
         # Discovery reconstruction and cached metadata/text/review operations are
         # shared with create, so ordering, filtering and pruning cannot diverge.
         try:
-            datasets = context._collect_for_internal(options)
+            with metadata_retry_scope(store):
+                datasets = context._collect_for_internal(options)
         except AtlasStagePause as pause:
             return context._pause_at_stage(trace=trace, stage=pause.stage, result=pause.result)
         if stop_after in {'metadata', 'review'}:

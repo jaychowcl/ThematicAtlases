@@ -272,6 +272,11 @@ class AtlasDocumentAdapter:
                 )
             )
         metadata_status = str(record.get("metadata_status") or "").lower()
+        from ThematicAtlases.runtime.metadata_recovery import provider_issues
+        for issue in provider_issues(record.get('metadata_conversion') or {}):
+            error = issue['error']
+            diagnostics.append(Diagnostic(code=issue['reason'], severity=DiagnosticSeverity.WARNING,
+                message=f"{error.get('provider')}: {issue.get('operation')}: {error.get('error_type')}; retry={error.get('retry_category')}"))
         if metadata_status in {"error", "failed", "unsupported"}:
             diagnostics.append(
                 Diagnostic(
