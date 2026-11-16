@@ -8,7 +8,7 @@
           "source_ordinal": 0,
           "status": "harmonized",
           "metadata": {
-            "miniml_schema_version": "3.0",
+            "miniml_schema_version": "3.1",
             "source": {
               "format": "GEO MINiML"
             },
@@ -65,7 +65,9 @@
               {
                 "text": "Fibrosis"
               }
-            ]
+            ],
+            "confidence": "high",
+            "policy": null
           }
         }
       ]
@@ -82,7 +84,7 @@
           "source_ordinal": 0,
           "status": "harmonized",
           "metadata": {
-            "miniml_schema_version": "3.0",
+            "miniml_schema_version": "3.1",
             "source": {
               "format": "GEO MINiML"
             },
@@ -146,7 +148,9 @@
               {
                 "text": "Fibrosis"
               }
-            ]
+            ],
+            "confidence": "high",
+            "policy": null
           }
         }
       ]

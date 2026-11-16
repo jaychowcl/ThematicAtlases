@@ -46,8 +46,11 @@ class CreateAtlasWorkflow:
         thematic_review: bool = True,
         prune_accessions: bool = False,
         stop_after: str | None = None,
+        max_review_criteria: int = 12,
     ) -> dict:
         context = self.context
+        from ThematicAtlases.filterer.review import validate_max_review_criteria
+        validate_max_review_criteria(max_review_criteria)
         if theme is None or not theme.strip():
             raise ValueError("create_atlas requires a non-empty theme")
         if not generate_queries and not context._has_input_queries(query, file):
@@ -115,6 +118,7 @@ class CreateAtlasWorkflow:
                     "theme": theme,
                     "review_filter": review_filter,
                     "review_strategy": review_strategy,
+                    "max_review_criteria": max_review_criteria,
                     "prune_accessions": prune_accessions,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
@@ -147,6 +151,7 @@ class CreateAtlasWorkflow:
             theme=theme,
             review_filter=review_filter,
             review_strategy=review_strategy,
+            max_review_criteria=max_review_criteria,
             prune_accessions=prune_accessions,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
@@ -255,6 +260,7 @@ class CreateAtlasWorkflow:
                 "query_file": file,
                 "review_filter": review_filter,
                 "review_strategy": review_strategy,
+                    "max_review_criteria": max_review_criteria,
                 "prune_accessions": prune_accessions,
                 "collect_metadata": collect_metadata,
                 "generate_queries": generate_queries,

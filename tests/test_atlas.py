@@ -523,7 +523,7 @@ def test_collect_datasets_writes_final_atlas_object(tmp_path) -> None:
     ).collect_datasets(query=["a"], out=str(outfile))
 
     document = AtlasDocument.load(outfile)
-    assert document.schema_version == "1.0"
+    assert document.schema_version == "1.1"
     assert [item.dataset_id for item in document.datasets] == ["GSE1"]
     assert [item.publication_id for item in document.publications] == ["1"]
 
@@ -632,6 +632,7 @@ def test_create_atlas_collects_then_harmonizes_and_returns_final_object() -> Non
                 "theme": "fibrosis",
                     "review_filter": "none",
                     "review_strategy": "direct",
+                "max_review_criteria": 12,
                         "prune_accessions": False,
                     "metadata_repositories": ["arrayexpress"],
                 "max_publications": 25,
@@ -1311,3 +1312,25 @@ def test_review_before_metadata_trace_writes_enriched_checkpoint(tmp_path) -> No
     manifest = json.loads((run_dir / "00_run_manifest.json").read_text())
     assert manifest["review_before_metadata"] is True
     assert (run_dir / "resume_metadata_enriched_datasets.json").exists()
+
+
+def test_query_checkpoint_key_changes_with_declared_execution_identity(tmp_path):
+    class VersionedGenerator(RecordingQueryGenerator):
+        revision = 'prompt-a'
+
+        def query_execution_identity(self):
+            return {'provider': 'offline', 'model': 'fake', 'prompt_sha256': self.revision}
+
+    generator = VersionedGenerator()
+    keys = []
+    for run_id, revision in [('first', 'prompt-a'), ('repeat', 'prompt-a'), ('changed', 'prompt-b')]:
+        generator.revision = revision
+        Atlas(metadata={}, collector=RecordingCollector(), filterer=RecordingFilterer(),
+              query_generator=generator).collect_datasets(
+            theme='fibrosis', generate_queries=True, dev_trace=True,
+            dev_out_dir=str(tmp_path), run_id=run_id)
+        item, = CheckpointStore(tmp_path / run_id / 'atlas_run.sqlite3').items('query_generation')
+        assert item['payload']['input']['execution_identity']['prompt_sha256'] == revision
+        keys.append(item['key'])
+    assert keys[0] == keys[1]
+    assert keys[0] != keys[2]

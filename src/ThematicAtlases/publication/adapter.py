@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from dataclasses import asdict
 from typing import Any
 
 from ThematicAtlases.domain import (
@@ -22,6 +23,7 @@ from ThematicAtlases.domain import (
     OntologyMatch,
     Publication,
     PublicationReview,
+    PublicationPolicy,
     ReviewCriterion,
     RunStatus,
 )
@@ -396,6 +398,10 @@ class AtlasDocumentAdapter:
         )
         if normalized not in {item.value for item in Judgement}:
             return None
+        confidence = self._optional_text(value.get("confidence"))
+        if value.get("review_status") == "failed" or confidence not in {"low", "medium", "high"}:
+            confidence = None
+        policy = value.get("publication_policy")
         passed = {
             Judgement.RELEVANT.value: True,
             Judgement.NOT_RELEVANT.value: False,
@@ -418,6 +424,8 @@ class AtlasDocumentAdapter:
             evidence.append(dict(item) if isinstance(item, Mapping) else {"text": str(item)})
         return PublicationReview(
             judgement=Judgement(normalized),
+            confidence=confidence,
+            policy=PublicationPolicy(**policy) if policy is not None else None,
             criteria=(criterion,),
             evidence=tuple(evidence),
         )
@@ -541,6 +549,11 @@ class AtlasDocumentAdapter:
         if publication.review is not None:
             result["agentic_curator"] = {
                 "judgement": publication.review.judgement.value,
+                "confidence": publication.review.confidence,
+                **({"publication_policy": asdict(publication.review.policy)}
+                   if publication.review.policy is not None else {}),
+                "reasoning": next((criterion.evidence for criterion in publication.review.criteria
+                                   if criterion.criterion == "thematic_relevance"), None),
                 "evidences": [dict(item) for item in publication.review.evidence],
             }
         return result

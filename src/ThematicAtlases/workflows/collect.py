@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 import json
 import hashlib
+import inspect
 from dataclasses import asdict
 from pathlib import Path
 from ThematicAtlases.checkpoint import failure_category, is_retryable_error
@@ -22,6 +23,30 @@ from ThematicAtlases.unsupported_accessions import build_unsupported_accessions_
 from ThematicAtlases.wrappers.pubmed_gds import PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
 import logging
 logger = logging.getLogger("ThematicAtlases.atlas")
+
+
+def _query_generation_identity(generator) -> dict:
+    """Use a declared identity, or a source/model fallback for injected generators."""
+    declared = getattr(generator, "query_execution_identity", None)
+    if callable(declared):
+        identity = declared()
+        if not isinstance(identity, dict) or not identity:
+            raise TypeError("query_execution_identity must return a non-empty mapping")
+        return json.loads(json.dumps(identity, sort_keys=True))
+    kind = f"{type(generator).__module__}.{type(generator).__qualname__}"
+    try:
+        source = inspect.getsource(type(generator).generate_queries)
+    except (OSError, TypeError):
+        source = kind
+    llm = getattr(generator, "llm", None)
+    return {
+        "implementation": kind,
+        "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+        "provider": str(getattr(llm, "platform_name", None) or "injected"),
+        "model": str(getattr(getattr(llm, "platform", None), "model", None)
+                     or getattr(llm, "model", None) or "unspecified"),
+        "max_output_tokens": getattr(generator, "MAX_OUTPUT_TOKENS", None),
+    }
 
 
 class CollectDatasetsWorkflow:
@@ -52,8 +77,11 @@ class CollectDatasetsWorkflow:
         unsupported_accessions_out: str | None = None,
         prune_accessions: bool = False,
         _trace_writer: DevTraceWriter | None = None,
+        max_review_criteria: int = 12,
     ) -> dict:
         context = self.context
+        from ThematicAtlases.filterer.review import validate_max_review_criteria
+        validate_max_review_criteria(max_review_criteria)
         """Collect datasets and expose the result as an Atlas v1 document."""
         effective_run_id = run_id or (
             _trace_writer.directory.name
@@ -68,6 +96,7 @@ class CollectDatasetsWorkflow:
             theme=theme,
             review_filter=review_filter,
             review_strategy=review_strategy,
+            max_review_criteria=max_review_criteria,
             prune_accessions=prune_accessions,
             metadata_repositories=metadata_repositories,
             max_publications=max_publications,
@@ -99,6 +128,7 @@ class CollectDatasetsWorkflow:
                 "query_file": file,
                 "review_filter": review_filter,
                 "review_strategy": review_strategy,
+                    "max_review_criteria": max_review_criteria,
                 "prune_accessions": prune_accessions,
                 "collect_metadata": collect_metadata,
                 "generate_queries": generate_queries,
@@ -190,8 +220,11 @@ class CollectDatasetsWorkflow:
         _resolution: dict[str, list[str]] | None = None,
         _thematic_review: bool = True,
         stop_after: str | None = None,
+        max_review_criteria: int = 12,
     ) -> dict:
         context = self.context
+        from ThematicAtlases.filterer.review import validate_max_review_criteria
+        validate_max_review_criteria(max_review_criteria)
         if review_before_metadata and theme is None:
             raise ValueError("review_before_metadata requires a theme")
         owned_trace = dev_trace and _trace_writer is None
@@ -227,6 +260,7 @@ class CollectDatasetsWorkflow:
                     "theme": theme,
                     "review_filter": review_filter,
                     "review_strategy": review_strategy,
+                    "max_review_criteria": max_review_criteria,
                     "prune_accessions": prune_accessions,
                     "metadata_repositories": metadata_repositories,
                     "max_publications": max_publications,
@@ -267,7 +301,8 @@ class CollectDatasetsWorkflow:
                 else [],
                 "theme": theme,
                 "max_generated_queries": max_generated_queries,
-                "contract_version": 1,
+                "execution_identity": _query_generation_identity(context._query_generator()),
+                "contract_version": 2,
             }
             generation_key = hashlib.sha256(
                 json.dumps(
@@ -443,6 +478,7 @@ class CollectDatasetsWorkflow:
                 else "none"
             ),
             review_strategy=review_strategy,
+            max_review_criteria=max_review_criteria,
             prune_accessions=prune_accessions,
             reviewer=reviewer,
             _review_progress_callback=review_progress_callback,

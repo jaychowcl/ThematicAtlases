@@ -6,7 +6,7 @@ Build publication-driven, reviewable, and ontology-harmonized atlases of biomedi
 
 ## Description
 
-ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. The Atlas document schema 1.0 is the public wire contract; downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.0 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.0"`; ThematicAtlases validates each package and transports its canonical JSON representation. Only MSC MINiML 3.0 is accepted; older package versions must be regenerated or converted before loading.
+ThematicAtlases searches Europe PMC for publications, follows their dataset links, selects supported metadata repositories, and returns a validated Atlas v1 document with publication provenance. New output uses Atlas document schema 1.1; readers accept 1.0 and 1.1. Downstream H5AD conversion uses H5AD metadata schema 1.0. GEO accessions are normalized to GSE records and enriched with MINiML metadata. ArrayExpress accessions are resolved through BioStudies and parsed in memory by MSC from IDF/SDRF into the same MSC MINiML 3.1 model, including native `series.protocols` and `series.assay_paths`. MSC owns the nested package model and its independent `miniml_schema_version: "3.1"`; ThematicAtlases validates each package and transports its canonical JSON representation. MSC MINiML 3.0 and 3.1 are accepted and new output is normalized to 3.1; older package versions must be regenerated or converted before loading.
 
 The pipeline fetches open-access Europe PMC XML or supported bioRxiv/medRxiv JATS, deterministically discovers repository accessions from that text by default, scans abstracts when full text is unavailable, filters review outcomes, and harmonizes supported metadata against ontologies. Durable SQLite checkpoints support incremental discovery, metadata collection, review, harmonization, resume, and verified archival. An accompanying `benchmark_ThematicAtlases` package separately measures raw query-result recall, post-discovery/review recall, and labeled thematic-review classification.
 
@@ -165,6 +165,8 @@ are not silently upgraded by `resume`.
 
 <a id="cli-guide"></a>
 ### CLI guide
+
+`--max-review-criteria N` sets the positive maximum catalogue size (default 12).
 
 The installed interface is `thematic-atlas COMMAND [OPTIONS]`. It is a thin adapter over `Atlas`; successful commands do not print result JSON, so use `--out` for data and logging options for operational messages. Its wiring is documented in the [CLI codebase entry](docs/codebase.md#cli-atlas).
 
@@ -350,6 +352,8 @@ thematic-atlas fork-run \
 <a id="python-api-guide"></a>
 ### Python API guide
 
+`collect_datasets` and `create_atlas` accept `max_review_criteria=12`; it is a maximum, not a requested count.
+
 Import the orchestrator directly; the package root does not re-export it:
 
 ```python
@@ -427,7 +431,7 @@ Atlas.collect_datasets(
 ```
 
 - `query` is an ordered list; `file` adds queries from UTF-8 text. `max_publications` is a global raw-hit cap, while `max_publications_per_query` must align one positive integer or `None` with each ordered query.
-- `theme`, `review_filter`, `review_strategy`, `prune_accessions`, and an optional injected `reviewer` control thematic review. The default direct strategy uses agentic-curator revision 4 and evidence contract 2: it derives one theme-level criterion catalogue, caches that catalogue by reviewer identity, and passes it unchanged to every publication review. Each publication returns one assessment per associated accession and exact caller-verified quote evidence containing only source kind and source ID. An exclusion requires a verified failed criterion tied to that accession. Pruning defaults off; explicit `prune_accessions=True` removes a rejected publication–accession association and drops the accession only when no publication associations remain. `review_filter` independently controls whole-publication judgements. Review contract 9 fingerprints the fixed catalogue; trace output retains it with assessments and the evidence contract version, while Atlas v1 keeps its stable publication-level relevance projection.
+- `theme`, `review_filter`, `review_strategy`, `prune_accessions`, and an optional injected `reviewer` control thematic review. The default direct strategy uses agentic-curator revision 4 and evidence contract 2: it derives one theme-level criterion catalogue, caches that catalogue by reviewer identity, and passes it unchanged to every publication review. Each publication returns one assessment per associated accession and exact caller-verified quote evidence containing only source kind and source ID. An applied accession exclusion requires high confidence and a verified failed criterion tied to that accession. Pruning defaults off; explicit `prune_accessions=True` removes a rejected publication–accession association and drops the accession only when no publication associations remain. `review_filter` independently controls whole-publication judgements. Review contract 12 fingerprints the fixed catalogue and effective criterion cap. Atlas 1.1 retains publication confidence and optional historical policy records. Existing filtering remains: `not_relevant` removes negative judgements at every confidence; `not_relevant_and_unsure` also removes unsure judgements. New reviews do not synthesize policy actions.
 - `metadata_repositories` selects handlers; `collect_metadata=False` skips enrichment. `review_before_metadata=True` reverses review/enrichment ordering and requires a theme.
 - `generate_queries` appends up to `max_generated_queries`; generated queries and reviews require credential preflight.
 - `dev_trace`, `dev_out_dir`, and optional `run_id` enable resumable checkpoints. `stop_before_review=True` writes and returns an unreviewed publication snapshot without metadata deferred by that mode.

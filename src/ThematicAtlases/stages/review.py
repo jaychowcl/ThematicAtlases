@@ -26,6 +26,7 @@ class PublicationReviewRequest:
     strategy: str
     reviewer_identity: dict
     criteria: list[dict[str, str]] | None
+    review_filter: str = "none"
 
 
 class PublicationReviewStage:

@@ -152,7 +152,7 @@ def test_create_atlas_returns_v2_and_publishes_derived_summary(tmp_path):
         "failed_dataset_count": 0,
         "publication_count": 0,
         "run_id": document.run.run_id,
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "unsupported_accession_count": 0,
         "unsupported_accession_repository_counts": {},
         "unsupported_accessions_path": None,

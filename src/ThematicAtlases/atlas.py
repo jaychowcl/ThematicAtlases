@@ -139,6 +139,7 @@ class Atlas:
         thematic_review: bool = True,
         prune_accessions: bool = False,
         stop_after: str | None = None,
+        max_review_criteria: int = 12,
     ) -> dict:
         return CreateAtlasWorkflow(self).run(
             query,
@@ -164,6 +165,7 @@ class Atlas:
             thematic_review,
             prune_accessions,
             stop_after,
+            max_review_criteria=max_review_criteria,
         )
 
     def fork_run(
@@ -261,6 +263,7 @@ class Atlas:
         unsupported_accessions_out: str | None = None,
         prune_accessions: bool = False,
         _trace_writer: DevTraceWriter | None = None,
+        max_review_criteria: int = 12,
     ) -> dict:
         return CollectDatasetsWorkflow(self).run(
             query,
@@ -285,6 +288,7 @@ class Atlas:
             unsupported_accessions_out,
             prune_accessions,
             _trace_writer,
+            max_review_criteria=max_review_criteria,
         )
 
     def _collect_datasets_legacy(
@@ -315,6 +319,7 @@ class Atlas:
         _resolution: dict[str, list[str]] | None = None,
         _thematic_review: bool = True,
         stop_after: str | None = None,
+        max_review_criteria: int = 12,
     ) -> dict:
         return CollectDatasetsWorkflow(self).run_stage(
             query,
@@ -343,6 +348,7 @@ class Atlas:
             _resolution,
             _thematic_review,
             stop_after,
+            max_review_criteria=max_review_criteria,
         )
 
     def _metadata_for_reviewed_datasets(
@@ -465,6 +471,7 @@ class Atlas:
         prune_accessions: bool = False,
         _review_progress_callback=None,
         _checkpoint_store=None,
+        max_review_criteria: int = 12,
     ) -> dict:
         options = dict(
             jsons=jsons,
@@ -475,6 +482,8 @@ class Atlas:
             prune_accessions=prune_accessions,
             reviewer=reviewer,
         )
+        if max_review_criteria != 12:
+            options["max_review_criteria"] = max_review_criteria
         if _review_progress_callback is not None:
             options["_review_progress_callback"] = _review_progress_callback
         options.update(
@@ -562,7 +571,7 @@ class Atlas:
             options["theme"] = None
             options["review_filter"] = "none"
         result = self.collect_datasets(**options)
-        if isinstance(result, dict) and result.get("schema_version") == "1.0":
+        if isinstance(result, dict) and result.get("schema_version") in {"1.0", "1.1"}:
             document = AtlasDocument.from_mapping(result)
             if resolution is not None:
                 resolution["queries"] = list(document.run.config.queries)

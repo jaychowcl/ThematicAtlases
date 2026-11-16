@@ -389,7 +389,7 @@ def test_report_scores_three_classes_and_writes_hydration_cache(
             runner.PUBMED_GDS_DISCOVERY_CONTRACT_VERSION
         ),
         "miniml_strict_compatibility_policy_version": (
-            "miniml-3.0-source-compat-v1"
+            "miniml-3.1-source-compat-v2"
         ),
         "full_metadata_enrichment": True,
         "include_text_only": False,
@@ -1432,7 +1432,7 @@ def test_metadata_evidence_audit_counts_accepted_warnings_without_contents(
             "attempt_count": 2,
             "correlation_id": None,
             "accepted_warning_count": 1,
-            "compatibility_policy_version": "miniml-3.0-source-compat-v1",
+            "compatibility_policy_version": "miniml-3.1-source-compat-v2",
             "diagnostics": [{
                 "package_index": 0,
                 "code": "xsd_uniqueness",
@@ -1452,7 +1452,7 @@ def test_metadata_evidence_audit_counts_accepted_warnings_without_contents(
         "xsd_uniqueness": 1
     }
     assert audit["summary"]["compatibility_policy_versions"] == [
-        "miniml-3.0-source-compat-v1"
+        "miniml-3.1-source-compat-v2"
     ]
     assert audit["accessions"][0]["accepted_warning_count"] == 1
     assert "PRIVATE-SAMPLE-TITLE" not in serialized

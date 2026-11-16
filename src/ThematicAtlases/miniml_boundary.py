@@ -1,4 +1,4 @@
-"""Strict JSON transport boundary for canonical MSC MINiML 3.0 packages."""
+"""Strict JSON transport boundary for canonical MSC MINiML 3.1 packages."""
 
 from __future__ import annotations
 
@@ -13,11 +13,11 @@ from meta_standards_converter.miniml import (
 )
 
 
-MINIML_CHECKPOINT_PAYLOAD_VERSION = 1
+MINIML_CHECKPOINT_PAYLOAD_VERSION = 2
 
 
 def canonicalize_miniml_package(value: Mapping[str, Any] | MINiMLPackage) -> dict[str, Any]:
-    """Decode supported input and emit canonical JSON-native MSC MINiML 3.0."""
+    """Decode supported input and emit canonical JSON-native MSC MINiML 3.1."""
 
     if not isinstance(value, Mapping):
         raise TypeError("MSC MINiML package must be a mapping or MINiMLPackage")
@@ -45,7 +45,8 @@ def canonicalize_atlas_metadata(value: Mapping[str, Any]) -> dict[str, Any]:
         return {"packages": canonicalize_miniml_packages(packages)}
     if "miniml_schema_version" in value or "mage_tab" in value:
         return canonicalize_miniml_package(value)
-    return deepcopy(dict(value))
+    from meta_standards_converter.miniml.harmonization import rewrite_harmonized_names
+    return rewrite_harmonized_names(deepcopy(dict(value)))
 
 
 def checkpoint_payload(

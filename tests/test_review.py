@@ -912,7 +912,7 @@ def test_accession_pruning_removes_only_rejecting_publication_edge() -> None:
 
 
 def test_review_contract_version_requires_run_stable_criteria_catalogues() -> None:
-    assert REVIEW_CONTRACT_VERSION == 10
+    assert REVIEW_CONTRACT_VERSION == 12
 
 
 def test_retired_evidence_then_judgement_strategy_is_rejected(tmp_path) -> None:
@@ -991,6 +991,8 @@ def test_review_checkpoint_identity_includes_provider_model_and_prompt() -> None
     assert IdentityReviewer.calls == 2
     identity = second["1"]["agentic_curator"]["reviewer_identity"]
     assert identity == {
+        "max_review_criteria": 12,
+        "filter_contract_version": 12,
         "provider": "test-provider",
         "model": "model-b",
         "generation": {"temperature": 0},

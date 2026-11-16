@@ -123,6 +123,8 @@ class CheckpointViews:
             if contexts is not None:
                 reviewer = PublicationTextReviewer()
                 identity = payload.get('reviewer_identity', {})
+                if identity.get('max_review_criteria', 12) != self.manifest.get('max_review_criteria', 12):
+                    continue
                 theme = self.manifest.get('theme')
                 strategy = self.manifest.get('review_strategy', 'direct')
                 criteria = self.store.get_meta(reviewer._criteria_checkpoint_key(
